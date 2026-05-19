@@ -23,7 +23,11 @@ export const useAuthStore = create<AuthState>()(
       setUser: user => set({ user, isAuthenticated: true }),
       logout: () => {
         localStorage.removeItem('iqtc_token');
+        localStorage.removeItem('iqtc_auth');
         set({ user: null, isAuthenticated: false });
+        if (typeof window !== 'undefined') {
+          window.location.replace('/login');
+        }
       },
     }),
     { name: 'iqtc_auth' }

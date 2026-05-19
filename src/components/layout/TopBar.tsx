@@ -1,5 +1,8 @@
-import { Search, Bell, Calendar } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Bell, Calendar, RefreshCw } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 const routeTitles: Record<string, { title: string; description?: string }> = {
   '/': { title: 'لوحة القيادة', description: 'نظرة عامة على أعمال الشركة' },
@@ -34,6 +37,44 @@ function matchTitle(pathname: string): { title: string; description?: string } {
 export function TopBar() {
   const location = useLocation();
   const meta = matchTitle(location.pathname);
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await queryClient.invalidateQueries();
+      await queryClient.refetchQueries({ type: 'active' });
+      toast.success('تم تحديث البيانات');
+    } catch {
+      toast.error('فشل التحديث');
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 400);
+    }
+  };
+
+  // اختصار F5 / Ctrl+R: تحديث ناعم بدون فقدان الحالة
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isF5 = e.key === 'F5';
+      const isCtrlR = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r' && !e.shiftKey;
+      if (isF5 || isCtrlR) {
+        e.preventDefault();
+        e.stopPropagation();
+        void handleRefresh();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
+  // استقبال أمر التحديث من التطبيق المكتبي (WPF يرسل CustomEvent عبر CoreWebView2)
+  useEffect(() => {
+    const onAppRefresh = () => void handleRefresh();
+    window.addEventListener('itc:refresh', onAppRefresh);
+    return () => window.removeEventListener('itc:refresh', onAppRefresh);
+  }, []);
 
   return (
     <header className="sticky top-0 z-30 h-20 border-b border-border/60 bg-background/80 backdrop-blur-xl">
@@ -65,6 +106,15 @@ export function TopBar() {
             <span className="tnum">
               {new Intl.DateTimeFormat('ar-IQ', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}
             </span>
+          </button>
+
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            title="تحديث البيانات (F5)"
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-primary' : ''}`} />
           </button>
 
           <button className="relative flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
