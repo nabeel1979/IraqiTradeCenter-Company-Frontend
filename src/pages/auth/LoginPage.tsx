@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { User, Lock, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -49,7 +49,6 @@ function clearRemembered() {
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const location = useLocation();
   const setUser = useAuthStore(s => s.setUser);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -79,8 +78,8 @@ export function LoginPage() {
           clearRemembered();
         }
         toast.success(`أهلاً ${res.data.user.fullName}`);
-        const from = (location.state as any)?.from?.pathname ?? '/';
-        navigate(from, { replace: true });
+        // بعد تسجيل الدخول نوجّه دائماً للصفحة الرئيسية (نتجاهل أي from سابق)
+        navigate('/', { replace: true });
       }
     },
   });
