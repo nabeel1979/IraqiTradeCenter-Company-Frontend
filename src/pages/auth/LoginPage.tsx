@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Phone, Lock, ArrowLeft, Loader2 } from 'lucide-react';
+import { Phone, Lock, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,12 +10,57 @@ import { authApi } from '@/lib/api/auth';
 import { setToken } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/auth/auth-store';
 
+// مفتاح حفظ بيانات الدخول للمرة القادمة (مشفّر بسيطاً بـ Base64)
+const REMEMBER_KEY = 'iqtc_remember';
+
+interface RememberedCreds {
+  phone: string;
+  password: string;
+}
+
+function loadRemembered(): RememberedCreds | null {
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY);
+    if (!raw) return null;
+    const decoded = atob(raw);
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function saveRemembered(creds: RememberedCreds) {
+  try {
+    localStorage.setItem(REMEMBER_KEY, btoa(JSON.stringify(creds)));
+  } catch {
+    // ignore (storage full / disabled)
+  }
+}
+
+function clearRemembered() {
+  localStorage.removeItem(REMEMBER_KEY);
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const setUser = useAuthStore(s => s.setUser);
-  const [phone, setPhone] = useState('07700000000');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // تحميل البيانات المحفوظة عند فتح الصفحة
+  useEffect(() => {
+    const saved = loadRemembered();
+    if (saved) {
+      setPhone(saved.phone);
+      setPassword(saved.password);
+      setRememberMe(true);
+    } else {
+      setPhone('07700000000');
+    }
+  }, []);
 
   const loginMutation = useMutation({
     mutationFn: () => authApi.login({ phone, password }),
@@ -23,6 +68,11 @@ export function LoginPage() {
       if (res.success && res.data) {
         setToken(res.data.token);
         setUser(res.data.user);
+        if (rememberMe) {
+          saveRemembered({ phone, password });
+        } else {
+          clearRemembered();
+        }
         toast.success(`أهلاً ${res.data.user.fullName}`);
         const from = (location.state as any)?.from?.pathname ?? '/';
         navigate(from, { replace: true });
@@ -114,16 +164,57 @@ export function LoginPage() {
                   <Lock className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    className="pr-10"
+                    className="pr-10 pl-10"
                     autoComplete="current-password"
                     disabled={loginMutation.isPending}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(s => !s)}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                    title={showPassword ? 'إخفاء' : 'إظهار'}
+                    tabIndex={-1}
+                    disabled={loginMutation.isPending}
+                  >
+                    {showPassword
+                      ? <EyeOff className="h-4 w-4" />
+                      : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
+
+              {/* تذكّرني */}
+              <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                <span className="relative flex h-4 w-4 items-center justify-center">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={e => {
+                      setRememberMe(e.target.checked);
+                      if (!e.target.checked) clearRemembered();
+                    }}
+                    disabled={loginMutation.isPending}
+                    className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-border bg-secondary/40 checked:border-primary checked:bg-primary disabled:opacity-50"
+                  />
+                  <svg
+                    viewBox="0 0 16 16"
+                    className="pointer-events-none absolute h-3 w-3 text-primary-foreground opacity-0 peer-checked:opacity-100"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="3 8 7 12 13 4" />
+                  </svg>
+                </span>
+                <span>تذكّرني على هذا الجهاز</span>
+              </label>
 
               <Button
                 type="submit"
