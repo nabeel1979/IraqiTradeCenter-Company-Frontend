@@ -12,8 +12,16 @@ import { SalesRepsListPage } from '@/pages/sales-reps/SalesRepsListPage';
 import { IncomingOrdersListPage } from '@/pages/orders/IncomingOrdersListPage';
 import { AccountsTreePage } from '@/pages/accounting/AccountsTreePage';
 import { JournalEntriesPage } from '@/pages/accounting/JournalEntriesPage';
+import { CreateJournalEntryPage } from '@/pages/accounting/CreateJournalEntryPage';
 import { TrialBalancePage } from '@/pages/accounting/TrialBalancePage';
+import { AccountStatementPage } from '@/pages/accounting/AccountStatementPage';
+import { FiscalYearsPage } from '@/pages/accounting/FiscalYearsPage';
+import { CurrencyRateBulletinsPage } from '@/pages/accounting/CurrencyRateBulletinsPage';
+import { JournalVoucherTypesPage } from '@/pages/accounting/JournalVoucherTypesPage';
+import { CashBoxesPage } from '@/pages/accounting/CashBoxesPage';
+import { VoucherEntryPage } from '@/pages/accounting/VoucherEntryPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
+import { MenuSettingsPage } from '@/pages/settings/MenuSettingsPage';
 
 export default function App() {
   return (
@@ -48,10 +56,20 @@ export default function App() {
         {/* Accounting */}
         <Route path="accounting/accounts" element={<AccountsTreePage />} />
         <Route path="accounting/journal" element={<JournalEntriesPage />} />
+        <Route path="accounting/journal/new" element={<CreateJournalEntryPage />} />
+        <Route path="accounting/journal/:id/edit" element={<CreateJournalEntryPage />} />
+        <Route path="accounting/journal/:id/view" element={<CreateJournalEntryPage viewOnly />} />
         <Route path="accounting/trial-balance" element={<TrialBalancePage />} />
+        <Route path="accounting/account-statement" element={<AccountStatementPage />} />
+        <Route path="accounting/fiscal-years" element={<FiscalYearsPage />} />
+        <Route path="accounting/currency-rates" element={<CurrencyRateBulletinsPage />} />
+        <Route path="accounting/voucher-types" element={<JournalVoucherTypesPage />} />
+        <Route path="accounting/cash-boxes" element={<CashBoxesPage />} />
+        <Route path="accounting/vouchers/:code" element={<VoucherEntryPage />} />
 
         {/* Settings */}
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings/menu" element={<MenuSettingsPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,6 +1,8 @@
 node_modules
 dist
 dist-ssr
+*.zip
+tsconfig.tsbuildinfo
 *.local
 .env
 .env.local

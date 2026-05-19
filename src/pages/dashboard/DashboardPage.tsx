@@ -1,10 +1,9 @@
 import {
-  Receipt, Package, Users, Wallet, ArrowUpRight, AlertTriangle, Clock, ShoppingBag
+  Receipt, Package, Users, Wallet, ArrowUpRight, AlertTriangle, ShoppingBag
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Legend
 } from 'recharts';
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -64,17 +63,31 @@ export function DashboardPage() {
       {/* Hero strip */}
       <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card p-6">
         <div className="pattern-meso absolute inset-0 opacity-40" />
-        <div className="relative flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-primary/70">{todayDate}</p>
-            <h1 className="mt-2 font-display text-3xl font-medium">صباح الخير 👋</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              مبيعات اليوم: <span className="font-medium tnum text-foreground">{formatIQD(5800000)}</span>
-              {' · '}
-              <span className="text-success">+18% عن الأمس</span>
-            </p>
+        <div className="relative flex items-center justify-between gap-4">
+          <div className="flex items-center gap-5">
+            {/* لوكو مركز التجارة العراقي */}
+            <div className="relative shrink-0">
+              <div className="absolute inset-0 rounded-2xl bg-primary/30 blur-xl" />
+              <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-2xl ring-1 ring-primary/40">
+                <svg viewBox="0 0 24 24" className="h-10 w-10 text-primary-foreground" fill="currentColor">
+                  <path d="M12 2l2.4 7.2H22l-6.2 4.4L18.4 22 12 17.4 5.6 22l2.6-8.4L2 9.2h7.6z" />
+                </svg>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-primary/70">{todayDate}</p>
+              <h1 className="mt-1.5 font-display text-2xl font-semibold leading-tight md:text-3xl">
+                مركز التجارة العراقي
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                صباح الخير  ·  مبيعات اليوم:{' '}
+                <span className="font-medium tnum text-foreground">{formatIQD(5800000)}</span>
+                {' · '}
+                <span className="text-success">+18% عن الأمس</span>
+              </p>
+            </div>
           </div>
-          <Link to="/invoices/new">
+          <Link to="/invoices/new" className="shrink-0">
             <Button size="lg" className="glow-primary">
               <Receipt className="h-4 w-4" />
               فاتورة جديدة

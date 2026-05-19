@@ -5,6 +5,30 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * يستخرج رسالة خطأ مفهومة من response axios أو من Result.Failure من الـ Backend.
+ * يدعم الأشكال:
+ *  - { success: false, message: "..." }
+ *  - { success: false, errors: ["...", "..."] }
+ *  - { success: false, errors: "..." }
+ *  - أو خطأ شبكة عام
+ */
+export function extractApiError(err: any, fallback = 'حدث خطأ غير متوقع'): string {
+  const data = err?.response?.data;
+  if (data) {
+    if (typeof data.message === 'string' && data.message.trim()) return data.message;
+    if (Array.isArray(data.errors) && data.errors.length > 0) {
+      return data.errors.filter((e: any) => typeof e === 'string').join('، ') || fallback;
+    }
+    if (typeof data.errors === 'string' && data.errors.trim()) return data.errors;
+    if (typeof data === 'string' && data.trim()) return data;
+  }
+  if (typeof err?.message === 'string' && err.message && !err.message.includes('status code')) {
+    return err.message;
+  }
+  return fallback;
+}
+
 /** تنسيق العملة العراقية */
 export function formatIQD(amount: number | null | undefined, opts: { decimals?: number; symbol?: boolean } = {}) {
   if (amount == null) return '—';
@@ -14,6 +38,15 @@ export function formatIQD(amount: number | null | undefined, opts: { decimals?: 
     maximumFractionDigits: decimals,
   }).format(amount);
   return symbol ? `${formatted} د.ع` : formatted;
+}
+
+/** تنسيق مبلغ بدون رمز عملة، يعرض الكسور (افتراضياً 3 خانات عشرية مع إخفاء الأصفار اللاحقة) */
+export function formatAmount(amount: number | null | undefined, decimals = 3) {
+  if (amount == null) return '—';
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: decimals,
+  }).format(amount);
 }
 
 /** تنسيق التاريخ بالعربية */

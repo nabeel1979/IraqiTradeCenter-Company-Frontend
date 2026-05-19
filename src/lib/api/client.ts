@@ -6,8 +6,9 @@ const TOKEN_KEY = 'iqtc_token';
 // ════════════════════════════════════════
 // API Base URL - من Environment Variables
 // ════════════════════════════════════════
-// في dev: يستخدم proxy تلقائياً (/api → localhost:6000)
-// في build: يستخدم VITE_API_URL مباشرة
+// في dev: يستخدم Vite proxy تلقائياً (/api → VITE_API_URL → localhost:5050)
+// في build: يستخدم VITE_API_URL مباشرة (https://api-company.gcc.iq)
+// تسجيل الدخول: عبر /parent-api → VITE_PARENT_API_URL (parent API - SSO)
 const API_BASE_URL = import.meta.env.DEV 
   ? '/api'
   : `${import.meta.env.VITE_API_URL}/api`;

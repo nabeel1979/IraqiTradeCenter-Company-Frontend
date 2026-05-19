@@ -122,6 +122,22 @@
     @apply transition-colors hover:bg-accent/30;
   }
 
+  /* تقرير كشف الحساب: تجاوز تجريد الجدول حتى لا تُقصّ أيادٍ ضبط الأعمدة */
+  .account-statement-report.data-table thead {
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  .account-statement-report.data-table th {
+    position: relative;
+    overflow: visible !important;
+    padding: 0 0.5rem !important;
+    text-align: inherit !important;
+  }
+  .account-statement-report.data-table td {
+    padding-block: 0.4rem !important;
+    padding-inline: 0.5rem !important;
+  }
+
   /* Number display - elegant tabular */
   .num-display {
     @apply font-mono tabular-nums tracking-tight;

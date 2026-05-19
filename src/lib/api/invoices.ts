@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { ApiResponse, SalesInvoiceDto } from '@/types/api';
+import type { ApiResponse, PagedResult, SalesInvoiceDto } from '@/types/api';
 
 export interface CreateInvoicePayload {
   customerId: number; salesRepId?: number; incomingOrderId?: number;
@@ -12,7 +12,16 @@ export interface RecordPaymentPayload {
   amount: number; paymentMethod: string; referenceNumber?: string; notes?: string;
 }
 
+export interface InvoicesListParams {
+  pageNumber?: number; pageSize?: number; search?: string; status?: string;
+  customerId?: number; fromDate?: string; toDate?: string;
+}
+
 export const invoicesApi = {
+  list: async (params: InvoicesListParams = {}) => {
+    const res = await api.get<ApiResponse<PagedResult<SalesInvoiceDto>>>('/salesinvoices', { params });
+    return res.data.data!;
+  },
   create: async (data: CreateInvoicePayload) => {
     const res = await api.post<ApiResponse<SalesInvoiceDto>>('/salesinvoices', data);
     return res.data;

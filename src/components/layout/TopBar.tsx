@@ -12,13 +12,28 @@ const routeTitles: Record<string, { title: string; description?: string }> = {
   '/orders': { title: 'الطلبيات الواردة', description: 'طلبيات من تجار المنصة' },
   '/accounting/accounts': { title: 'شجرة الحسابات', description: 'الهيكل المحاسبي الكامل' },
   '/accounting/journal': { title: 'القيود المحاسبية', description: 'القيود اليومية المرحّلة' },
+  '/accounting/journal/new': { title: 'قيد محاسبي جديد', description: 'إنشاء قيد محاسبي' },
   '/accounting/trial-balance': { title: 'ميزان المراجعة', description: 'الأرصدة المدينة والدائنة' },
+  '/accounting/account-statement': { title: 'كشف الحساب', description: 'عرض الحركات والأرصدة المحاسبية' },
+  '/accounting/fiscal-years': { title: 'الفترات المحاسبية', description: 'إدارة السنوات والفترات المحاسبية' },
+  '/accounting/currency-rates': { title: 'نشرات أسعار العملات', description: 'إدارة نشرات أسعار صرف العملات الأجنبية' },
   '/settings': { title: 'الإعدادات', description: 'إعدادات النظام والحساب' },
+  '/settings/menu': { title: 'إعدادات القائمة', description: 'تخصيص قائمة التنقل' },
 };
+
+/** يطابق المسارات الديناميكية مثل /accounting/journal/:id/edit */
+function matchTitle(pathname: string): { title: string; description?: string } {
+  if (routeTitles[pathname]) return routeTitles[pathname];
+  // أنماط ديناميكية معروفة
+  if (/^\/accounting\/journal\/\d+\/edit$/.test(pathname)) {
+    return { title: 'تعديل قيد محاسبي', description: 'تعديل قيد محاسبي قائم' };
+  }
+  return { title: 'صفحة' };
+}
 
 export function TopBar() {
   const location = useLocation();
-  const meta = routeTitles[location.pathname] ?? { title: 'صفحة' };
+  const meta = matchTitle(location.pathname);
 
   return (
     <header className="sticky top-0 z-30 h-20 border-b border-border/60 bg-background/80 backdrop-blur-xl">
