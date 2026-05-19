@@ -121,7 +121,7 @@ New-WebBinding -Name "dashboard_iraqitradecenter_company" `
 
 ```bash
 # على جهازك:
-cd IraqiTradeDashboard
+cd IraqiTradeCenter-Company-Frontend
 npm install
 npm run build
 
