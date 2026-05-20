@@ -38,6 +38,15 @@ export interface UpdateJournalEntryPayload {
   lines: JournalLinePayload[];
 }
 
+/** تحديث سند مخصّص (سند قبض/دفع/…) — لا يحتاج entryType أو voucherTypeId (ثابتان) */
+export interface UpdateVoucherEntryPayload {
+  entryDate: string;
+  description: string;
+  currency: string;
+  postImmediately?: boolean;
+  lines: JournalLinePayload[];
+}
+
 export interface JournalEntriesListParams {
   pageNumber?: number; pageSize?: number; status?: string; search?: string;
   fromDate?: string; toDate?: string; voucherTypeId?: number;
@@ -106,6 +115,15 @@ export const accountingApi = {
   },
   deleteJournalEntry: async (id: number) => {
     const res = await api.delete<ApiResponse<unknown>>(`/accounts/journal-entries/${id}`);
+    return res.data;
+  },
+  // ── سندات (تعديل/حذف القيود المولّدة من سندات مخصّصة)
+  updateVoucherEntry: async (id: number, data: UpdateVoucherEntryPayload) => {
+    const res = await api.put<ApiResponse<number>>(`/accounts/vouchers/${id}`, { id, ...data });
+    return res.data;
+  },
+  deleteVoucherEntry: async (id: number) => {
+    const res = await api.delete<ApiResponse<unknown>>(`/accounts/vouchers/${id}`);
     return res.data;
   },
 };

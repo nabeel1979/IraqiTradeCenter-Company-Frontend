@@ -334,6 +334,71 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     return <LoadingSpinner text="تحميل البيانات..." />;
   }
 
+  // ‎في وضع التعديل: إذا كان القيد مولّداً من سند أو فاتورة، اعرض رسالة وتحويل تلقائي
+  const loadedEntry = editQuery.data;
+  const isManagedEntry = !!loadedEntry && (
+    !!loadedEntry.voucherTypeId ||
+    (!!loadedEntry.source && loadedEntry.source !== 'Manual')
+  );
+  if (isEdit && !isView && isManagedEntry && loadedEntry) {
+    const goSource = () => {
+      if (loadedEntry.voucherTypeId && loadedEntry.voucherTypeCode) {
+        navigate(`/accounting/vouchers/${loadedEntry.voucherTypeCode}/${loadedEntry.id}/edit`);
+        return;
+      }
+      if (loadedEntry.source === 'SalesInvoice' && loadedEntry.referenceId) {
+        navigate(`/sales/invoices/${loadedEntry.referenceId}`);
+        return;
+      }
+      if (loadedEntry.source === 'PurchaseInvoice' && loadedEntry.referenceId) {
+        navigate(`/purchases/invoices/${loadedEntry.referenceId}`);
+        return;
+      }
+      navigate(`/accounting/journal/${loadedEntry.id}/view`);
+    };
+    const sourceLabel = loadedEntry.voucherTypeName
+      || (loadedEntry.source === 'SalesInvoice' ? 'فاتورة بيع'
+        : loadedEntry.source === 'PurchaseInvoice' ? 'فاتورة شراء'
+        : loadedEntry.source === 'Payment' ? 'سند دفع'
+        : loadedEntry.source === 'Receipt' ? 'سند قبض'
+        : loadedEntry.source === 'StockMovement' ? 'حركة مخزون'
+        : 'المصدر');
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center p-6">
+        <div className="w-full max-w-lg rounded-lg border border-amber-400/40 bg-amber-400/5 p-6 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-400/15">
+            <AlertTriangle className="h-6 w-6 text-amber-400" />
+          </div>
+          <h2 className="mb-2 text-base font-semibold">لا يمكن تعديل هذا القيد من هنا</h2>
+          <p className="mb-1 text-sm text-muted-foreground">
+            القيد رقم <span className="font-mono text-foreground">{loadedEntry.entryNumber}</span> مولَّد من{' '}
+            <span className="font-semibold text-foreground">{sourceLabel}</span>.
+          </p>
+          <p className="mb-5 text-xs text-muted-foreground">
+            للحفاظ على ترابط البيانات يجب تعديله من نفس النافذة التي أُنشئ منها.
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button size="sm" onClick={goSource} className="gap-1.5">
+              <BookOpen className="h-3.5 w-3.5" />
+              فتح في نافذة المصدر
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/accounting/journal/${loadedEntry.id}/view`)}
+              className="gap-1.5"
+            >
+              عرض القيد فقط
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/accounting/journal')}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       {/* شريط أدوات علوي مدمج */}

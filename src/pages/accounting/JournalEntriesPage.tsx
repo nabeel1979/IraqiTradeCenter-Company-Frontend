@@ -332,6 +332,23 @@ function EntryCard({
   onToggle: () => void;
 }) {
   const canEdit = entry.status !== 'Reversed';
+  // قيد مُدار: مولَّد من سند مخصّص أو من فاتورة/حركة أخرى — يُعدَّل ويُحذف من نافذة المصدر فقط
+  const isManaged = !!entry.voucherTypeId || (!!entry.source && entry.source !== 'Manual');
+  const managedSourceLabel: string | null = (() => {
+    if (entry.voucherTypeId) return entry.voucherTypeName || 'سند';
+    switch (entry.source) {
+      case 'SalesInvoice':       return 'فاتورة بيع';
+      case 'PurchaseInvoice':    return 'فاتورة شراء';
+      case 'Payment':            return 'سند دفع';
+      case 'Receipt':            return 'سند قبض';
+      case 'StockMovement':      return 'حركة مخزون';
+      case 'CommissionPayment':  return 'عمولة';
+      case 'SalaryPayment':      return 'راتب';
+      case 'System':             return 'النظام';
+      default:                   return null;
+    }
+  })();
+  const canDelete = canEdit && !isManaged;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -485,8 +502,12 @@ function EntryCard({
           </div>
           <button
             onClick={onDelete}
-            disabled={!canEdit}
-            title={canEdit ? 'حذف' : 'لا يمكن حذف قيد معكوس'}
+            disabled={!canDelete}
+            title={
+              !canEdit ? 'لا يمكن حذف قيد معكوس'
+                : isManaged ? `يُحذف من نافذة (${managedSourceLabel ?? 'المصدر'})`
+                : 'حذف'
+            }
             className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/15 hover:text-destructive disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <Trash2 className="h-4 w-4" />
@@ -1013,7 +1034,25 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               key={e.id}
               entry={e}
               onView={() => setViewEntryId(e.id)}
-              onViewSource={() => navigate(`/accounting/journal/${e.id}/view`)}
+              onViewSource={() => {
+                // ‎"أصل القيد" — يتنقّل إلى النافذة التي وُلّد منها القيد:
+                //  - سند مخصّص → نموذج السند (وضع التعديل)
+                //  - فاتورة → صفحة الفاتورة
+                //  - يدوي → صفحة القيد المحاسبي (وضع العرض)
+                if (e.voucherTypeId && e.voucherTypeCode) {
+                  navigate(`/accounting/vouchers/${e.voucherTypeCode}/${e.id}/edit`);
+                  return;
+                }
+                if (e.source === 'SalesInvoice' && e.referenceId) {
+                  navigate(`/sales/invoices/${e.referenceId}`);
+                  return;
+                }
+                if (e.source === 'PurchaseInvoice' && e.referenceId) {
+                  navigate(`/purchases/invoices/${e.referenceId}`);
+                  return;
+                }
+                navigate(`/accounting/journal/${e.id}/view`);
+              }}
               onDelete={() => setConfirmDelete(e)}
               onPrint={() => handlePrintSingle(e)}
               colOrder={colOrder}

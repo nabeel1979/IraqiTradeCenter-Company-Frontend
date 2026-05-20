@@ -82,6 +82,17 @@ export interface CustomerDto {
 }
 
 // ── Journal Entries
+export type JournalEntrySource =
+  | 'Manual'
+  | 'SalesInvoice'
+  | 'PurchaseInvoice'
+  | 'Payment'
+  | 'Receipt'
+  | 'StockMovement'
+  | 'CommissionPayment'
+  | 'SalaryPayment'
+  | 'System';
+
 export interface JournalEntryDto {
   id: number;
   entryNumber: string;
@@ -95,6 +106,11 @@ export interface JournalEntryDto {
   voucherTypeId?: number | null;
   voucherTypeCode?: string | null;
   voucherTypeName?: string | null;
+  /** مصدر القيد — يحدد إن كان مولّداً من نافذة أخرى */
+  source?: JournalEntrySource;
+  referenceType?: string | null;
+  referenceId?: number | null;
+  referenceNumber?: string | null;
   lines: JournalLineDto[];
 }
 

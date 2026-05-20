@@ -3,14 +3,14 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ArrowRight, Save, Wallet, Banknote, AlertTriangle, BookOpen, X, ArrowDownLeft, ArrowUpRight,
+  ArrowRight, Save, Wallet, Banknote, AlertTriangle, BookOpen, X, ArrowDownLeft, ArrowUpRight, Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
-import { accountingApi, type PostJournalEntryPayload } from '@/lib/api/accounting';
+import { accountingApi, type PostJournalEntryPayload, type UpdateVoucherEntryPayload } from '@/lib/api/accounting';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi, type CashBoxDto } from '@/lib/api/cashBoxes';
 import { currenciesApi } from '@/lib/api/currencies';
@@ -41,8 +41,11 @@ export function VoucherEntryPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const { code: codeParam } = useParams<{ code: string }>();
+  const { code: codeParam, id: idParam } = useParams<{ code: string; id?: string }>();
   const code = (codeParam ?? '').toUpperCase();
+  // وضع التعديل: id موجود في الرابط
+  const editingId = idParam ? Number(idParam) : null;
+  const isEditMode = editingId !== null && !Number.isNaN(editingId);
 
   // جلب نوع السند بالكود
   const typesQuery = useQuery({
@@ -89,6 +92,37 @@ export function VoucherEntryPage() {
   const [currency, setCurrency] = useState('IQD');
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [prefilled, setPrefilled] = useState(false);
+
+  // ── في وضع التعديل: نحمّل القيد الموجود ونملأ الحقول منه (مرة واحدة)
+  const editEntryQuery = useQuery({
+    queryKey: ['voucher-entry-edit', editingId],
+    queryFn: () => accountingApi.getJournalEntryById(editingId as number),
+    enabled: isEditMode,
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    if (!isEditMode || prefilled) return;
+    const entry = editEntryQuery.data;
+    if (!entry || !voucherType || cashBoxes.length === 0) return;
+
+    // طبيعة Debit (سند قبض): الصندوق على الجانب المدين، الحساب المقابل دائن
+    // طبيعة Credit (سند دفع): الصندوق على الجانب الدائن، الحساب المقابل مدين
+    const isCashDebit = voucherType.nature === 'Debit';
+    const cashLine = entry.lines.find(l => l.isDebit === isCashDebit);
+    const counterLine = entry.lines.find(l => l.isDebit !== isCashDebit);
+    if (!cashLine || !counterLine) return;
+
+    const box = cashBoxes.find(b => b.accountId === cashLine.accountId) ?? null;
+    setEntryDate(entry.entryDate.slice(0, 10));
+    setCashBoxId(box?.id ?? null);
+    setCounterAccountId(counterLine.accountId);
+    setAmount(Number(cashLine.amount));
+    setCurrency(entry.currency || 'IQD');
+    setDescription(entry.description || '');
+    setPrefilled(true);
+  }, [isEditMode, prefilled, editEntryQuery.data, voucherType, cashBoxes]);
 
   const selectedBox: CashBoxDto | null = useMemo(
     () => cashBoxes.find(b => b.id === cashBoxId) ?? null,
@@ -119,6 +153,7 @@ export function VoucherEntryPage() {
   useEffect(() => {
     if (!voucherType) return;
     if (counterAccountId != null) return;
+    if (isEditMode) return; // ‎في وضع التعديل: ننتظر إكمال التعبئة من القيد الأصلي
     // الطرف المقابل بحسب الطبيعة:
     //   Debit → الصندوق مدين، الحساب الآخر هو الافتراضي للدائن
     //   Credit → الصندوق دائن، الحساب الآخر هو الافتراضي للمدين
@@ -150,7 +185,7 @@ export function VoucherEntryPage() {
     return null;
   };
 
-  // الحفظ
+  // الحفظ — يستخدم نقطة نهاية مختلفة في وضع التعديل
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!voucherType || !selectedBox) throw new Error('بيانات ناقصة');
@@ -174,6 +209,17 @@ export function VoucherEntryPage() {
         },
       ];
 
+      if (isEditMode && editingId != null) {
+        const payload: UpdateVoucherEntryPayload = {
+          entryDate: new Date(entryDate).toISOString(),
+          description: description.trim() || `${voucherType.nameAr} — ${selectedBox.nameAr}`,
+          currency,
+          postImmediately: true,
+          lines,
+        };
+        return accountingApi.updateVoucherEntry(editingId, payload);
+      }
+
       const payload: PostJournalEntryPayload = {
         entryDate: new Date(entryDate).toISOString(),
         description: description.trim() || `${voucherType.nameAr} — ${selectedBox.nameAr}`,
@@ -187,20 +233,25 @@ export function VoucherEntryPage() {
     },
     onSuccess: res => {
       if (!res.success) {
-        const msg = extractApiError(res, 'تعذّر حفظ السند');
+        const msg = extractApiError(res, isEditMode ? 'تعذّر تحديث السند' : 'تعذّر حفظ السند');
         setError(msg);
         toast.error(msg);
         return;
       }
-      toast.success('تم حفظ السند');
+      toast.success(isEditMode ? 'تم تحديث السند' : 'تم حفظ السند');
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
+      if (isEditMode) {
+        // ‎عُد إلى تقرير السند بعد التحديث الناجح
+        navigate(code ? `/accounting/vouchers/${code}` : '/accounting/journal');
+        return;
+      }
       // إعادة تهيئة النموذج لإدخال سند آخر
       setAmount(0);
       setDescription('');
       setError(null);
     },
     onError: (e: any) => {
-      const msg = extractApiError(e, 'فشل حفظ السند');
+      const msg = extractApiError(e, isEditMode ? 'فشل تحديث السند' : 'فشل حفظ السند');
       setError(msg);
       toast.error(msg);
     },
@@ -219,8 +270,9 @@ export function VoucherEntryPage() {
   const backHref = returnState?.returnTo
     || (code ? `/accounting/vouchers/${code}` : '/accounting/journal');
 
-  if (typesQuery.isLoading || cashBoxesQuery.isLoading || treeQuery.isLoading) {
-    return <LoadingSpinner text="تحميل البيانات..." />;
+  if (typesQuery.isLoading || cashBoxesQuery.isLoading || treeQuery.isLoading
+      || (isEditMode && (editEntryQuery.isLoading || !prefilled))) {
+    return <LoadingSpinner text={isEditMode ? 'تحميل القيد للتعديل...' : 'تحميل البيانات...'} />;
   }
 
   if (!voucherType) {
@@ -266,6 +318,12 @@ export function VoucherEntryPage() {
             )}>
               طبيعته: {cashSideLabel}
             </span>
+            {isEditMode && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                <Pencil className="h-3 w-3" />
+                وضع التعديل
+              </span>
+            )}
           </h1>
         </div>
 
@@ -277,7 +335,9 @@ export function VoucherEntryPage() {
             className="h-8 gap-1.5"
           >
             <Save className="h-3.5 w-3.5" />
-            {saveMutation.isPending ? 'جارٍ الحفظ...' : 'حفظ السند'}
+            {saveMutation.isPending
+              ? (isEditMode ? 'جارٍ التحديث...' : 'جارٍ الحفظ...')
+              : (isEditMode ? 'تحديث السند' : 'حفظ السند')}
           </Button>
         </div>
       </div>

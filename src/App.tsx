@@ -69,6 +69,7 @@ export default function App() {
         {/* تقرير سند مخصّص (قائمة) ثم نموذج الإنشاء */}
         <Route path="accounting/vouchers/:code" element={<VoucherReportPage />} />
         <Route path="accounting/vouchers/:code/new" element={<VoucherEntryPage />} />
+        <Route path="accounting/vouchers/:code/:id/edit" element={<VoucherEntryPage />} />
 
         {/* Settings */}
         <Route path="settings" element={<SettingsPage />} />
