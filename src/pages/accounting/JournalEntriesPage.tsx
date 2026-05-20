@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { DateRangePresets } from '@/components/shared/DateRangePresets';
 import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
@@ -680,7 +681,18 @@ export function JournalEntriesPage() {
     <div className="space-y-4">
       {/* شريط الفلاتر - سطر واحد */}
       <Card>
-        <CardContent className="flex flex-wrap items-center gap-2 p-3">
+        <CardContent className="space-y-2 p-3">
+          {/* فترات سريعة */}
+          <DateRangePresets
+            from={fromDate}
+            to={toDate}
+            onChange={(f, t) => {
+              setFromDate(f);
+              setToDate(t);
+              setPageNumber(1);
+            }}
+          />
+          <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[220px] flex-1">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -798,6 +810,7 @@ export function JournalEntriesPage() {
             <Plus className="h-4 w-4" />
             قيد جديد
           </Button>
+          </div>
         </CardContent>
       </Card>
 
