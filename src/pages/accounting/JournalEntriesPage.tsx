@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
+import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
@@ -507,11 +508,53 @@ export function JournalEntriesPage() {
   const [status, setStatus] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  // ‎علامة: هل لمس المستخدم فلتر التاريخ؟ — إن لم يلمسه نعيّنه افتراضياً "من بداية السنة → اليوم"
+  const userTouchedDatesRef = useRef(false);
   const [voucherTypeFilter, setVoucherTypeFilter] = useState<number | ''>('');
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const [confirmDelete, setConfirmDelete] = useState<JournalEntryDto | null>(null);
   const userNs = useAuthStore(s => s.user?.id ?? '__guest__');
+
+  // ‎جلب السنوات المالية لتعيين الفترة الافتراضية
+  const fiscalYearsQuery = useQuery({
+    queryKey: ['fiscal-years'],
+    queryFn: fiscalYearsApi.getAll,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // ‎الفترة الافتراضية = من بداية السنة المالية الحالية → اليوم
+  useEffect(() => {
+    if (userTouchedDatesRef.current) return;
+    if (fromDate || toDate) return;
+    const list = fiscalYearsQuery.data ?? [];
+    const today = new Date();
+    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    let fyStart = '';
+    let fyEnd = '';
+    if (list.length > 0) {
+      const active = list.find(fy => {
+        const s = (fy.startDate ?? '').slice(0, 10);
+        const e = (fy.endDate ?? '').slice(0, 10);
+        return s && e && todayIso >= s && todayIso <= e;
+      });
+      const open = list.find(fy => !(fy as any).isClosed);
+      const newest = [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
+      const chosen = active ?? open ?? newest;
+      if (chosen) {
+        fyStart = (chosen.startDate ?? '').slice(0, 10);
+        fyEnd = (chosen.endDate ?? '').slice(0, 10);
+      }
+    }
+    // ‎احتياط: لو لم تتوفر سنة مالية، استخدم 1 يناير من السنة التقويمية
+    if (!fyStart) {
+      fyStart = `${today.getFullYear()}-01-01`;
+    }
+    const to = fyEnd && todayIso > fyEnd ? fyEnd : todayIso;
+    setFromDate(fyStart);
+    setToDate(to);
+  }, [fiscalYearsQuery.data, fromDate, toDate]);
   const [colOrder, setColOrder] = useState<LineColKey[]>(() => loadLineColOrder(userNs));
   const [colWidths, setColWidths] = useState<Record<LineColKey, number>>(() => loadLineColWidths(userNs));
   // القيود المفتوحة (الافتراضي: مغلقة جميعاً)
@@ -660,6 +703,7 @@ export function JournalEntriesPage() {
     setStatus('');
     setFromDate('');
     setToDate('');
+    userTouchedDatesRef.current = false; // ‎اسمح لـ effect بإعادة تطبيق "من بداية السنة"
     setVoucherTypeFilter('');
     setPageNumber(1);
   };
@@ -687,6 +731,7 @@ export function JournalEntriesPage() {
             from={fromDate}
             to={toDate}
             onChange={(f, t) => {
+              userTouchedDatesRef.current = true;
               setFromDate(f);
               setToDate(t);
               setPageNumber(1);
@@ -737,14 +782,14 @@ export function JournalEntriesPage() {
               type="date"
               className="h-7 w-36 border-0 bg-transparent px-1 text-xs focus-visible:ring-0"
               value={fromDate}
-              onChange={e => { setFromDate(e.target.value); setPageNumber(1); }}
+              onChange={e => { userTouchedDatesRef.current = true; setFromDate(e.target.value); setPageNumber(1); }}
             />
             <span className="text-xs text-muted-foreground">إلى</span>
             <Input
               type="date"
               className="h-7 w-36 border-0 bg-transparent px-1 text-xs focus-visible:ring-0"
               value={toDate}
-              onChange={e => { setToDate(e.target.value); setPageNumber(1); }}
+              onChange={e => { userTouchedDatesRef.current = true; setToDate(e.target.value); setPageNumber(1); }}
             />
           </div>
 
