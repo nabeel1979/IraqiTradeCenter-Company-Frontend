@@ -349,20 +349,6 @@ function EntryCard({
     }
   })();
   const canDelete = canEdit && !isManaged;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  // ‎إغلاق القائمة عند الضغط خارجها
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [menuOpen]);
   const totalD = entry.lines?.reduce((s, l) => s + (l.isDebit ? l.amount : 0), 0) ?? entry.totalDebit;
   const totalC = entry.lines?.reduce((s, l) => s + (!l.isDebit ? l.amount : 0), 0) ?? entry.totalCredit;
   const balanced = Math.abs(totalD - totalC) < 0.01;
@@ -460,46 +446,23 @@ function EntryCard({
           >
             <Printer className="h-4 w-4" />
           </button>
-          {/* ───── قائمة العرض (تستبدل زر التعديل) ───── */}
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(o => !o); }}
-              title="عرض القيد"
-              className={cn(
-                'rounded-md p-1.5 transition-colors',
-                menuOpen
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'
-              )}
-            >
-              <Eye className="h-4 w-4" />
-            </button>
-            {menuOpen && (
-              <div
-                className="absolute left-0 top-full z-30 mt-1 min-w-[160px] overflow-hidden rounded-md border border-border/80 bg-card shadow-lg"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  onClick={() => { setMenuOpen(false); onView(); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-right text-xs text-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                >
-                  <Eye className="h-3.5 w-3.5 shrink-0" />
-                  <span>عرض القيد</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setMenuOpen(false); onViewSource(); }}
-                  className="flex w-full items-center gap-2 border-t border-border/40 px-3 py-2 text-right text-xs text-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                  title="فتح القيد المحاسبي الأصلي (شكل مدين/دائن كامل)"
-                >
-                  <FileText className="h-3.5 w-3.5 shrink-0" />
-                  <span>أصل القيد</span>
-                </button>
-              </div>
-            )}
-          </div>
+          {/* ───── أيقونتا العرض (بديل زر التعديل) ───── */}
+          <button
+            type="button"
+            onClick={onView}
+            title="عرض القيد (معاينة سريعة)"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <Eye className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onViewSource}
+            title="أصل القيد (فتح في نافذة المصدر)"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-violet-500/10 hover:text-violet-400"
+          >
+            <FileText className="h-4 w-4" />
+          </button>
           <button
             onClick={onDelete}
             disabled={!canDelete}
