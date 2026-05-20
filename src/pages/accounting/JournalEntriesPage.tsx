@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +19,8 @@ import {
   CalendarRange,
   GripVertical,
   RotateCcw,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -501,9 +503,21 @@ function EntryCard({
   );
 }
 
-export function JournalEntriesPage() {
+interface JournalEntriesPageProps {
+  /**
+   * عند تمريره: تقفل الصفحة فلتر نوع السند على هذا النوع (بالكود)،
+   * يختفي قائمة "كل الأنواع"، ويظهر شريط رأس باسم/كود السند،
+   * وزر "+ سند جديد" يوجّه إلى صفحة إنشاء هذا السند تحديداً.
+   * استخدام نموذجي: لتقرير سند مخصّص (سند دفع، سند قبض، …)
+   */
+  lockedVoucherCode?: string;
+}
+
+export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProps = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isLocked = !!lockedVoucherCode;
+  const lockedCodeUpper = lockedVoucherCode?.toUpperCase() ?? '';
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -635,6 +649,9 @@ export function JournalEntriesPage() {
         pageNumber,
         pageSize,
       }),
+    // ‎في وضع الإقفال: لا نشغّل الاستعلام قبل أن يُحلّ كود السند → id
+    // ‎(وإلا قد يعرض الكل لثوانٍ قبل تطبيق الفلتر)
+    enabled: !isLocked || voucherTypeFilter !== '',
   });
 
   const voucherTypesQuery = useQuery({
@@ -643,6 +660,18 @@ export function JournalEntriesPage() {
     staleTime: 60_000,
   });
   const voucherTypes = voucherTypesQuery.data ?? [];
+
+  // ‎عند الإقفال على نوع سند: حلّ الكود → id وعيّنه كفلتر ثابت
+  const lockedVoucherType = useMemo(
+    () => (isLocked ? voucherTypes.find(v => v.code.toUpperCase() === lockedCodeUpper) ?? null : null),
+    [isLocked, voucherTypes, lockedCodeUpper]
+  );
+  useEffect(() => {
+    if (!isLocked) return;
+    if (lockedVoucherType && voucherTypeFilter !== lockedVoucherType.id) {
+      setVoucherTypeFilter(lockedVoucherType.id);
+    }
+  }, [isLocked, lockedVoucherType, voucherTypeFilter]);
 
   const { data: company } = useQuery({
     queryKey: ['company-settings'],
@@ -704,13 +733,24 @@ export function JournalEntriesPage() {
     setFromDate('');
     setToDate('');
     userTouchedDatesRef.current = false; // ‎اسمح لـ effect بإعادة تطبيق "من بداية السنة"
-    setVoucherTypeFilter('');
+    if (!isLocked) setVoucherTypeFilter('');
     setPageNumber(1);
   };
 
   const totalPages = data ? Math.max(1, Math.ceil(data.totalCount / pageSize)) : 1;
 
-  if (isLoading) return <LoadingSpinner text="جاري تحميل القيود..." />;
+  // ‎في وضع الإقفال: لو حُمّلت أنواع السندات ولم يُعثر على الكود → ‎رسالة واضحة
+  if (isLocked && !voucherTypesQuery.isLoading && !lockedVoucherType) {
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="نوع السند غير موجود"
+        description={`لا يوجد نوع سند مفعَّل بالكود "${lockedCodeUpper}". تحقّق من إدارة أنواع السندات.`}
+      />
+    );
+  }
+
+  if (isLoading || (isLocked && !lockedVoucherType)) return <LoadingSpinner text="جاري تحميل القيود..." />;
   if (isError || !data) {
     return (
       <EmptyState
@@ -723,6 +763,54 @@ export function JournalEntriesPage() {
 
   return (
     <div className="space-y-4">
+      {/* شريط رأس نوع السند (في وضع الإقفال فقط) */}
+      {isLocked && lockedVoucherType && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
+            <div className="flex items-center gap-2.5">
+              {lockedVoucherType.nature === 'Debit' ? (
+                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-400">
+                  <ArrowDownLeft className="h-4 w-4" />
+                </span>
+              ) : (
+                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/15 text-amber-400">
+                  <ArrowUpRight className="h-4 w-4" />
+                </span>
+              )}
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base font-semibold leading-none">{lockedVoucherType.nameAr}</h1>
+                  <span className="num-display rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {lockedVoucherType.code}
+                  </span>
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                      lockedVoucherType.nature === 'Debit'
+                        ? 'bg-emerald-500/15 text-emerald-400'
+                        : 'bg-amber-500/15 text-amber-400'
+                    )}
+                  >
+                    طبيعة {lockedVoucherType.nature === 'Debit' ? 'مدين' : 'دائن'}
+                  </span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">سجلّ السندات وتقريرها</span>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/accounting/journal')}
+              className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground"
+              title="عرض كل القيود (الدفتر العام)"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              عرض كل القيود
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* شريط الفلاتر - سطر واحد */}
       <Card>
         <CardContent className="space-y-2 p-3">
@@ -759,21 +847,23 @@ export function JournalEntriesPage() {
             <option value="Reversed">معكوس</option>
           </select>
 
-          <select
-            className="h-9 rounded-md border border-input bg-secondary/40 px-3 text-sm"
-            value={voucherTypeFilter}
-            onChange={e => {
-              const v = e.target.value;
-              setVoucherTypeFilter(v === '' ? '' : Number(v));
-              setPageNumber(1);
-            }}
-            title="فلترة حسب نوع السند"
-          >
-            <option value="">كل الأنواع</option>
-            {voucherTypes.map(v => (
-              <option key={v.id} value={v.id}>{v.nameAr}</option>
-            ))}
-          </select>
+          {!isLocked && (
+            <select
+              className="h-9 rounded-md border border-input bg-secondary/40 px-3 text-sm"
+              value={voucherTypeFilter}
+              onChange={e => {
+                const v = e.target.value;
+                setVoucherTypeFilter(v === '' ? '' : Number(v));
+                setPageNumber(1);
+              }}
+              title="فلترة حسب نوع السند"
+            >
+              <option value="">كل الأنواع</option>
+              {voucherTypes.map(v => (
+                <option key={v.id} value={v.id}>{v.nameAr}</option>
+              ))}
+            </select>
+          )}
 
           <div className="flex items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2">
             <CalendarRange className="h-3.5 w-3.5 text-muted-foreground" />
@@ -793,7 +883,7 @@ export function JournalEntriesPage() {
             />
           </div>
 
-          {(search || status || fromDate || toDate || voucherTypeFilter !== '') && (
+          {(search || status || fromDate || toDate || (!isLocked && voucherTypeFilter !== '')) && (
             <Button variant="ghost" size="sm" onClick={resetFilters} className="h-9 gap-1" title="مسح الفلاتر">
               <X className="h-3.5 w-3.5" />
               مسح
@@ -848,12 +938,16 @@ export function JournalEntriesPage() {
           </Button>
 
           <Button
-            onClick={() => navigate('/accounting/journal/new')}
+            onClick={() => navigate(
+              isLocked && lockedVoucherType
+                ? `/accounting/vouchers/${lockedVoucherType.code}/new`
+                : '/accounting/journal/new'
+            )}
             size="sm"
             className="h-9 gap-2"
           >
             <Plus className="h-4 w-4" />
-            قيد جديد
+            {isLocked && lockedVoucherType ? `${lockedVoucherType.nameAr} جديد` : 'قيد جديد'}
           </Button>
           </div>
         </CardContent>

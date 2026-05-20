@@ -20,6 +20,7 @@ import { CurrencyRateBulletinsPage } from '@/pages/accounting/CurrencyRateBullet
 import { JournalVoucherTypesPage } from '@/pages/accounting/JournalVoucherTypesPage';
 import { CashBoxesPage } from '@/pages/accounting/CashBoxesPage';
 import { VoucherEntryPage } from '@/pages/accounting/VoucherEntryPage';
+import { VoucherReportPage } from '@/pages/accounting/VoucherReportPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { MenuSettingsPage } from '@/pages/settings/MenuSettingsPage';
 
@@ -65,7 +66,9 @@ export default function App() {
         <Route path="accounting/currency-rates" element={<CurrencyRateBulletinsPage />} />
         <Route path="accounting/voucher-types" element={<JournalVoucherTypesPage />} />
         <Route path="accounting/cash-boxes" element={<CashBoxesPage />} />
-        <Route path="accounting/vouchers/:code" element={<VoucherEntryPage />} />
+        {/* تقرير سند مخصّص (قائمة) ثم نموذج الإنشاء */}
+        <Route path="accounting/vouchers/:code" element={<VoucherReportPage />} />
+        <Route path="accounting/vouchers/:code/new" element={<VoucherEntryPage />} />
 
         {/* Settings */}
         <Route path="settings" element={<SettingsPage />} />

@@ -213,9 +213,11 @@ export function VoucherEntryPage() {
     saveMutation.mutate();
   };
 
-  // مسار الرجوع: إذا جاء عبر state.returnTo نستخدمه، وإلا الافتراضي للقيود اليومية
+  // مسار الرجوع: إذا جاء عبر state.returnTo نستخدمه،
+  // ‎وإلا نعود إلى تقرير هذا السند (لو متوفر الكود) ثم القيود اليومية كاحتياط
   const returnState = (location.state as { returnTo?: string } | null) ?? null;
-  const backHref = returnState?.returnTo || '/accounting/journal';
+  const backHref = returnState?.returnTo
+    || (code ? `/accounting/vouchers/${code}` : '/accounting/journal');
 
   if (typesQuery.isLoading || cashBoxesQuery.isLoading || treeQuery.isLoading) {
     return <LoadingSpinner text="تحميل البيانات..." />;
