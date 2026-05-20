@@ -11,7 +11,6 @@ import {
   ChevronsDown,
   ChevronsUp,
   Plus,
-  Pencil,
   Trash2,
   AlertTriangle,
   X,
@@ -21,6 +20,8 @@ import {
   RotateCcw,
   ArrowDownLeft,
   ArrowUpRight,
+  Eye,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,6 +31,7 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
+import { JournalEntryViewDialog } from '@/components/accounting/JournalEntryViewDialog';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
@@ -304,7 +306,8 @@ function renderTotalCell(col: LineColKey, totalD: number, totalC: number, balanc
 
 function EntryCard({
   entry,
-  onEdit,
+  onView,
+  onViewSource,
   onDelete,
   onPrint,
   colOrder,
@@ -316,7 +319,8 @@ function EntryCard({
   onToggle,
 }: {
   entry: JournalEntryDto;
-  onEdit: () => void;
+  onView: () => void;
+  onViewSource: () => void;
   onDelete: () => void;
   onPrint: () => void;
   colOrder: LineColKey[];
@@ -328,6 +332,20 @@ function EntryCard({
   onToggle: () => void;
 }) {
   const canEdit = entry.status !== 'Reversed';
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // ‎إغلاق القائمة عند الضغط خارجها
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [menuOpen]);
   const totalD = entry.lines?.reduce((s, l) => s + (l.isDebit ? l.amount : 0), 0) ?? entry.totalDebit;
   const totalC = entry.lines?.reduce((s, l) => s + (!l.isDebit ? l.amount : 0), 0) ?? entry.totalCredit;
   const balanced = Math.abs(totalD - totalC) < 0.01;
@@ -425,14 +443,46 @@ function EntryCard({
           >
             <Printer className="h-4 w-4" />
           </button>
-          <button
-            onClick={onEdit}
-            disabled={!canEdit}
-            title={canEdit ? 'تعديل' : 'لا يمكن تعديل قيد معكوس'}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
+          {/* ───── قائمة العرض (تستبدل زر التعديل) ───── */}
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(o => !o); }}
+              title="عرض القيد"
+              className={cn(
+                'rounded-md p-1.5 transition-colors',
+                menuOpen
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'
+              )}
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute left-0 top-full z-30 mt-1 min-w-[160px] overflow-hidden rounded-md border border-border/80 bg-card shadow-lg"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onView(); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-right text-xs text-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                >
+                  <Eye className="h-3.5 w-3.5 shrink-0" />
+                  <span>عرض القيد</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onViewSource(); }}
+                  className="flex w-full items-center gap-2 border-t border-border/40 px-3 py-2 text-right text-xs text-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                  title="فتح القيد المحاسبي الأصلي (شكل مدين/دائن كامل)"
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  <span>أصل القيد</span>
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={onDelete}
             disabled={!canEdit}
@@ -528,6 +578,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const [confirmDelete, setConfirmDelete] = useState<JournalEntryDto | null>(null);
+  const [viewEntryId, setViewEntryId] = useState<number | null>(null);
   const userNs = useAuthStore(s => s.user?.id ?? '__guest__');
 
   // ‎جلب السنوات المالية لتعيين الفترة الافتراضية
@@ -961,7 +1012,8 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
             <EntryCard
               key={e.id}
               entry={e}
-              onEdit={() => navigate(`/accounting/journal/${e.id}/edit`)}
+              onView={() => setViewEntryId(e.id)}
+              onViewSource={() => navigate(`/accounting/journal/${e.id}/view`)}
               onDelete={() => setConfirmDelete(e)}
               onPrint={() => handlePrintSingle(e)}
               colOrder={colOrder}
@@ -1095,6 +1147,13 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
           </div>
         </div>
       )}
+
+      {/* مودال عرض القيد السريع */}
+      <JournalEntryViewDialog
+        entryId={viewEntryId}
+        onClose={() => setViewEntryId(null)}
+        allowEdit={false}
+      />
     </div>
   );
 }
