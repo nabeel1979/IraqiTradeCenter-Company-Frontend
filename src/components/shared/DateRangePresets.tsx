@@ -142,9 +142,12 @@ export function DateRangePresets({
     const qStart = new Date(now.getFullYear(), q * 3, 1);
     list.push({ id: 'this-quarter', label: 'هذا الربع', from: toISODate(qStart), to: today });
 
-    // ‎هذا العام (تقويمي)
-    const yearStart = new Date(now.getFullYear(), 0, 1);
-    list.push({ id: 'this-year', label: 'هذا العام', from: toISODate(yearStart), to: today });
+    // ‎هذا العام (تقويمي) — يُعرض فقط حين لا تتوفر سنة مالية،
+    // ‎لأنّ "بداية السنة" في سياقنا المحاسبي = بداية السنة المالية، لا الميلادية.
+    if (!currentFiscalYear) {
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+      list.push({ id: 'this-year', label: 'هذا العام', from: toISODate(yearStart), to: today });
+    }
 
     return list;
   }, [today, currentFiscalYear]);

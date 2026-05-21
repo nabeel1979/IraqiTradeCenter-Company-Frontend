@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { ApiResponse, AccountDto, AccountStatementDto, JournalEntryDto, PagedResult, TrialBalanceRowDto } from '@/types/api';
+import type { ApiResponse, AccountDto, AccountStatementDto, JournalEntryDto, PagedResult, TrialBalanceDto } from '@/types/api';
 
 export interface AccountStatementParams {
   from: string;          // YYYY-MM-DD
@@ -50,6 +50,8 @@ export interface UpdateVoucherEntryPayload {
 export interface JournalEntriesListParams {
   pageNumber?: number; pageSize?: number; status?: string; search?: string;
   fromDate?: string; toDate?: string; voucherTypeId?: number;
+  /** عند true: استبعد القيود التي نوع سندها مفعَّل في القائمة الجانبية */
+  excludeSidebarVoucherTypes?: boolean;
 }
 
 export interface CreateAccountPayload {
@@ -89,9 +91,27 @@ export const accountingApi = {
     const res = await api.delete<ApiResponse<unknown>>(`/accounts/${id}`);
     return res.data;
   },
-  getTrialBalance: async (from: string, to: string) => {
-    const res = await api.get<ApiResponse<TrialBalanceRowDto[]>>('/accounts/trial-balance', { params: { from, to } });
-    return res.data.data ?? [];
+  getTrialBalance: async (params: {
+    from: string;
+    to: string;
+    currency?: string | null;
+    valuated?: boolean;
+    maxLevel?: number | null;
+    leavesOnly?: boolean;
+    includeDraft?: boolean;
+  }) => {
+    const res = await api.get<ApiResponse<TrialBalanceDto>>('/accounts/trial-balance', {
+      params: {
+        from: params.from,
+        to: params.to,
+        currency: params.currency || undefined,
+        valuated: params.valuated ?? false,
+        maxLevel: params.maxLevel ?? undefined,
+        leavesOnly: params.leavesOnly ?? true,
+        includeDraft: params.includeDraft ?? false,
+      },
+    });
+    return res.data.data!;
   },
   getAccountStatement: async (params: AccountStatementParams) => {
     const res = await api.get<ApiResponse<AccountStatementDto>>('/accounts/statement', { params });

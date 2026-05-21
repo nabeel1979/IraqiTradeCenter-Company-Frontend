@@ -69,7 +69,7 @@ type StatementColKey = 'idx' | 'date' | 'entry' | 'account' | 'desc' | 'debit' |
 const COL_LABEL: Record<StatementColKey, string> = {
   idx: '#',
   date: 'التاريخ',
-  entry: 'رقم القيد',
+  entry: 'السند / القيد',
   account: 'الحساب',
   desc: 'البيان',
   debit: 'مدين',
@@ -604,36 +604,84 @@ export function AccountStatementPage() {
     });
   }, [currentFiscalYear, today]);
 
-  /** Presets جاهزة لاختيار سريع للفترة */
+  /** Presets جاهزة لاختيار سريع للفترة — مطابقة لمجموعة DateRangePresets المشتركة */
   const datePresets = useMemo(() => {
-    const list: { id: string; label: string; from: string; to: string; disabled?: boolean }[] = [];
+    const list: { id: string; label: string; from: string; to: string }[] = [];
+    const now = new Date();
+    const toIso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    // ── السنة المالية (إن وُجدت) — تأتي أولاً
     if (currentFiscalYear) {
       const fyStart = (currentFiscalYear.startDate ?? '').slice(0, 10);
       const fyEnd = (currentFiscalYear.endDate ?? '').slice(0, 10);
+      if (fyStart && fyEnd) {
+        list.push({ id: 'fy-full', label: 'السنة المالية', from: fyStart, to: fyEnd });
+      }
       if (fyStart) {
         list.push({
           id: 'fy-to-today',
-          label: 'من بداية السنة → اليوم',
+          label: 'من بداية السنة',
           from: fyStart,
-          to: today < fyEnd ? today : fyEnd,
-        });
-      }
-      if (fyStart && fyEnd) {
-        list.push({
-          id: 'fy-full',
-          label: 'السنة المالية كاملة',
-          from: fyStart,
-          to: fyEnd,
+          to: fyEnd && today > fyEnd ? fyEnd : today,
         });
       }
     }
-    // الشهر الحالي
-    const d = new Date();
-    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const monthStart = `${ym}-01`;
-    list.push({ id: 'this-month', label: 'هذا الشهر', from: monthStart, to: today });
-    // اليوم
+
+    // ── اليوم
     list.push({ id: 'today', label: 'اليوم', from: today, to: today });
+
+    // ── أمس
+    const yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    const yestIso = toIso(yest);
+    list.push({ id: 'yesterday', label: 'أمس', from: yestIso, to: yestIso });
+
+    // ── هذا الأسبوع (بداية السبت — التقويم العربي/العراقي)
+    const dow = now.getDay(); // 0=Sun, 6=Sat
+    const daysSinceSat = (dow + 1) % 7;
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - daysSinceSat);
+    list.push({ id: 'this-week', label: 'هذا الأسبوع', from: toIso(weekStart), to: today });
+
+    // ── الأسبوع الماضي
+    const lastWeekEnd = new Date(weekStart);
+    lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+    const lastWeekStart = new Date(lastWeekEnd);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 6);
+    list.push({
+      id: 'last-week',
+      label: 'الأسبوع الماضي',
+      from: toIso(lastWeekStart),
+      to: toIso(lastWeekEnd),
+    });
+
+    // ── هذا الشهر
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    list.push({ id: 'this-month', label: 'هذا الشهر', from: toIso(monthStart), to: today });
+
+    // ── الشهر الماضي
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    list.push({
+      id: 'last-month',
+      label: 'الشهر الماضي',
+      from: toIso(lastMonthStart),
+      to: toIso(lastMonthEnd),
+    });
+
+    // ── هذا الربع
+    const q = Math.floor(now.getMonth() / 3);
+    const qStart = new Date(now.getFullYear(), q * 3, 1);
+    list.push({ id: 'this-quarter', label: 'هذا الربع', from: toIso(qStart), to: today });
+
+    // ── هذا العام (تقويمي) — يُعرض فقط حين لا تتوفر سنة مالية،
+    // ── لأنّ "بداية السنة" في سياقنا المحاسبي = بداية السنة المالية.
+    if (!currentFiscalYear) {
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+      list.push({ id: 'this-year', label: 'هذا العام', from: toIso(yearStart), to: today });
+    }
+
     return list;
   }, [currentFiscalYear, today]);
 
@@ -1068,7 +1116,23 @@ export function AccountStatementPage() {
       case 'date':
         return <td key={k} className="overflow-hidden whitespace-nowrap px-2 text-xs">{formatDate(row.date)}</td>;
       case 'entry':
-        return <td key={k} className="overflow-hidden px-2 num-display text-xs">{row.entryNumber}</td>;
+        return (
+          <td key={k} className="overflow-hidden px-2 text-xs">
+            {row.voucherNumber ? (
+              <div className="flex flex-col items-start leading-tight">
+                <span className="num-display font-semibold text-primary">{row.voucherNumber}</span>
+                <span
+                  className="num-display text-[10px] text-muted-foreground"
+                  title={`رقم القيد الداخلي: ${row.entryNumber}`}
+                >
+                  #{row.entryNumber}
+                </span>
+              </div>
+            ) : (
+              <span className="num-display">#{row.entryNumber}</span>
+            )}
+          </td>
+        );
       case 'account':
         return (
           <td key={k} className="overflow-hidden px-2 text-xs">
@@ -1201,172 +1265,169 @@ export function AccountStatementPage() {
   };
 
   return (
-    <div className="-mt-4 space-y-2.5">
-      <Card className="border-border/70 shadow-sm">
-        <CardContent className="space-y-2 p-3">
-          {datePresets.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10.5px] font-medium text-muted-foreground">
-                فترات سريعة:
-              </span>
-              {datePresets.map(p => {
-                const active = isPresetActive(p);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => applyPreset(p)}
-                    className={cn(
-                      'h-6 rounded-full border px-2.5 text-[11px] font-medium transition-colors',
-                      active
-                        ? 'border-primary bg-primary/15 text-primary'
-                        : 'border-border bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-foreground'
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-              {currentFiscalYear && (
-                <span className="ms-auto rounded-md bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                  السنة المالية: <span className="font-semibold text-foreground">{currentFiscalYear.name}</span>
-                </span>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[150px]">
-              <label className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-                <CalendarRange className="h-3 w-3" /> من تاريخ
-              </label>
-              <Input
-                type="date"
-                className="h-9 w-full"
-                value={from}
-                onChange={e => {
-                  userTouchedDatesRef.current = true;
-                  setFrom(e.target.value);
-                }}
-              />
-            </div>
-            <div className="min-w-[150px]">
-              <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">إلى تاريخ</label>
-              <Input
-                type="date"
-                className="h-9 w-full"
-                value={to}
-                onChange={e => {
-                  userTouchedDatesRef.current = true;
-                  setTo(e.target.value);
-                }}
-              />
-            </div>
-
-            <div className="flex-1 min-w-[280px]">
-              <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">الحساب</label>
-              <AccountPicker
-                accounts={filteredAccounts}
-                value={accountId}
-                onChange={(id) => setAccountId(id)}
-                allowClear
-                placeholder="جميع الحسابات (اكتب رقم/اسم للبحث)"
-                inputHeight={9}
-              />
-            </div>
-
-            <div className="min-w-[140px]" ref={currencyPanelRef}>
-              <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">العملة</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setCurrencyPanelOpen(v => !v)}
-                  className={cn(
-                    'flex h-9 w-full items-center justify-between rounded-md border border-input bg-secondary/40 px-2.5 text-sm transition-colors',
-                    'hover:border-primary/50 focus:border-primary focus:outline-none',
-                    currencyPanelOpen && 'border-primary'
-                  )}
-                  title={
-                    selectedCurrencies.length === 0
-                      ? 'جميع العملات'
-                      : `العملات المحددة: ${selectedCurrencies.join('، ')}`
-                  }
-                >
-                  <span className={cn('truncate', selectedCurrencies.length === 0 && 'text-muted-foreground')}>
-                    {currencyButtonLabel}
-                  </span>
-                  <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', currencyPanelOpen && 'rotate-180')} />
-                </button>
-                {currencyPanelOpen && (
-                  <div
-                    className="absolute end-0 z-40 mt-1 w-56 overflow-hidden rounded-md border border-border bg-popover shadow-xl"
-                    dir="rtl"
-                  >
-                    <div className="flex items-center justify-between border-b border-border/60 bg-secondary/30 px-3 py-1.5 text-[10.5px] text-muted-foreground">
-                      <span>اختر عملة أو أكثر</span>
-                      {selectedCurrencies.length > 0 && (
-                        <button
-                          type="button"
-                          className="rounded px-1.5 py-0.5 text-[10px] hover:bg-secondary hover:text-foreground"
-                          onClick={() => setSelectedCurrencies([])}
-                        >
-                          مسح
-                        </button>
-                      )}
-                    </div>
-                    <ul className="max-h-60 overflow-y-auto p-1">
-                      {CURRENCIES.map(c => {
-                        const checked = selectedCurrencies.includes(c);
-                        return (
-                          <li key={c}>
-                            <label
-                              className={cn(
-                                'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors',
-                                'hover:bg-accent/50',
-                                checked && 'bg-primary/10'
-                              )}
-                            >
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 shrink-0 rounded border-input accent-primary"
-                                checked={checked}
-                                onChange={() => toggleCurrency(c)}
-                              />
-                              <span className="flex-1">{c}</span>
-                            </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    <div className="border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
-                      {selectedCurrencies.length === 0
-                        ? 'سيتم عرض جميع العملات'
-                        : `${selectedCurrencies.length} من ${CURRENCIES.length}`}
-                    </div>
-                  </div>
+    <div className="space-y-2.5">
+      {/* ════════ شريط الفترات السريعة (بارز في الأعلى) ════════ */}
+      {datePresets.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border/50 pb-2">
+          {datePresets.map(p => {
+            const active = isPresetActive(p);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => applyPreset(p)}
+                className={cn(
+                  'h-8 rounded-md border px-3 text-xs font-semibold transition-all',
+                  active
+                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                    : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50 hover:bg-primary/10 hover:text-foreground'
                 )}
-              </div>
-            </div>
+              >
+                {p.label}
+              </button>
+            );
+          })}
+          {currentFiscalYear && (
+            <span className="ms-auto inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 text-[10.5px] font-medium text-primary">
+              <CalendarRange className="h-3 w-3" />
+              السنة المالية:
+              <span className="font-bold">{currentFiscalYear.name}</span>
+            </span>
+          )}
+        </div>
+      )}
 
-            <div className="flex items-center gap-1.5">
-              <Button onClick={handleShow} className="h-9 gap-2" disabled={!from || !to}>
-                <Search className="h-4 w-4" />
-                عرض الكشف
-              </Button>
-              {rd && (
-                <Button variant="outline" size="sm" onClick={handlePrint} className="h-9 gap-1.5" title="طباعة الكشف">
-                  <Printer className="h-3.5 w-3.5" />
-                  طباعة
-                </Button>
+      {/* ════════ صف الفلاتر (بدون إطار بطاقة — تصميم flat) ════════ */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[140px]">
+          <label className="mb-1 flex items-center gap-1 text-[10.5px] font-medium text-muted-foreground">
+            <CalendarRange className="h-3 w-3" /> من تاريخ
+          </label>
+          <Input
+            type="date"
+            className="h-9 w-full"
+            value={from}
+            onChange={e => {
+              userTouchedDatesRef.current = true;
+              setFrom(e.target.value);
+            }}
+          />
+        </div>
+        <div className="min-w-[140px]">
+          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">إلى تاريخ</label>
+          <Input
+            type="date"
+            className="h-9 w-full"
+            value={to}
+            onChange={e => {
+              userTouchedDatesRef.current = true;
+              setTo(e.target.value);
+            }}
+          />
+        </div>
+
+        <div className="flex-1 min-w-[260px]">
+          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">الحساب</label>
+          <AccountPicker
+            accounts={filteredAccounts}
+            value={accountId}
+            onChange={(id) => setAccountId(id)}
+            allowClear
+            placeholder="جميع الحسابات (اكتب رقم/اسم للبحث)"
+            inputHeight={9}
+          />
+        </div>
+
+        <div className="min-w-[130px]" ref={currencyPanelRef}>
+          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">العملة</label>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setCurrencyPanelOpen(v => !v)}
+              className={cn(
+                'flex h-9 w-full items-center justify-between rounded-md border border-input bg-secondary/40 px-2.5 text-sm transition-colors',
+                'hover:border-primary/50 focus:border-primary focus:outline-none',
+                currencyPanelOpen && 'border-primary'
               )}
-              <Button variant="ghost" size="sm" onClick={handleReset} className="h-9 gap-1.5" title="مسح الفلاتر">
-                <RotateCcw className="h-3.5 w-3.5" />
-                مسح
-              </Button>
-            </div>
+              title={
+                selectedCurrencies.length === 0
+                  ? 'جميع العملات'
+                  : `العملات المحددة: ${selectedCurrencies.join('، ')}`
+              }
+            >
+              <span className={cn('truncate', selectedCurrencies.length === 0 && 'text-muted-foreground')}>
+                {currencyButtonLabel}
+              </span>
+              <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', currencyPanelOpen && 'rotate-180')} />
+            </button>
+            {currencyPanelOpen && (
+              <div
+                className="absolute end-0 z-40 mt-1 w-56 overflow-hidden rounded-md border border-border bg-popover shadow-xl"
+                dir="rtl"
+              >
+                <div className="flex items-center justify-between border-b border-border/60 bg-secondary/30 px-3 py-1.5 text-[10.5px] text-muted-foreground">
+                  <span>اختر عملة أو أكثر</span>
+                  {selectedCurrencies.length > 0 && (
+                    <button
+                      type="button"
+                      className="rounded px-1.5 py-0.5 text-[10px] hover:bg-secondary hover:text-foreground"
+                      onClick={() => setSelectedCurrencies([])}
+                    >
+                      مسح
+                    </button>
+                  )}
+                </div>
+                <ul className="max-h-60 overflow-y-auto p-1">
+                  {CURRENCIES.map(c => {
+                    const checked = selectedCurrencies.includes(c);
+                    return (
+                      <li key={c}>
+                        <label
+                          className={cn(
+                            'flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors',
+                            'hover:bg-accent/50',
+                            checked && 'bg-primary/10'
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 rounded border-input accent-primary"
+                            checked={checked}
+                            onChange={() => toggleCurrency(c)}
+                          />
+                          <span className="flex-1">{c}</span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <div className="border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
+                  {selectedCurrencies.length === 0
+                    ? 'سيتم عرض جميع العملات'
+                    : `${selectedCurrencies.length} من ${CURRENCIES.length}`}
+                </div>
+              </div>
+            )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Button onClick={handleShow} className="h-9 gap-2" disabled={!from || !to}>
+            <Search className="h-4 w-4" />
+            عرض الكشف
+          </Button>
+          {rd && (
+            <Button variant="outline" size="sm" onClick={handlePrint} className="h-9 gap-1.5" title="طباعة الكشف">
+              <Printer className="h-3.5 w-3.5" />
+              طباعة
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={handleReset} className="h-9 gap-1.5" title="مسح الفلاتر">
+            <RotateCcw className="h-3.5 w-3.5" />
+            مسح
+          </Button>
+        </div>
+      </div>
 
       {!submitted ? (
         <EmptyState

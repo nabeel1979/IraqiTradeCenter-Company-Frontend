@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
@@ -11,15 +11,12 @@ import {
   ChevronsDown,
   ChevronsUp,
   Plus,
-  Trash2,
   AlertTriangle,
   X,
   Printer,
   CalendarRange,
   GripVertical,
   RotateCcw,
-  ArrowDownLeft,
-  ArrowUpRight,
   Eye,
   FileText,
 } from 'lucide-react';
@@ -46,7 +43,7 @@ const PAGE_SIZE_OPTIONS = [10, 50, 100, 1000] as const;
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; variant: any }> = {
     Posted: { label: 'مرحَّل', variant: 'success' },
-    Draft: { label: 'مسودة', variant: 'muted' },
+    Draft: { label: 'غير مرحَّل', variant: 'muted' },
     Reversed: { label: 'معكوس', variant: 'destructive' },
   };
   const cfg = map[status] ?? { label: status, variant: 'muted' };
@@ -308,7 +305,6 @@ function EntryCard({
   entry,
   onView,
   onViewSource,
-  onDelete,
   onPrint,
   colOrder,
   setColOrder,
@@ -321,7 +317,6 @@ function EntryCard({
   entry: JournalEntryDto;
   onView: () => void;
   onViewSource: () => void;
-  onDelete: () => void;
   onPrint: () => void;
   colOrder: LineColKey[];
   setColOrder: (o: LineColKey[]) => void;
@@ -331,24 +326,6 @@ function EntryCard({
   isOpen: boolean;
   onToggle: () => void;
 }) {
-  const canEdit = entry.status !== 'Reversed';
-  // قيد مُدار: مولَّد من سند مخصّص أو من فاتورة/حركة أخرى — يُعدَّل ويُحذف من نافذة المصدر فقط
-  const isManaged = !!entry.voucherTypeId || (!!entry.source && entry.source !== 'Manual');
-  const managedSourceLabel: string | null = (() => {
-    if (entry.voucherTypeId) return entry.voucherTypeName || 'سند';
-    switch (entry.source) {
-      case 'SalesInvoice':       return 'فاتورة بيع';
-      case 'PurchaseInvoice':    return 'فاتورة شراء';
-      case 'Payment':            return 'سند دفع';
-      case 'Receipt':            return 'سند قبض';
-      case 'StockMovement':      return 'حركة مخزون';
-      case 'CommissionPayment':  return 'عمولة';
-      case 'SalaryPayment':      return 'راتب';
-      case 'System':             return 'النظام';
-      default:                   return null;
-    }
-  })();
-  const canDelete = canEdit && !isManaged;
   const totalD = entry.lines?.reduce((s, l) => s + (l.isDebit ? l.amount : 0), 0) ?? entry.totalDebit;
   const totalC = entry.lines?.reduce((s, l) => s + (!l.isDebit ? l.amount : 0), 0) ?? entry.totalCredit;
   const balanced = Math.abs(totalD - totalC) < 0.01;
@@ -385,10 +362,25 @@ function EntryCard({
             )}
           />
         </button>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">قيد رقم</span>
-          <span className="num-display text-base font-bold text-primary">{entry.entryNumber}</span>
-        </div>
+        {/* رقم السند المخصّص ("PV-1") إن وُجد، وإلا رقم القيد العام */}
+        {entry.voucherNumber ? (
+          <div className="flex items-baseline gap-1.5">
+            <span className="num-display rounded-md border border-primary/40 bg-primary/15 px-2 py-0.5 text-sm font-bold text-primary">
+              {entry.voucherNumber}
+            </span>
+            <span
+              className="num-display text-[11px] text-muted-foreground"
+              title={`رقم القيد الداخلي: ${entry.entryNumber}`}
+            >
+              #{entry.entryNumber}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">قيد رقم</span>
+            <span className="num-display text-base font-bold text-primary">{entry.entryNumber}</span>
+          </div>
+        )}
         <span className="h-4 w-px bg-border" />
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <CalendarRange className="h-3.5 w-3.5" />
@@ -400,7 +392,7 @@ function EntryCard({
             {entry.description}
           </span>
           <TypeBadge type={entry.entryType} />
-          {entry.voucherTypeId && (entry.voucherTypeName || entry.voucherTypeCode) && (
+          {entry.voucherTypeId && (entry.voucherTypeName || entry.voucherTypeCode) && !entry.voucherNumber && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
               title={entry.voucherTypeName ?? undefined}
@@ -409,6 +401,14 @@ function EntryCard({
                 <span className="num-display text-[9px] opacity-80">{entry.voucherTypeCode}</span>
               )}
               <span>{entry.voucherTypeName ?? entry.voucherTypeCode}</span>
+            </span>
+          )}
+          {entry.voucherTypeId && entry.voucherTypeName && entry.voucherNumber && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] text-primary/80"
+              title={entry.voucherTypeName}
+            >
+              {entry.voucherTypeName}
             </span>
           )}
         </div>
@@ -462,18 +462,6 @@ function EntryCard({
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-violet-500/10 hover:text-violet-400"
           >
             <FileText className="h-4 w-4" />
-          </button>
-          <button
-            onClick={onDelete}
-            disabled={!canDelete}
-            title={
-              !canEdit ? 'لا يمكن حذف قيد معكوس'
-                : isManaged ? `يُحذف من نافذة (${managedSourceLabel ?? 'المصدر'})`
-                : 'حذف'
-            }
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/15 hover:text-destructive disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <Trash2 className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -549,7 +537,6 @@ interface JournalEntriesPageProps {
 
 export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProps = {}) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const isLocked = !!lockedVoucherCode;
   const lockedCodeUpper = lockedVoucherCode?.toUpperCase() ?? '';
   const [search, setSearch] = useState('');
@@ -561,7 +548,6 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   const [voucherTypeFilter, setVoucherTypeFilter] = useState<number | ''>('');
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
-  const [confirmDelete, setConfirmDelete] = useState<JournalEntryDto | null>(null);
   const [viewEntryId, setViewEntryId] = useState<number | null>(null);
   const userNs = useAuthStore(s => s.user?.id ?? '__guest__');
 
@@ -673,7 +659,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   }, [userNs]);
 
   const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ['journal-entries', search, status, fromDate, toDate, voucherTypeFilter, pageNumber, pageSize],
+    queryKey: ['journal-entries', search, status, fromDate, toDate, voucherTypeFilter, pageNumber, pageSize, isLocked],
     queryFn: () =>
       accountingApi.getJournalEntries({
         search: search || undefined,
@@ -681,6 +667,9 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         voucherTypeId: voucherTypeFilter === '' ? undefined : Number(voucherTypeFilter),
+        // ‎نافذة "القيود اليومية" تعرض جميع القيود (يدوية + متولّدة من أي
+        // نوع سند، بما فيها التي لها صفحات مخصّصة في القائمة الجانبية).
+        // ‎للتنقّل إلى نافذة المصدر استخدم زر "أصل القيد" (FileText) داخل البطاقة.
         pageNumber,
         pageSize,
       }),
@@ -695,6 +684,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     staleTime: 60_000,
   });
   const voucherTypes = voucherTypesQuery.data ?? [];
+  // ‎قائمة الفلتر تعرض كل الأنواع المفعّلة (الصفحة موحَّدة لكل القيود).
 
   // ‎عند الإقفال على نوع سند: حلّ الكود → id وعيّنه كفلتر ثابت
   const lockedVoucherType = useMemo(
@@ -712,22 +702,6 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     queryKey: ['company-settings'],
     queryFn: companySettingsApi.get,
     staleTime: 5 * 60 * 1000,
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => accountingApi.deleteJournalEntry(id),
-    onSuccess: res => {
-      if (!res.success) {
-        toast.error((res as any).message || 'تعذّر حذف القيد');
-        return;
-      }
-      toast.success('تم حذف القيد');
-      setConfirmDelete(null);
-      queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
-    },
-    onError: (e: any) => {
-      toast.error(e?.response?.data?.message || 'فشل الحذف');
-    },
   });
 
   const handlePrintList = async () => {
@@ -798,53 +772,9 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
 
   return (
     <div className="space-y-4">
-      {/* شريط رأس نوع السند (في وضع الإقفال فقط) */}
-      {isLocked && lockedVoucherType && (
-        <Card>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
-            <div className="flex items-center gap-2.5">
-              {lockedVoucherType.nature === 'Debit' ? (
-                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-400">
-                  <ArrowDownLeft className="h-4 w-4" />
-                </span>
-              ) : (
-                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/15 text-amber-400">
-                  <ArrowUpRight className="h-4 w-4" />
-                </span>
-              )}
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-base font-semibold leading-none">{lockedVoucherType.nameAr}</h1>
-                  <span className="num-display rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {lockedVoucherType.code}
-                  </span>
-                  <span
-                    className={cn(
-                      'rounded-full px-2 py-0.5 text-[10px] font-medium',
-                      lockedVoucherType.nature === 'Debit'
-                        ? 'bg-emerald-500/15 text-emerald-400'
-                        : 'bg-amber-500/15 text-amber-400'
-                    )}
-                  >
-                    طبيعة {lockedVoucherType.nature === 'Debit' ? 'مدين' : 'دائن'}
-                  </span>
-                </div>
-                <span className="text-[11px] text-muted-foreground">سجلّ السندات وتقريرها</span>
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/accounting/journal')}
-              className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground"
-              title="عرض كل القيود (الدفتر العام)"
-            >
-              <BookOpen className="h-3.5 w-3.5" />
-              عرض كل القيود
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {/* ‎ملاحظة: في وضع الإقفال على نوع سند، يعرض الـ TopBar بطاقة نوع السند
+          ‎(الاسم + الكود + الطبيعة) تلقائياً من المسار، فلم نعد نحتاج بطاقة رأس
+          ‎هنا — مما يُصعِّد المحتوى للأعلى. زر "عرض كل القيود" نُقل إلى شريط الفلاتر. */}
 
       {/* شريط الفلاتر - سطر واحد */}
       <Card>
@@ -878,11 +808,11 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
           >
             <option value="">كل الحالات</option>
             <option value="Posted">مرحَّل</option>
-            <option value="Draft">مسودة</option>
+            <option value="Draft">غير مرحَّل</option>
             <option value="Reversed">معكوس</option>
           </select>
 
-          {!isLocked && (
+          {!isLocked && voucherTypes.length > 0 && (
             <select
               className="h-9 rounded-md border border-input bg-secondary/40 px-3 text-sm"
               value={voucherTypeFilter}
@@ -960,6 +890,19 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
             </Button>
           )}
 
+          {isLocked && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/accounting/journal')}
+              className="h-9 gap-1.5 text-muted-foreground hover:text-foreground"
+              title="عرض كل القيود (الدفتر العام)"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              عرض كل القيود
+            </Button>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -972,24 +915,38 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
             طباعة
           </Button>
 
-          <Button
-            onClick={() => navigate(
-              isLocked && lockedVoucherType
-                ? `/accounting/vouchers/${lockedVoucherType.code}/new`
-                : '/accounting/journal/new'
-            )}
-            size="sm"
-            className="h-9 gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            {isLocked && lockedVoucherType ? `${lockedVoucherType.nameAr} جديد` : 'قيد جديد'}
-          </Button>
+          {/*
+            * زر "قيد جديد":
+            *  - في وضع الإقفال على نوع سند → يُنشئ سنداً من هذا النوع.
+            *  - في الصفحة الرئيسية "القيود اليومية" → مخفي عمداً؛
+            *    الإنشاء يتم من صفحة السند المخصّصة (سند قبض، سند دفع، …).
+            */}
+          {isLocked && lockedVoucherType && (
+            <Button
+              onClick={() => navigate(
+                lockedVoucherType.nature === 'Mixed'
+                  // ‎مختلط: استخدم صفحة القيد متعدد البنود مع تثبيت النوع
+                  ? `/accounting/journal/new?voucherType=${encodeURIComponent(lockedVoucherType.code)}`
+                  // ‎مدين/دائن: استخدم صفحة السند المبسّطة
+                  : `/accounting/vouchers/${lockedVoucherType.code}/new`
+              )}
+              size="sm"
+              className="h-9 gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              {`${lockedVoucherType.nameAr} جديد`}
+            </Button>
+          )}
           </div>
         </CardContent>
       </Card>
 
       {data.items.length === 0 ? (
-        <EmptyState icon={BookOpen} title="لا قيود" description="لم تُسجَّل قيود مطابقة للمعايير المحددة" />
+        <EmptyState
+          icon={BookOpen}
+          title="لا قيود"
+          description="لم تُسجَّل قيود مطابقة للمعايير المحددة"
+        />
       ) : (
         <div className="space-y-3">
           {data.items.map(e => (
@@ -999,11 +956,21 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               onView={() => setViewEntryId(e.id)}
               onViewSource={() => {
                 // ‎"أصل القيد" — يتنقّل إلى النافذة التي وُلّد منها القيد:
-                //  - سند مخصّص → نموذج السند (وضع التعديل)
+                //  - سند مخصّص (مدين/دائن) → نموذج السند المبسّط (وضع التعديل)
+                //  - سند مخصّص (مختلط) → صفحة القيد متعدد البنود (وضع التعديل)
                 //  - فاتورة → صفحة الفاتورة
                 //  - يدوي → صفحة القيد المحاسبي (وضع العرض)
+                // ‎نمرّر returnTo/returnLabel ليرجع المستخدم إلى صفحة السند بعد الحفظ/الإلغاء
+                const returnState = isLocked && lockedVoucherType
+                  ? { returnTo: `/accounting/vouchers/${lockedVoucherType.code}`, returnLabel: lockedVoucherType.nameAr }
+                  : undefined;
                 if (e.voucherTypeId && e.voucherTypeCode) {
-                  navigate(`/accounting/vouchers/${e.voucherTypeCode}/${e.id}/edit`);
+                  const vt = voucherTypes.find(v => v.id === e.voucherTypeId);
+                  if (vt && vt.nature === 'Mixed') {
+                    navigate(`/accounting/journal/${e.id}/edit`, { state: returnState });
+                  } else {
+                    navigate(`/accounting/vouchers/${e.voucherTypeCode}/${e.id}/edit`, { state: returnState });
+                  }
                   return;
                 }
                 if (e.source === 'SalesInvoice' && e.referenceId) {
@@ -1014,9 +981,8 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
                   navigate(`/purchases/invoices/${e.referenceId}`);
                   return;
                 }
-                navigate(`/accounting/journal/${e.id}/view`);
+                navigate(`/accounting/journal/${e.id}/view`, { state: returnState });
               }}
-              onDelete={() => setConfirmDelete(e)}
               onPrint={() => handlePrintSingle(e)}
               colOrder={colOrder}
               setColOrder={(o) => { setColOrder(o); saveLineColOrder(userNs, o); }}
@@ -1100,55 +1066,6 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
           </div>
         </CardContent>
       </Card>
-
-      {/* مودال تأكيد الحذف */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-lg border border-border bg-card shadow-xl">
-            <div className="flex items-start justify-between border-b border-border px-4 py-3">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-                <h3 className="font-semibold">تأكيد حذف القيد</h3>
-              </div>
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="rounded p-1 text-muted-foreground hover:bg-secondary/60"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-3 p-4 text-sm">
-              <p>
-                هل أنت متأكد من حذف القيد رقم{' '}
-                <span className="font-mono text-primary">{confirmDelete.entryNumber}</span>؟
-              </p>
-              <div className="rounded-md bg-secondary/40 p-3 text-xs text-muted-foreground">
-                <div>البيان: {confirmDelete.description}</div>
-                <div>المبلغ: {formatAmount(confirmDelete.totalDebit)} {confirmDelete.currency || 'IQD'}</div>
-                <div>التاريخ: {formatDate(confirmDelete.entryDate)}</div>
-              </div>
-              <p className="text-xs text-amber-400">
-                لا يمكن التراجع عن هذه العملية.
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/20 px-4 py-3">
-              <Button variant="outline" size="sm" onClick={() => setConfirmDelete(null)}>
-                إلغاء
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => deleteMutation.mutate(confirmDelete.id)}
-                disabled={deleteMutation.isPending}
-                className="gap-1.5"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                {deleteMutation.isPending ? 'جارٍ الحذف...' : 'حذف القيد'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* مودال عرض القيد السريع */}
       <JournalEntryViewDialog

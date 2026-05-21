@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { AuthGuard } from '@/lib/auth/auth-guard';
 import { LoginPage } from '@/pages/auth/LoginPage';
@@ -23,6 +23,28 @@ import { VoucherEntryPage } from '@/pages/accounting/VoucherEntryPage';
 import { VoucherReportPage } from '@/pages/accounting/VoucherReportPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { MenuSettingsPage } from '@/pages/settings/MenuSettingsPage';
+
+/**
+ * Wrappers صغيرة تُجبر إعادة تركيب المكون عند تغيير الـ URL بين
+ * "إنشاء جديد" و "تعديل" أو بين قيدين مختلفين. بدون هذا الـ key، React
+ * يُعيد استخدام نفس instance ويحتفظ بحالة الفورم القديمة (تواريخ، حقول، …).
+ */
+function VoucherEntryRoute() {
+  const { code, id } = useParams<{ code: string; id?: string }>();
+  return <VoucherEntryPage key={`${code ?? ''}-${id ?? 'new'}`} />;
+}
+
+function CreateJournalEntryRoute({ viewOnly = false }: { viewOnly?: boolean }) {
+  const { id } = useParams<{ id?: string }>();
+  const location = useLocation();
+  // ‎نضمّن search لأن `?voucherType=XX` يُغيّر نوع السند المثبَّت
+  return (
+    <CreateJournalEntryPage
+      key={`${id ?? 'new'}-${location.search}-${viewOnly ? 'view' : 'edit'}`}
+      viewOnly={viewOnly}
+    />
+  );
+}
 
 export default function App() {
   return (
@@ -57,9 +79,9 @@ export default function App() {
         {/* Accounting */}
         <Route path="accounting/accounts" element={<AccountsTreePage />} />
         <Route path="accounting/journal" element={<JournalEntriesPage />} />
-        <Route path="accounting/journal/new" element={<CreateJournalEntryPage />} />
-        <Route path="accounting/journal/:id/edit" element={<CreateJournalEntryPage />} />
-        <Route path="accounting/journal/:id/view" element={<CreateJournalEntryPage viewOnly />} />
+        <Route path="accounting/journal/new" element={<CreateJournalEntryRoute />} />
+        <Route path="accounting/journal/:id/edit" element={<CreateJournalEntryRoute />} />
+        <Route path="accounting/journal/:id/view" element={<CreateJournalEntryRoute viewOnly />} />
         <Route path="accounting/trial-balance" element={<TrialBalancePage />} />
         <Route path="accounting/account-statement" element={<AccountStatementPage />} />
         <Route path="accounting/fiscal-years" element={<FiscalYearsPage />} />
@@ -68,8 +90,8 @@ export default function App() {
         <Route path="accounting/cash-boxes" element={<CashBoxesPage />} />
         {/* تقرير سند مخصّص (قائمة) ثم نموذج الإنشاء */}
         <Route path="accounting/vouchers/:code" element={<VoucherReportPage />} />
-        <Route path="accounting/vouchers/:code/new" element={<VoucherEntryPage />} />
-        <Route path="accounting/vouchers/:code/:id/edit" element={<VoucherEntryPage />} />
+        <Route path="accounting/vouchers/:code/new" element={<VoucherEntryRoute />} />
+        <Route path="accounting/vouchers/:code/:id/edit" element={<VoucherEntryRoute />} />
 
         {/* Settings */}
         <Route path="settings" element={<SettingsPage />} />

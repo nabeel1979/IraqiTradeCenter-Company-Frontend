@@ -61,6 +61,44 @@ export function formatDate(d: string | Date | null | undefined, opts: { short?: 
   }).format(date);
 }
 
+/**
+ * يُرجع تاريخ ISO محلياً (YYYY-MM-DD) بناءً على المنطقة الزمنية للجهاز.
+ *
+ * مهم لحقول `<input type="date">` التي تتوقع YYYY-MM-DD بدون توقيت:
+ *   • الـ Backend قد يُرجع التاريخ كـ ISO بصيغة UTC (مثل "2026-05-19T21:00:00Z")
+ *     والذي يمثّل في الحقيقة "2026-05-20 00:00 +03:00" بتوقيت بغداد.
+ *   • استخدام `str.slice(0, 10)` يعطي "2026-05-19" (يومٌ سابق) — خطأ!
+ *   • هذه الدالة تحوّل القيمة إلى Date ثم تستخرج Y/M/D بالتوقيت المحلي،
+ *     فتُرجع "2026-05-20" بشكل صحيح.
+ */
+export function toIsoLocalDate(d: string | Date | null | undefined): string {
+  if (!d) return '';
+  const date = typeof d === 'string' ? new Date(d) : d;
+  if (isNaN(date.getTime())) return '';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * يحوّل تاريخ YYYY-MM-DD من حقل `<input type="date">` إلى ISO string آمن للإرسال للـ Backend.
+ *
+ * المشكلة:
+ *   • `new Date("2026-05-20").toISOString()` يُنتج "2026-05-20T00:00:00.000Z" (منتصف ليل UTC)،
+ *     وهذا يقع في يوم سابق بتوقيت بغداد (+03)، مما قد يُسبّب انزياحاً يوماً واحداً عند الحفظ.
+ *   • هذه الدالة تُثبّت التاريخ على منتصف النهار (12:00) بالتوقيت المحلي،
+ *     ثم تحوّله لـ ISO — وبذلك يبقى نفس التاريخ في كل التوقيتات المعقولة.
+ */
+export function isoDateForBackend(localDateYmd: string): string {
+  if (!localDateYmd) return '';
+  // ‎نمرّر مكوّنات السنة/الشهر/اليوم بشكل صريح لمُنشئ Date؛ هذا يُنشئ التاريخ
+  // ‎بالتوقيت المحلي للجهاز عند منتصف النهار (12:00) لتجنّب انزياحات DST/UTC.
+  const [y, m, d] = localDateYmd.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  return new Date(y, m - 1, d, 12, 0, 0, 0).toISOString();
+}
+
 export function formatDateTime(d: string | Date | null | undefined) {
   if (!d) return '—';
   const date = typeof d === 'string' ? new Date(d) : d;

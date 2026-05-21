@@ -21,7 +21,7 @@ interface Props {
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; variant: any }> = {
     Posted: { label: 'مرحَّل', variant: 'success' },
-    Draft: { label: 'مسودة', variant: 'muted' },
+    Draft: { label: 'غير مرحَّل', variant: 'muted' },
     Reversed: { label: 'معكوس', variant: 'destructive' },
   };
   const cfg = map[status] ?? { label: status, variant: 'muted' };
@@ -84,9 +84,25 @@ export function JournalEntryViewDialog({ entryId, onClose, allowEdit = true }: P
             <BookOpen className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-bold">عرض القيد</h2>
             {data?.entryNumber && (
-              <span className="num-display rounded bg-secondary/60 px-2 py-0.5 text-xs text-muted-foreground">
-                {data.entryNumber}
-              </span>
+              <>
+                {data.voucherNumber ? (
+                  <>
+                    <span className="num-display rounded border border-primary/40 bg-primary/15 px-2 py-0.5 text-xs font-bold text-primary">
+                      {data.voucherNumber}
+                    </span>
+                    <span
+                      className="num-display rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                      title="رقم القيد الداخلي"
+                    >
+                      #{data.entryNumber}
+                    </span>
+                  </>
+                ) : (
+                  <span className="num-display rounded bg-secondary/60 px-2 py-0.5 text-xs text-muted-foreground">
+                    #{data.entryNumber}
+                  </span>
+                )}
+              </>
             )}
             <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
               للقراءة فقط

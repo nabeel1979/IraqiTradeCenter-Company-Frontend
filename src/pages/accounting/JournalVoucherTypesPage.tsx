@@ -587,13 +587,13 @@ function VoucherTypeDialog({
                     checked={showInSidebar}
                     onChange={e => setShowInSidebar(e.target.checked)}
                     className="h-4 w-4 accent-primary"
-                    disabled={nature === 'Mixed'}
-                    title={nature === 'Mixed' ? 'يحتاج طبيعة محدّدة (مدين/دائن) لعرضه كصفحة منفصلة' : undefined}
                   />
                   <span className="flex-1">
                     إظهار كصفحة مستقلة في القائمة الجانبية
                     {nature === 'Mixed' && (
-                      <span className="block text-[10px] text-muted-foreground">يلزم اختيار طبيعة مدين أو دائن</span>
+                      <span className="block text-[10px] text-muted-foreground">
+                        نوع مختلط: ستفتح بتصميم القيود اليومية (متعدد البنود)
+                      </span>
                     )}
                   </span>
                 </label>

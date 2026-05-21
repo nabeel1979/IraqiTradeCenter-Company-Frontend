@@ -106,6 +106,10 @@ export interface JournalEntryDto {
   voucherTypeId?: number | null;
   voucherTypeCode?: string | null;
   voucherTypeName?: string | null;
+  /** تسلسل خاص بنوع السند (يبدأ من 1 لكل نوع) */
+  voucherSequence?: number | null;
+  /** رقم السند المُهيّأ للعرض: "{Code}-{Sequence}" مثل "PV-1" */
+  voucherNumber?: string | null;
   /** مصدر القيد — يحدد إن كان مولّداً من نافذة أخرى */
   source?: JournalEntrySource;
   referenceType?: string | null;
@@ -235,9 +239,42 @@ export interface TrialBalanceRowDto {
   accountId: number;
   accountCode: string;
   accountName: string;
-  debit: number;
-  credit: number;
-  balance: number;
+  /** Asset | Liability | Equity | Revenue | Expense */
+  accountType: string;
+  /** Debit | Credit */
+  accountNature: string;
+  level: number;
+  isLeaf: boolean;
+  parentId?: number | null;
+  openingDebit: number;
+  openingCredit: number;
+  periodDebit: number;
+  periodCredit: number;
+  closingDebit: number;
+  closingCredit: number;
+}
+
+export interface TrialBalanceDto {
+  fromDate: string;
+  toDate: string;
+  currency?: string | null;
+  valuated: boolean;
+  baseCurrency: string;
+  fxBulletinName?: string | null;
+  fxBulletinEffectiveAt?: string | null;
+  fxUsedFallback: boolean;
+  maxLevel?: number | null;
+  leavesOnly: boolean;
+  rows: TrialBalanceRowDto[];
+  totalOpeningDebit: number;
+  totalOpeningCredit: number;
+  totalPeriodDebit: number;
+  totalPeriodCredit: number;
+  totalClosingDebit: number;
+  totalClosingCredit: number;
+  totalRevenue: number;
+  totalExpense: number;
+  netIncome: number;
 }
 
 // ── Account Statement (كشف الحساب)
@@ -265,6 +302,12 @@ export interface AccountStatementRowDto {
   referenceId?: number | null;
   /** رقم/كود المرجع لأصل القيد (إن وُجد) */
   referenceNumber?: string | null;
+  /** رقم السند المُهيّأ للعرض ("PV-1") */
+  voucherNumber?: string | null;
+  /** رمز نوع السند ("PV", "RV", "JV") */
+  voucherTypeCode?: string | null;
+  /** التسلسل ضمن نوع السند */
+  voucherSequence?: number | null;
 }
 
 export interface AccountStatementDto {
