@@ -107,15 +107,19 @@ export function Sidebar() {
     staleTime: 60_000,
   });
 
-  // مجموعة "السندات" الديناميكية بناءً على ShowInSidebar + Nature
+  // مجموعة "السندات" الديناميكية بناءً على ShowInSidebar (لجميع الطبائع)
+  // - Debit/Credit → صفحة سند مبسّطة (صندوق + حساب مقابل)
+  // - Mixed → صفحة قيد متعدد البنود (مثل القيود اليومية) مع تثبيت نوع السند
   const dynamicVoucherItems: NavItem[] = useMemo(() => {
     const types = voucherTypesQuery.data ?? [];
     return types
-      .filter(t => t.showInSidebar && (t.nature === 'Debit' || t.nature === 'Credit'))
+      .filter(t => t.showInSidebar)
       .map(t => ({
         to: `/accounting/vouchers/${t.code}`,
         label: t.nameAr,
-        icon: t.nature === 'Debit' ? ArrowDownLeft : ArrowUpRight,
+        icon: t.nature === 'Debit' ? ArrowDownLeft
+          : t.nature === 'Credit' ? ArrowUpRight
+          : BookOpen, // ‎مختلط: أيقونة الدفتر اليومي
       }));
   }, [voucherTypesQuery.data]);
 
@@ -145,25 +149,27 @@ export function Sidebar() {
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 flex w-72 flex-col border-l border-border/60 bg-card/30 backdrop-blur-xl">
-      {/* Brand */}
-      <div className="relative flex h-20 items-center gap-3 border-b border-border/60 px-6">
-        <div className="relative">
-          <div className="absolute inset-0 rounded-full bg-primary/30 blur-md" />
-          <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/60 shadow-lg">
-            <svg viewBox="0 0 24 24" className="h-5 w-5 text-primary-foreground" fill="currentColor">
-              <path d="M12 2l2.4 7.2H22l-6.2 4.4L18.4 22 12 17.4 5.6 22l2.6-8.4L2 9.2h7.6z" />
-            </svg>
-          </div>
-        </div>
+      {/* Brand — clickable, navigates to dashboard */}
+      <NavLink
+        to="/"
+        title="الصفحة الرئيسية"
+        className="group relative flex h-20 items-center gap-3 border-b border-border/60 px-6 transition-colors hover:bg-primary/5"
+      >
+        <img
+          src="/logo.png?v=3"
+          alt="مركز التجارة العراقي"
+          className="h-12 w-12 object-contain transition-transform group-hover:scale-105"
+          draggable={false}
+        />
         <div>
-          <h1 className="font-display text-base font-semibold leading-none tracking-tight">
+          <h1 className="font-display text-base font-semibold leading-none tracking-tight transition-colors group-hover:text-primary">
             مركز التجارة العراقي
           </h1>
           <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-primary/70">
             Iraqi Trade Center
           </p>
         </div>
-      </div>
+      </NavLink>
 
       {/* شريط أدوات الطي العام */}
       <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-2">

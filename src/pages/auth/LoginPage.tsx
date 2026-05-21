@@ -112,14 +112,12 @@ export function LoginPage() {
           {/* Brand */}
           <div className="mb-5 text-center">
             <div className="mb-3 inline-flex">
-              <div className="relative">
-                <div className="absolute inset-0 rounded-full bg-primary/40 blur-xl" />
-                <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-primary via-primary to-primary/60 shadow-2xl shadow-primary/30">
-                  <svg viewBox="0 0 24 24" className="h-5 w-5 text-primary-foreground" fill="currentColor">
-                    <path d="M12 2l2.4 7.2H22l-6.2 4.4L18.4 22 12 17.4 5.6 22l2.6-8.4L2 9.2h7.6z" />
-                  </svg>
-                </div>
-              </div>
+              <img
+                src="/logo.png?v=3"
+                alt="مركز التجارة العراقي"
+                className="h-28 w-28 object-contain"
+                draggable={false}
+              />
             </div>
             <h1 className="font-display text-2xl font-semibold tracking-tight">
               مركز التجارة العراقي

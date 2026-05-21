@@ -66,13 +66,13 @@ export function DashboardPage() {
         <div className="relative flex items-center justify-between gap-4">
           <div className="flex items-center gap-5">
             {/* لوكو مركز التجارة العراقي */}
-            <div className="relative shrink-0">
-              <div className="absolute inset-0 rounded-2xl bg-primary/30 blur-xl" />
-              <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-2xl ring-1 ring-primary/40">
-                <svg viewBox="0 0 24 24" className="h-10 w-10 text-primary-foreground" fill="currentColor">
-                  <path d="M12 2l2.4 7.2H22l-6.2 4.4L18.4 22 12 17.4 5.6 22l2.6-8.4L2 9.2h7.6z" />
-                </svg>
-              </div>
+            <div className="shrink-0">
+              <img
+                src="/logo.png?v=3"
+                alt="مركز التجارة العراقي"
+                className="h-24 w-24 object-contain"
+                draggable={false}
+              />
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-primary/70">{todayDate}</p>
