@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   X, ShieldCheck, ShieldAlert, ShieldOff, KeyRound, Wallet,
   CreditCard, History, Loader2, CheckCircle2, AlertCircle,
+  FlaskConical, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { licenseApi, type LicenseStatus, type ActivationRow } from '@/lib/api/license';
@@ -35,10 +36,11 @@ export function LicenseDialog({ open, onClose }: LicenseDialogProps) {
   const qc = useQueryClient();
   const { can } = usePermissions();
 
-  const canApply  = can(PERMS.System.License.Apply);
+  const canApply    = can(PERMS.System.License.Apply);
+  const canGenerate = can(PERMS.System.License.Generate);
 
   const [code, setCode]               = useState('');
-  const [busy, setBusy]               = useState<'apply' | 'wallet' | 'card' | null>(null);
+  const [busy, setBusy]               = useState<'apply' | 'wallet' | 'card' | 'test-expire' | 'test-restore' | null>(null);
   const [feedback, setFeedback]       = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // إغلاق Esc + قفل scroll الخلفية + تنظيف الحالة عند الإغلاق
@@ -108,6 +110,32 @@ export function LicenseDialog({ open, onClose }: LicenseDialogProps) {
         type: 'success',
         text: result.message ?? `طلب شراء ${result.days} يوم بقيمة ${formatMoney(result.amount)} ${result.currency} (${result.status})`,
       });
+    },
+    onError: (e: unknown) => setFeedback({ type: 'error', text: extractError(e) }),
+    onSettled: () => setBusy(null),
+  });
+
+  const testExpireMut = useMutation({
+    mutationFn: () => licenseApi.testExpire(),
+    onSuccess: () => {
+      setFeedback({
+        type: 'success',
+        text: 'تمّ إنهاء الترخيص للاختبار — النظام الآن في وضع قراءة فقط.',
+      });
+      void qc.invalidateQueries({ queryKey: ['license'] });
+    },
+    onError: (e: unknown) => setFeedback({ type: 'error', text: extractError(e) }),
+    onSettled: () => setBusy(null),
+  });
+
+  const testRestoreMut = useMutation({
+    mutationFn: () => licenseApi.testRestore(30),
+    onSuccess: () => {
+      setFeedback({
+        type: 'success',
+        text: 'تمّ تجديد الترخيص للاختبار بـ 30 يوم — النظام نشط الآن.',
+      });
+      void qc.invalidateQueries({ queryKey: ['license'] });
     },
     onError: (e: unknown) => setFeedback({ type: 'error', text: extractError(e) }),
     onSettled: () => setBusy(null),
@@ -224,7 +252,56 @@ export function LicenseDialog({ open, onClose }: LicenseDialogProps) {
             </section>
           )}
 
-          {/* قسم 4: سجلّ التفعيلات */}
+          {/* قسم 4: أدوات الاختبار (للمسؤول الأعلى فقط) */}
+          {canGenerate && (
+            <section className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <FlaskConical className="h-3.5 w-3.5 text-amber-500" />
+                <h4 className="text-xs font-semibold text-amber-500">أدوات اختبار</h4>
+                <span className="ms-auto rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-500">
+                  مسؤول فقط
+                </span>
+              </div>
+              <p className="mb-2 text-[10px] leading-relaxed text-muted-foreground">
+                يُعدِّل تاريخ انتهاء آخر تفعيل للتحقّق من سلوك "قراءة فقط" بدون انتظار الانتهاء الفعلي.
+                التغيير يُحفظ موقَّعاً ضمن سلسلة التواقيع (Hash Chain).
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBusy('test-expire');
+                    setFeedback(null);
+                    testExpireMut.mutate();
+                  }}
+                  disabled={busy !== null}
+                  className="flex items-center justify-center gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-xs font-medium text-rose-400 transition-colors hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busy === 'test-expire'
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <ShieldOff className="h-3.5 w-3.5" />}
+                  إنهاء فوري
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBusy('test-restore');
+                    setFeedback(null);
+                    testRestoreMut.mutate();
+                  }}
+                  disabled={busy !== null}
+                  className="flex items-center justify-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busy === 'test-restore'
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <RotateCcw className="h-3.5 w-3.5" />}
+                  إعادة + 30 يوم
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* قسم 5: سجلّ التفعيلات */}
           <section className="mt-3">
             <div className="mb-1.5 flex items-center gap-1.5">
               <History className="h-3.5 w-3.5 text-muted-foreground" />
@@ -343,7 +420,7 @@ function BuyDaysGrid({
   status, busy, onBuy,
 }: {
   status: LicenseStatus | undefined;
-  busy: 'apply' | 'wallet' | 'card' | null;
+  busy: 'apply' | 'wallet' | 'card' | 'test-expire' | 'test-restore' | null;
   onBuy: (days: number, method: 'wallet' | 'card') => void;
 }) {
   const [selected, setSelected] = useState<number>(30);

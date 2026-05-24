@@ -319,6 +319,8 @@ export function TrashPage() {
               {filtered.map(it => {
                 const Icon = ICON_MAP[it.icon] ?? Trash2;
                 const blockRestore = !it.canRestore;
+                // ‎canPurge اختياري: لو لم يُرسله الخادم نعتبره true (سلوك سابق).
+                const blockPurge = it.canPurge === false;
                 return (
                   <div
                     key={`${it.entityType}-${it.entityId}`}
@@ -379,7 +381,12 @@ export function TrashPage() {
                             setActionError(null);
                             setPermanentTarget(it);
                           }}
-                          title="حذف نهائي — لا يمكن التراجع"
+                          disabled={blockPurge}
+                          title={
+                            blockPurge
+                              ? it.cannotPurgeReason ?? 'الحذف النهائي محجوب لهذا العنصر'
+                              : 'حذف نهائي — لا يمكن التراجع'
+                          }
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           حذف نهائي

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, ShieldAlert, ShieldOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { licenseApi } from '@/lib/api/license';
@@ -19,6 +19,7 @@ import { LicenseDialog } from './LicenseDialog';
  */
 export function LicenseBadge() {
   const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
 
   // ‎جلب الحالة — staleTime منخفض حتى يتجاوب مع تطبيق شفرة جديدة بسرعة.
   const statusQuery = useQuery({
@@ -29,6 +30,18 @@ export function LicenseBadge() {
     refetchOnWindowFocus: true,
     retry: 1,
   });
+
+  // ‎عند رصد LICENSE_EXPIRED من axios interceptor: أبطل الكاش لتُحدَّث الشارة
+  // ‎فوراً، وافتح نافذة الترخيص لتسهيل التجديد.
+  useEffect(() => {
+    const onExpired = () => {
+      qc.invalidateQueries({ queryKey: ['license', 'status'] });
+      setOpen(true);
+    };
+    window.addEventListener('itc:license-expired', onExpired as EventListener);
+    return () =>
+      window.removeEventListener('itc:license-expired', onExpired as EventListener);
+  }, [qc]);
 
   const view = useMemo(() => {
     const s = statusQuery.data;

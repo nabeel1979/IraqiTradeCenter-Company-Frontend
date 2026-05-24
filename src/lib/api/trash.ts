@@ -19,6 +19,9 @@ export interface TrashItemDto {
   deletedBy?: string | null;
   canRestore: boolean;
   cannotRestoreReason?: string | null;
+  /** هل يسمح بالحذف النهائي؟ false لعناصر الخطأ والعناصر المحمية (مثل قيود مناقلة صندوق). */
+  canPurge?: boolean;
+  cannotPurgeReason?: string | null;
 }
 
 interface TrashListResponse {

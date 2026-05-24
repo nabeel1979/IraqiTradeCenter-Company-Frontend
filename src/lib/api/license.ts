@@ -13,6 +13,8 @@ export interface LicenseStatus {
   isActive: boolean;
   isInGrace: boolean;
   isExpired: boolean;
+  /** true لو رصد الخادم تلاعباً بسلسلة تواقيع التفعيلات (Hash Chain). */
+  isTampered?: boolean;
   lastCode: string | null;
   pricePerDay: number;
   currency: string;
@@ -64,5 +66,13 @@ export const licenseApi = {
   generate: async (days: number): Promise<{ code: string; days: number }> => {
     const res = await api.post<ApiResponse<{ code: string; days: number }>>('/license/generate', { days });
     return res.data.data!;
+  },
+  /** اختبار: إنهاء الترخيص فوراً (يدخل النظام وضع "قراءة فقط"). */
+  testExpire: async (): Promise<void> => {
+    await api.post<ApiResponse<unknown>>('/license/test-expire');
+  },
+  /** اختبار: إعادة الترخيص للوضع النشط (افتراضياً 30 يوم). */
+  testRestore: async (days = 30): Promise<void> => {
+    await api.post<ApiResponse<unknown>>('/license/test-restore', { days });
   },
 };
