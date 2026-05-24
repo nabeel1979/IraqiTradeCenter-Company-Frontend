@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>إعادة ضبط الكاش</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'IBM Plex Sans Arabic', 'Tahoma', sans-serif;
+      background: #0F0F11;
+      color: #E5E5E7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      background: #1A1A1D;
+      border: 1px solid #2A2A30;
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 520px;
+      width: 100%;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #FFB800; }
+    p { line-height: 1.8; margin-bottom: 1rem; color: #C5C5C9; font-size: 0.95rem; }
+    .status {
+      background: #0A0A0C;
+      border: 1px solid #2A2A30;
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-bottom: 1rem;
+      direction: ltr;
+      text-align: left;
+    }
+    .status .ok { color: #22C55E; }
+    .status .warn { color: #FFB800; }
+    .status .err { color: #EF4444; }
+    button {
+      background: #FFB800;
+      color: #0F0F11;
+      border: none;
+      border-radius: 10px;
+      padding: 0.85rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      transition: background 0.2s;
+      font-family: inherit;
+    }
+    button:hover { background: #FFC533; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #FFB800;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>إعادة ضبط الكاش وإلغاء عامل الخدمة</h1>
+    <p>
+      هذه الصفحة تُلغي تسجيل أي Service Worker قديم وتمسح كل البيانات
+      المُخزَّنة في كاش المتصفح، ثم تُعيد توجيهك للنسخة الأحدث من النظام.
+    </p>
+    <p>
+      اضغط الزر أدناه لبدء العملية. ستستغرق ثوانٍ قليلة وتنتهي بإعادة
+      التحميل تلقائياً.
+    </p>
+    <div class="status" id="status">
+      <span class="warn">في انتظار البدء…</span>
+    </div>
+    <button id="run">ابدأ إعادة الضبط الآن</button>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const btn = document.getElementById('run');
+
+    function log(msg, cls) {
+      const line = document.createElement('div');
+      line.className = cls || '';
+      line.textContent = msg;
+      statusEl.appendChild(line);
+      statusEl.scrollTop = statusEl.scrollHeight;
+    }
+
+    async function reset() {
+      btn.disabled = true;
+      btn.innerHTML = 'جارٍ التنفيذ <span class="spinner"></span>';
+      statusEl.innerHTML = '';
+
+      log('▶ بدء إعادة الضبط…', 'warn');
+
+      try {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          log('Found ' + regs.length + ' service worker(s)');
+          for (const reg of regs) {
+            const ok = await reg.unregister();
+            log('  - unregister(' + (reg.scope || '?') + ') = ' + ok, ok ? 'ok' : 'err');
+          }
+        } else {
+          log('Service workers not supported');
+        }
+      } catch (e) {
+        log('SW error: ' + e.message, 'err');
+      }
+
+      try {
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          log('Found ' + keys.length + ' cache(s)');
+          for (const k of keys) {
+            const ok = await caches.delete(k);
+            log('  - delete(' + k + ') = ' + ok, ok ? 'ok' : 'err');
+          }
+        }
+      } catch (e) {
+        log('Cache error: ' + e.message, 'err');
+      }
+
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+        log('localStorage + sessionStorage cleared', 'ok');
+      } catch (e) {
+        log('Storage error: ' + e.message, 'err');
+      }
+
+      log('✓ تم. سيتم إعادة التحميل خلال 1.5 ثانية…', 'ok');
+
+      setTimeout(() => {
+        const url = '/?_reset=' + Date.now();
+        window.location.replace(url);
+      }, 1500);
+    }
+
+    btn.addEventListener('click', reset);
+  </script>
+</body>
+</html>

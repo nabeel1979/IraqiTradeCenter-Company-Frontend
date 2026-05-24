@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { ApiResponse, AccountDto, AccountStatementDto, JournalEntryDto, PagedResult, TrialBalanceDto } from '@/types/api';
+import type { ApiResponse, AccountDto, AccountStatementDto, JournalEntryDto, PagedResult, TrashedAccountDto, TrialBalanceDto } from '@/types/api';
 
 export interface AccountStatementParams {
   from: string;          // YYYY-MM-DD
@@ -75,8 +75,24 @@ export interface UpdateAccountPayload {
 }
 
 export const accountingApi = {
+  /**
+   * شجرة الحسابات المفعَّلة فقط — للاستخدام في شاشات الاختيار
+   * (قيود، صناديق، سندات…). نُبقي على التوقيع بدون باراميتر كي يبقى متوافقاً
+   * مع تمرير الدالة مباشرة كـ queryFn في TanStack Query.
+   */
   getTree: async () => {
     const res = await api.get<ApiResponse<AccountDto[]>>('/accounts/tree');
+    return res.data.data ?? [];
+  },
+  /**
+   * شجرة الحسابات الكاملة (مفعَّلة + معطَّلة) — مخصّصة لشاشة إدارة شجرة
+   * الحسابات حصراً. الـ DTO يحمل `isActive` لتمييز المعطَّل بصرياً وكي يعمل
+   * اقتراح الكود التالي بشكل صحيح حتى عند وجود كودات محجوزة بحسابات معطَّلة.
+   */
+  getFullTree: async () => {
+    const res = await api.get<ApiResponse<AccountDto[]>>('/accounts/tree', {
+      params: { includeInactive: 'true' },
+    });
     return res.data.data ?? [];
   },
   createAccount: async (data: CreateAccountPayload) => {
@@ -87,8 +103,27 @@ export const accountingApi = {
     const res = await api.put<ApiResponse<unknown>>(`/accounts/${id}`, { id, ...data });
     return res.data;
   },
+  /**
+   * حذف ناعم — ينقل الحساب إلى سلة المهملات (يبقى الكود محجوزاً).
+   * للحذف النهائي استخدم {@link permanentlyDeleteAccount} بعد التأكد.
+   */
   deleteAccount: async (id: number) => {
     const res = await api.delete<ApiResponse<unknown>>(`/accounts/${id}`);
+    return res.data;
+  },
+  /** قائمة الحسابات في سلة المهملات (محذوفة ناعماً). */
+  getAccountsTrash: async () => {
+    const res = await api.get<ApiResponse<TrashedAccountDto[]>>('/accounts/trash');
+    return res.data.data ?? [];
+  },
+  /** استعادة حساب من سلة المهملات (يعكس الحذف الناعم). */
+  restoreAccount: async (id: number) => {
+    const res = await api.post<ApiResponse<unknown>>(`/accounts/${id}/restore`);
+    return res.data;
+  },
+  /** حذف نهائي للحساب من DB — مسموح فقط للموجودين في السلة. لا تراجع عن هذا. */
+  permanentlyDeleteAccount: async (id: number) => {
+    const res = await api.delete<ApiResponse<unknown>>(`/accounts/${id}/permanent`);
     return res.data;
   },
   getTrialBalance: async (params: {

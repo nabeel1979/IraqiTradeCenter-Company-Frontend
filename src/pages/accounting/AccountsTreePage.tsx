@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronDown,
@@ -12,7 +13,10 @@ import {
   AlertCircle,
   ListCollapse,
   ListTree,
+  EyeOff,
 } from 'lucide-react';
+import { usePermissions } from '@/lib/auth/usePermissions';
+import { PERMS } from '@/lib/auth/permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -28,6 +32,18 @@ import { formatIQD, cn } from '@/lib/utils';
 import type { AccountDto } from '@/types/api';
 
 const MAX_LEVEL = 5;
+
+/** بحث متعمّق عن حساب بمعرّفه داخل شجرة الحسابات. */
+function findAccountById(tree: AccountDto[], id: number): AccountDto | null {
+  for (const node of tree) {
+    if (node.id === id) return node;
+    if (node.children?.length) {
+      const found = findAccountById(node.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
 
 const ACCOUNT_TYPE_LABELS: Record<number, string> = {
   1: 'أصول',
@@ -49,6 +65,33 @@ const NATURE_LABELS: Record<number, string> = {
   1: 'مدين',
   2: 'دائن',
 };
+
+/**
+ * تصنيف الحساب إلى "ميزانية" أو "أرباح وخسارة" بناءً على أول رقم في الكود:
+ *   • يبدأ بـ 1 (أصول) أو 2 (خصوم/حقوق ملكية) → ميزانية (Balance Sheet)
+ *   • يبدأ بـ 3 (إيرادات) أو 4 (مصاريف)      → أرباح وخسارة (P&L)
+ * إذا لم يبدأ برقم متعارف عليه نُرجع null (لا نعرض البادج).
+ */
+function getAccountCategory(code: string | undefined | null): {
+  label: string;
+  cls: string;
+} | null {
+  if (!code) return null;
+  const first = code.trim().charAt(0);
+  if (first === '1' || first === '2') {
+    return {
+      label: 'ميزانية',
+      cls: 'border-blue-500/40 bg-blue-500/10 text-blue-400',
+    };
+  }
+  if (first === '3' || first === '4') {
+    return {
+      label: 'أرباح وخسارة',
+      cls: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400',
+    };
+  }
+  return null;
+}
 
 // ============================================================
 // Modal بسيط (Portal-less, Radix-less)
@@ -118,6 +161,36 @@ interface FormState {
   isLeaf: boolean;
 }
 
+/**
+ * يقترح الكود التالي لحساب فرعي جديد تحت {@link parent}.
+ *
+ * الخوارزمية: نمسح كل أبناء {@link parent} المباشرين (مفعَّلين + معطَّلين بشرط
+ * أن يكون الـ tree مطلوباً بـ includeInactive=true)، ونستخرج اللاحقة الرقمية
+ * بعد كود الأب لكل ابن، ثم نُرجع `parent.code + (max + 1)`. هذا يضمن:
+ *
+ *   1. التسلسل التصاعدي: لا يُعاد استخدام كود سبق وأُعطي لحساب آخر حتى لو
+ *      تم تعطيله — لأن السجلات المحاسبية القديمة قد تشير إليه برمزه.
+ *   2. لا يقترح كوداً موجوداً بالفعل (سواء مفعَّل أو معطَّل) فيتفادى رسالة
+ *      "رمز الحساب مستخدم بالفعل".
+ *
+ * إذا لم يكن لدى الأب أبناء بَعد → يُقترح `parent.code + "1"`.
+ */
+function suggestNextChildCode(parent: AccountDto): string {
+  const prefix = parent.code;
+  const children = parent.children ?? [];
+  let max = 0;
+  for (const child of children) {
+    if (!child.code.startsWith(prefix)) continue;
+    const suffix = child.code.slice(prefix.length);
+    // ‎نتعامل فقط مع لواحق رقمية بحتة (تتفق مع التقليد المحاسبي العراقي:
+    // ‎كل مستوى يضيف رقماً جديداً للأب)
+    if (!/^\d+$/.test(suffix)) continue;
+    const n = parseInt(suffix, 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${prefix}${max + 1}`;
+}
+
 function initFormFromAccount(a?: AccountDto, parent?: AccountDto | null): FormState {
   if (a) {
     return {
@@ -127,15 +200,13 @@ function initFormFromAccount(a?: AccountDto, parent?: AccountDto | null): FormSt
       type: a.type,
       nature: a.nature,
       description: '',
-      isActive: true,
+      isActive: a.isActive,
       isLeaf: a.isLeaf,
     };
   }
-  // إنشاء جديد: نقترح كوداً تحت الأب (لا نلزم به - مستخدم قد يعدّله)
-  let suggestedCode = '';
-  if (parent) {
-    suggestedCode = `${parent.code}1`;
-  }
+  // إنشاء جديد: نقترح كوداً تحت الأب — تسلسل تصاعدي يأخذ بعين الاعتبار
+  // الحسابات المعطَّلة كي لا يصطدم بكود محجوز.
+  const suggestedCode = parent ? suggestNextChildCode(parent) : '';
   return {
     code: suggestedCode,
     nameAr: '',
@@ -163,24 +234,52 @@ function AccountFormModal({
   account?: AccountDto;
   parent?: AccountDto | null;
   onClose: () => void;
-  onSubmit: (form: FormState) => void;
+  onSubmit: (form: FormState, addAnother: boolean) => void;
   loading: boolean;
   error: string | null;
 }) {
   const [form, setForm] = useState<FormState>(() => initFormFromAccount(account, parent));
+  // ‎مرجع لمعرفة أيّ زرّ ضُغط للإرسال — كي نُبقي النموذج مفتوحاً عند "حفظ وإضافة آخر".
+  // ‎نستخدم ref بدل state كي تكون القيمة جاهزة فوراً للـ onSubmit الذي يلي onClick مباشرة
+  // ‎في نفس tick، بدون انتظار إعادة الرندر.
+  const addAnotherRef = useRef(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) setForm(initFormFromAccount(account, parent));
   }, [open, account, parent]);
 
+  // ‎تركيز تلقائي على حقل الاسم بعد فتح النافذة — يسرّع إدخالات متتالية للإخوة.
+  useEffect(() => {
+    if (open && mode === 'create') {
+      const t = setTimeout(() => nameInputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [open, mode]);
+
   const parentLevel = parent ? parent.level : 0;
   const newLevel = mode === 'create' ? parentLevel + 1 : (account?.level ?? 1);
   const reachedMax = mode === 'create' && newLevel > MAX_LEVEL;
 
+  // ‎تحذير فوري قبل الإرسال: اسم مستخدم تحت نفس الأب (نتطابق مع نفس فحص الباكند:
+  // ‎تطابق بعد قصّ المسافات، نتجاهل الحساب الحالي عند التعديل، ونشمل المعطَّلين).
+  // ‎الصفحة تمرّر `parent` للحالتين معاً: في الإنشاء = الأب الجديد، وفي التعديل =
+  // ‎الأب الفعلي للحساب (يُحدَّد من account.parentId).
+  const nameConflict = useMemo(() => {
+    const typed = form.nameAr.trim();
+    if (!typed) return null;
+    const siblings = parent?.children ?? [];
+    const hit = siblings.find(s => s.nameAr.trim() === typed && s.id !== account?.id);
+    return hit ?? null;
+  }, [form.nameAr, parent?.children, account?.id]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (reachedMax) return;
-    onSubmit(form);
+    if (nameConflict) return; // الباكند سيرفض أيضاً، لكن نمنع المحاولة محلياً
+    const addAnother = addAnotherRef.current;
+    addAnotherRef.current = false; // إعادة تصفير بعد القراءة
+    onSubmit(form, addAnother);
   };
 
   return (
@@ -195,11 +294,33 @@ function AccountFormModal({
           : 'تعديل الحساب'
       }
       footer={
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
             إلغاء
           </Button>
-          <Button type="submit" form="account-form" disabled={loading || reachedMax}>
+          {/* زر إضافي يظهر فقط في الإنشاء تحت أب — يُبقي النافذة مفتوحة لإضافة المزيد. */}
+          {mode === 'create' && parent && (
+            <Button
+              type="submit"
+              form="account-form"
+              variant="secondary"
+              disabled={loading || reachedMax || !!nameConflict}
+              onClick={() => {
+                addAnotherRef.current = true;
+              }}
+              title="يحفظ الحساب الحالي ويُبقي النموذج مفتوحاً لإضافة شقيق جديد تحت نفس الأب"
+            >
+              {loading && addAnotherRef.current ? 'جارٍ الحفظ...' : 'حفظ وإضافة آخر'}
+            </Button>
+          )}
+          <Button
+            type="submit"
+            form="account-form"
+            disabled={loading || reachedMax || !!nameConflict}
+            onClick={() => {
+              addAnotherRef.current = false;
+            }}
+          >
             {loading ? 'جارٍ الحفظ...' : mode === 'create' ? 'إنشاء' : 'حفظ التغييرات'}
           </Button>
         </div>
@@ -250,15 +371,50 @@ function AccountFormModal({
           </div>
         </div>
 
+        {/* بادج تصنيف الحساب: ميزانية أو أرباح وخسارة بناءً على بداية الكود */}
+        {(() => {
+          const cat = getAccountCategory(form.code);
+          if (!cat) return null;
+          return (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">تصنيف الحساب:</span>
+              <span className={cn(
+                'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
+                cat.cls
+              )}>
+                {cat.label}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                (مبني على بادئة الكود — 1/2 = ميزانية، 3/4 = أرباح وخسارة)
+              </span>
+            </div>
+          );
+        })()}
+
         <div>
           <Label className="text-xs">الاسم بالعربية</Label>
           <Input
+            ref={nameInputRef}
             value={form.nameAr}
             onChange={e => setForm(f => ({ ...f, nameAr: e.target.value }))}
             placeholder="مثال: ذمم العملاء"
             required
-            className="h-9"
+            className={cn('h-9', nameConflict && 'border-destructive focus-visible:ring-destructive')}
+            aria-invalid={!!nameConflict}
+            aria-describedby={nameConflict ? 'name-conflict-msg' : undefined}
           />
+          {nameConflict && (
+            <p
+              id="name-conflict-msg"
+              className="mt-1 flex items-start gap-1.5 text-[11px] leading-relaxed text-destructive"
+            >
+              <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>
+                هذا الاسم مستخدم بالفعل تحت نفس الأب{' '}
+                <span className="num-display">({nameConflict.code})</span> — يرجى استخدام اسم مختلف.
+              </span>
+            </p>
+          )}
         </div>
 
         <div>
@@ -365,7 +521,7 @@ function ConfirmDeleteModal({
             إلغاء
           </Button>
           <Button type="button" variant="destructive" onClick={onConfirm} disabled={loading}>
-            {loading ? 'جارٍ الحذف...' : 'تأكيد الحذف'}
+            {loading ? 'جارٍ النقل...' : 'نقل إلى السلة'}
           </Button>
         </div>
       }
@@ -377,15 +533,21 @@ function ConfirmDeleteModal({
         </div>
       )}
       <p className="text-sm">
-        هل أنت متأكد من حذف الحساب{' '}
+        هل أنت متأكد من نقل الحساب{' '}
         <span className="font-bold">
           {account?.code} · {account?.nameAr}
         </span>{' '}
-        ؟
+        إلى سلة المهملات؟
       </p>
-      <p className="mt-2 text-xs text-muted-foreground">
-        لن يتم الحذف إذا كان للحساب فروع تابعة، أو قيود محاسبية، أو رصيد افتتاحي.
-      </p>
+      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+        <p>
+          سيُنقل إلى السلة ويمكن استعادته لاحقاً. لن يتم الحذف إذا كان للحساب فروع تابعة، أو قيود
+          محاسبية، أو رصيد افتتاحي.
+        </p>
+        <p className="text-amber-500">
+          الكود سيبقى محجوزاً حتى تستعيد الحساب أو تحذفه نهائياً من السلة.
+        </p>
+      </div>
     </Modal>
   );
 }
@@ -402,6 +564,7 @@ function AccountNode({
   onAddChild,
   onEdit,
   onDelete,
+  forceShowAll = false,
 }: {
   account: AccountDto;
   depth?: number;
@@ -411,22 +574,55 @@ function AccountNode({
   onAddChild: (parent: AccountDto) => void;
   onEdit: (a: AccountDto) => void;
   onDelete: (a: AccountDto) => void;
+  /**
+   * ‎إن كانت true: نظهر هذا الحساب وكل أبنائه بدون فلتر بحث (يُمرَّر من الأب
+   * ‎عند مطابقة سلفٍ ما — لتُعرض الشجرة الفرعية كاملةً تحت الحساب المطابق).
+   */
+  forceShowAll?: boolean;
 }) {
   const open = expanded.has(account.id);
   const hasChildren = account.children?.length > 0;
 
+  // ‎بحث case-insensitive ويتجاهل المسافات الزائدة
+  const q = search.trim().toLowerCase();
   const matchesSelf =
-    !search || account.code.includes(search) || account.nameAr.includes(search);
+    !q || account.code.toLowerCase().includes(q) || account.nameAr.toLowerCase().includes(q);
+
   const childMatches = (acc: AccountDto): boolean => {
-    if (!search) return true;
-    if (acc.code.includes(search) || acc.nameAr.includes(search)) return true;
+    if (!q) return true;
+    if (acc.code.toLowerCase().includes(q) || acc.nameAr.toLowerCase().includes(q)) return true;
     return acc.children?.some(childMatches) ?? false;
   };
-  const visible = matchesSelf || childMatches(account);
+  // ‎مرئي إذا: (أ) الأب طلب إظهار كل شيء، أو (ب) لا يوجد بحث، أو (ج) هذا الحساب
+  // ‎يطابق، أو (د) أحد أبنائه يطابق (لإظهار المسار للحساب المطابق).
+  const visible = forceShowAll || matchesSelf || childMatches(account);
   if (!visible) return null;
 
+  // ‎عند مطابقة هذا الحساب أو وراثة forceShowAll، نمرّر إظهاراً كاملاً للأبناء
+  // ‎ليُعرضوا جميعاً (بما فيهم غير المطابقين).
+  const childForceShowAll = forceShowAll || (!!q && matchesSelf);
+
+  // ‎مع وجود بحث وعدم وجود forceShowAll: نوسّع الشجرة تلقائياً عند هذه العقدة
+  // ‎لإظهار المسار للنتيجة المطابقة بدون نقرات إضافية.
+  const expandedForSearch = !!q && !forceShowAll && childMatches(account);
+  const showChildren = open || expandedForSearch || forceShowAll;
+
   const colorClass = ACCOUNT_TYPE_COLORS[account.type] ?? 'text-muted-foreground';
-  const canAddChild = account.level < MAX_LEVEL;
+  // ‎الحساب الورقة المرتبط فعلاً بقيد/صندوق/نوع سند/رصيد افتتاحي لا يقبل
+  // ‎إضافة فروع تحته (تكسر سلامة المراجع) ولا يقبل الحذف. الحماية مكرَّرة على
+  // ‎الخادم — هذا الإخفاء فقط لتحسين تجربة المستخدم.
+  const blocked = account.isUsed === true;
+  // ‎الحساب المعطَّل (IsActive=false) لا تظهر له صلاحية إضافة فرع — لأن الفرع
+  // ‎الجديد سيكون أيضاً غير قابل للاستخدام في شاشات الاختيار. على المستخدم
+  // ‎تفعيله أولاً عبر شاشة التعديل، أو اختيار حساب أب آخر.
+  const inactive = account.isActive === false;
+  const canAddChild = account.level < MAX_LEVEL && !blocked && !inactive;
+  // ‎الحساب الذي له أبناء لا يقبل الحذف (يجب حذف أبنائه أولاً) — نخفي الأيقونة
+  // ‎بدلاً من إظهارها وفشل العملية لاحقاً.
+  const canDelete = !blocked && !hasChildren;
+
+  // ‎نُبرز هذا الحساب بإطار/خلفية مميّزة عند مطابقة البحث ليلفت النظر بسهولة
+  const isSearchHit = !!q && (account.code.toLowerCase().includes(q) || account.nameAr.toLowerCase().includes(q));
 
   return (
     <div>
@@ -434,7 +630,10 @@ function AccountNode({
         className={cn(
           'group flex items-center gap-2 rounded-md py-2 pl-2 pr-3 text-sm hover:bg-accent/40',
           'border-r-2 border-transparent',
-          depth === 0 && 'border-r-primary/40 bg-secondary/30 font-semibold'
+          depth === 0 && 'border-r-primary/40 bg-secondary/30 font-semibold',
+          // ‎الحساب المعطَّل: عتم خفيف على المحتوى بأكمله مع خلفية محايدة لتمييزه
+          inactive && 'opacity-60 saturate-50',
+          isSearchHit && 'bg-primary/10 ring-1 ring-primary/40'
         )}
         style={{ paddingRight: `${0.75 + depth * 1.25}rem` }}
       >
@@ -450,8 +649,22 @@ function AccountNode({
           <Wallet className={cn('h-4 w-4', colorClass)} />
         )}
 
-        <span className="num-display text-xs text-muted-foreground">{account.code}</span>
-        <span className={cn('flex-1', !account.isLeaf && 'font-medium')}>{account.nameAr}</span>
+        <span className={cn('num-display text-xs text-muted-foreground', inactive && 'line-through')}>
+          {account.code}
+        </span>
+        <span className={cn('flex-1', !account.isLeaf && 'font-medium', inactive && 'line-through')}>
+          {account.nameAr}
+        </span>
+
+        {inactive && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500"
+            title="هذا الحساب معطَّل — لا يظهر في شاشات الاختيار، لكن كوده محجوز. يمكنك تفعيله من زرّ التعديل."
+          >
+            <EyeOff className="h-3 w-3" />
+            معطَّل
+          </span>
+        )}
 
         <span className="hidden text-[10px] text-muted-foreground md:inline">
           L{account.level} · {NATURE_LABELS[account.nature] ?? '—'}
@@ -462,6 +675,18 @@ function AccountNode({
             {ACCOUNT_TYPE_LABELS[account.type] ?? '—'}
           </span>
         )}
+        {depth === 0 && (() => {
+          const cat = getAccountCategory(account.code);
+          if (!cat) return null;
+          return (
+            <span className={cn(
+              'hidden rounded-full border px-2 py-0.5 text-[10px] font-medium md:inline',
+              cat.cls
+            )}>
+              {cat.label}
+            </span>
+          );
+        })()}
         {account.openingBalance !== 0 && (
           <span className="num-display text-xs text-muted-foreground">
             {formatIQD(account.openingBalance)}
@@ -487,18 +712,20 @@ function AccountNode({
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
-          <button
-            type="button"
-            onClick={() => onDelete(account)}
-            className="rounded p-1 hover:bg-destructive/20 hover:text-destructive"
-            title="حذف"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(account)}
+              className="rounded p-1 hover:bg-destructive/20 hover:text-destructive"
+              title="حذف"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
-      {hasChildren && open && (
+      {hasChildren && showChildren && (
         <div>
           {account.children.map(child => (
             <AccountNode
@@ -511,6 +738,7 @@ function AccountNode({
               onAddChild={onAddChild}
               onEdit={onEdit}
               onDelete={onDelete}
+              forceShowAll={childForceShowAll}
             />
           ))}
         </div>
@@ -523,6 +751,7 @@ function AccountNode({
 // Page
 // ============================================================
 export function AccountsTreePage() {
+  const { can } = usePermissions();
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>('create');
@@ -535,10 +764,17 @@ export function AccountsTreePage() {
 
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
+  // ‎مفتاح يُجبر إعادة بناء AccountFormModal بعد كل عملية "حفظ وإضافة آخر"
+  // ‎حتى يُعاد احتساب الكود المقترح ويُمسح اسم/وصف الحساب السابق.
+  const [formInstanceId, setFormInstanceId] = useState(0);
+
   const qc = useQueryClient();
+  // ‎شاشة الإدارة هي الموضع الوحيد الذي يطلب الحسابات المعطَّلة، كي يرى المستخدم
+  // ‎شجرة كاملة (مفعَّلة + معطَّلة) ويفهم لماذا قد يُرفض كود معيّن لتكراره.
+  // ‎باقي الشاشات (قيود/صناديق/سندات) تستدعي getTree() فتأخذ المفعَّلة فقط.
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['accounts-tree'],
-    queryFn: () => accountingApi.getTree(),
+    queryKey: ['accounts-tree', 'all'],
+    queryFn: accountingApi.getFullTree,
   });
 
   const toggle = useCallback((id: number) => {
@@ -563,15 +799,39 @@ export function AccountsTreePage() {
   }, [data]);
 
   const createMut = useMutation({
-    mutationFn: (payload: CreateAccountPayload) => accountingApi.createAccount(payload),
-    onSuccess: res => {
+    mutationFn: async (vars: { payload: CreateAccountPayload; addAnother: boolean }) => {
+      const res = await accountingApi.createAccount(vars.payload);
+      return { res, addAnother: vars.addAnother };
+    },
+    onSuccess: async ({ res, addAnother }) => {
       if (!res.success) {
         setFormError(res.errors?.join(' / ') ?? 'فشل الإنشاء');
         return;
       }
+      setFormError(null);
+      // ‎"حفظ وإضافة آخر": نُبقي النافذة مفتوحة ونُجهّز الفورم لإخوة جدد تحت نفس الأب.
+      if (addAnother && parentAccount) {
+        // ‎ننتظر إعادة الجلب فعلياً (await) كي يكون مرجع الأب الجديد يحوي الابن الذي
+        // ‎أُنشئ للتو، وبالتالي يُحتسب الكود التالي بشكل صحيح في الفورم القادم.
+        await qc.invalidateQueries({ queryKey: ['accounts-tree'] });
+        const fresh = qc.getQueryData<AccountDto[]>(['accounts-tree']);
+        if (fresh) {
+          const updatedParent = findAccountById(fresh, parentAccount.id);
+          if (updatedParent) setParentAccount(updatedParent);
+        }
+        // ‎نوسّع الأب كي يرى المستخدم الحساب الذي أنشأه للتو في الشجرة خلف النافذة.
+        setExpanded(prev => {
+          if (prev.has(parentAccount.id)) return prev;
+          const next = new Set(prev);
+          next.add(parentAccount.id);
+          return next;
+        });
+        // ‎بدّل key لإعادة mount للنموذج (مسح الاسم/الوصف + احتساب كود جديد).
+        setFormInstanceId(n => n + 1);
+        return;
+      }
       qc.invalidateQueries({ queryKey: ['accounts-tree'] });
       setFormOpen(false);
-      setFormError(null);
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { errors?: string[] } } };
@@ -628,12 +888,22 @@ export function AccountsTreePage() {
     setParentAccount(parent);
     setFormError(null);
     setFormOpen(true);
+    // ‎وسّع الأب فوراً كي يرى المستخدم سياق الإضافة في الشجرة، ويستطيع المتابعة
+    // ‎بإضافة أكثر من ابن دون إعادة العثور على الأب وفتحه يدوياً.
+    setExpanded(prev => {
+      if (prev.has(parent.id)) return prev;
+      const next = new Set(prev);
+      next.add(parent.id);
+      return next;
+    });
   };
 
   const handleEdit = (a: AccountDto) => {
     setFormMode('edit');
     setEditingAccount(a);
-    setParentAccount(null);
+    // ‎نمرّر الأب الفعلي للحساب أيضاً في وضع التعديل، كي يعمل فحص تكرار الاسم
+    // ‎بين الإخوة داخل الـ Modal بشكل صحيح (يستثني الحساب نفسه).
+    setParentAccount(a.parentId ? findAccountById(data ?? [], a.parentId) : null);
     setFormError(null);
     setFormOpen(true);
   };
@@ -644,17 +914,20 @@ export function AccountsTreePage() {
     setDeleteOpen(true);
   };
 
-  const submitForm = (form: FormState) => {
+  const submitForm = (form: FormState, addAnother: boolean) => {
     if (formMode === 'create') {
       createMut.mutate({
-        code: form.code,
-        nameAr: form.nameAr,
-        nameEn: form.nameEn || null,
-        type: form.type,
-        nature: form.nature,
-        parentId: parentAccount?.id ?? null,
-        isLeaf: form.isLeaf,
-        description: form.description || null,
+        payload: {
+          code: form.code,
+          nameAr: form.nameAr,
+          nameEn: form.nameEn || null,
+          type: form.type,
+          nature: form.nature,
+          parentId: parentAccount?.id ?? null,
+          isLeaf: form.isLeaf,
+          description: form.description || null,
+        },
+        addAnother,
       });
     } else if (editingAccount) {
       updateMut.mutate({
@@ -672,14 +945,16 @@ export function AccountsTreePage() {
   };
 
   const stats = useMemo(() => {
-    if (!data) return { total: 0 };
+    if (!data) return { total: 0, inactive: 0 };
     let total = 0;
+    let inactive = 0;
     const walk = (a: AccountDto) => {
       total++;
+      if (a.isActive === false) inactive++;
       a.children?.forEach(walk);
     };
     data.forEach(walk);
-    return { total };
+    return { total, inactive };
   }, [data]);
 
   if (isLoading) return <LoadingSpinner text="جاري تحميل شجرة الحسابات..." />;
@@ -695,46 +970,75 @@ export function AccountsTreePage() {
 
   return (
     <div className="space-y-5">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+      <Card className="overflow-hidden">
+        <CardHeader className="space-y-3">
+          {/* عنوان البطاقة + زر "حساب جذر جديد" — صفّ واحد، يلتفّ على الجوال */}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
               <CardTitle>شجرة الحسابات</CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
                 {stats.total} حساب · {data.length} مجموعة رئيسية · حد المستويات {MAX_LEVEL}
+                {stats.inactive > 0 && (
+                  <>
+                    {' · '}
+                    <span className="text-amber-500">
+                      {stats.inactive} معطَّل
+                    </span>
+                  </>
+                )}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="relative w-64">
-                <Input
-                  placeholder="ابحث بالكود أو الاسم..."
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={collapseAll}
-                title="طي كل المستويات (إظهار المستوى الأول فقط)"
-              >
-                <ListCollapse className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={expandAll}
-                title="توسيع كل المستويات"
-              >
-                <ListTree className="h-4 w-4" />
-              </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              {can(PERMS.System.Trash.Read) && (
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  title="فتح سلة المهملات الموحَّدة لكل النظام"
+                >
+                  <Link to="/system/trash">
+                    <Trash2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">السلة</span>
+                  </Link>
+                </Button>
+              )}
               <Button onClick={handleAddRoot} size="sm">
                 <Plus className="h-4 w-4" />
-                حساب جذر جديد
+                <span className="hidden sm:inline">حساب جذر جديد</span>
+                <span className="sm:hidden">جذر جديد</span>
               </Button>
             </div>
+          </div>
+
+          {/* صفّ البحث + أزرار الطي/التوسيع — البحث يأخذ المساحة المتبقية */}
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Input
+                placeholder="ابحث بالكود أو الاسم..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={collapseAll}
+              title="طي كل المستويات (إظهار المستوى الأول فقط)"
+              className="shrink-0"
+            >
+              <ListCollapse className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={expandAll}
+              title="توسيع كل المستويات"
+              className="shrink-0"
+            >
+              <ListTree className="h-4 w-4" />
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -761,6 +1065,7 @@ export function AccountsTreePage() {
       </Card>
 
       <AccountFormModal
+        key={formInstanceId}
         open={formOpen}
         mode={formMode}
         account={editingAccount}

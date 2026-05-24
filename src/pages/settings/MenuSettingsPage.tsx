@@ -1,20 +1,37 @@
+import { useMemo } from 'react';
 import { ListChecks, Lock, ArrowRight, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { NAV_GROUPS } from '@/components/layout/Sidebar';
+import { NAV_GROUPS, type NavGroup } from '@/components/layout/Sidebar';
 import { useSidebarPrefs } from '@/lib/sidebarPreferences';
+import { usePermissions } from '@/lib/auth/usePermissions';
 
 export function MenuSettingsPage() {
   const navigate = useNavigate();
   const { isHidden, isCollapsed, setHidden, setAllCollapsed } = useSidebarPrefs();
-  const visibleCount = NAV_GROUPS.filter(g => g.mandatory || !isHidden(g.key)).length;
+  const { can } = usePermissions();
+
+  // ‎نُسقط من قائمة الإعدادات أي قسم لا يملك المستخدم صلاحية القراءة على
+  // ‎أي عنصر فرعي بداخله — هذا يطابق سلوك الـ Sidebar الفعلي ويُخفي مثلاً
+  // ‎"الفواتير" و"المستودعات" عن المستخدم الذي لا يملك أي صلاحية فيها.
+  // ‎الأقسام المباشرة (direct: true مثل الرئيسية) تبقى مرئية.
+  const groups: NavGroup[] = useMemo(() => {
+    return NAV_GROUPS
+      .map(g => ({
+        ...g,
+        items: g.items.filter(i => !i.permission || can(i.permission)),
+      }))
+      .filter(g => g.direct || g.items.length > 0);
+  }, [can]);
+
+  const visibleCount = groups.filter(g => g.mandatory || !isHidden(g.key)).length;
   // الأقسام القابلة للطي فقط (الأقسام direct لا تُطوى)
-  const allKeys = NAV_GROUPS.filter(g => !g.direct).map(g => g.key);
+  const allKeys = groups.filter(g => !g.direct).map(g => g.key);
 
   const resetAll = () => {
     // أظهر الكل وافتح الكل
-    NAV_GROUPS.forEach(g => {
+    groups.forEach(g => {
       if (!g.mandatory) setHidden(g.key, false);
     });
     setAllCollapsed(allKeys, false);
@@ -57,11 +74,11 @@ export function MenuSettingsPage() {
           <CardTitle>إظهار / إخفاء الأقسام</CardTitle>
           <CardDescription>
             اختر الأقسام التي تريد إظهارها في القائمة الجانبية
-            ({visibleCount} من {NAV_GROUPS.length} ظاهر)
+            ({visibleCount} من {groups.length} ظاهر)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          {NAV_GROUPS.map(group => {
+          {groups.map(group => {
             const Icon = group.icon;
             const hidden = !group.mandatory && isHidden(group.key);
             return (
@@ -132,7 +149,7 @@ export function MenuSettingsPage() {
             </Button>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
-            {NAV_GROUPS.map(group => {
+            {groups.map(group => {
               const Icon = group.icon;
               const collapsed = isCollapsed(group.key);
               const hidden = !group.mandatory && isHidden(group.key);
@@ -156,7 +173,7 @@ export function MenuSettingsPage() {
                       checked={!collapsed}
                       onChange={e => {
                         const map: Record<string, boolean> = {};
-                        NAV_GROUPS.forEach(g => { map[g.key] = isCollapsed(g.key); });
+                        groups.forEach(g => { map[g.key] = isCollapsed(g.key); });
                         map[group.key] = !e.target.checked;
                         setAllCollapsed(
                           Object.keys(map).filter(k => map[k]),

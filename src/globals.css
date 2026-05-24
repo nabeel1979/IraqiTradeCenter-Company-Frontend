@@ -11,30 +11,39 @@
 
 @layer base {
   :root {
-    /* Light mode (fallback, mainly print) */
-    --background: 36 30% 97%;
-    --foreground: 25 20% 12%;
-    --card: 36 25% 99%;
-    --card-foreground: 25 20% 12%;
-    --popover: 36 25% 99%;
-    --popover-foreground: 25 20% 12%;
-    --primary: 35 45% 45%;
-    --primary-foreground: 36 30% 97%;
-    --secondary: 36 20% 92%;
-    --secondary-foreground: 25 20% 18%;
-    --muted: 36 15% 90%;
-    --muted-foreground: 25 10% 40%;
-    --accent: 35 50% 88%;
-    --accent-foreground: 25 25% 18%;
-    --destructive: 0 70% 50%;
-    --destructive-foreground: 0 0% 98%;
-    --success: 145 35% 40%;
-    --success-foreground: 0 0% 98%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 12%;
-    --border: 36 15% 85%;
-    --input: 36 15% 88%;
-    --ring: 35 45% 45%;
+    /* ════════════════════════════════════════════════════════════
+       Light mode — متطابق مع تصميم نسخة طباعة السندات الرسمية
+       فلسفة:
+         • خلفية رمادية باردة (#e9ecef) — توازن ورق المستندات الفاخر
+         • بطاقات أبيض نقي بظل خفيف وحدود ناعمة كحواف الورق
+         • أساسي: ذهبي عنبري دافئ (#d4a017) — لون شعار الذهب الرسمي
+         • Accent كريمي (#fff8e1) — مطابق لخلفية حقول المبالغ في السندات
+         • أخضر إيرادات عميق (#155724) وأحمر مصاريف فاخر (#721c24)
+         • نصوص "Slate"  داكنة (#1a242f) لقراءة مالية واضحة
+    ═══════════════════════════════════════════════════════════════ */
+    --background: 210 14% 95%;           /* ‎رمادي بارد لطيف (ورق وثائق) */
+    --foreground: 210 30% 14%;           /* ‎Slate غامق #1a242f */
+    --card: 0 0% 100%;                   /* ‎أبيض نقي */
+    --card-foreground: 210 30% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 30% 14%;
+    --primary: 42 78% 45%;               /* ‎ذهبي عنبري #d4a017 (دافئ، رسمي) */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 216 16% 96%;            /* ‎رمادي بارد ناعم #f5f7fa */
+    --secondary-foreground: 210 28% 20%;
+    --muted: 216 16% 96%;
+    --muted-foreground: 215 12% 42%;     /* ‎رمادي قراءة #555-#666 */
+    --accent: 48 95% 94%;                /* ‎كريم #fff8e1 — مطابق لحقل المبلغ في السند */
+    --accent-foreground: 38 92% 25%;     /* ‎عنبري داكن #8a6d00 */
+    --destructive: 355 60% 28%;          /* ‎أحمر فاخر #721c24 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 145 65% 22%;              /* ‎أخضر إيرادات #155724 */
+    --success-foreground: 0 0% 100%;
+    --warning: 42 78% 45%;               /* ‎عنبري متناغم مع الأساسي */
+    --warning-foreground: 0 0% 100%;
+    --border: 215 14% 89%;               /* ‎حدود رمادية ناعمة كحدود السند */
+    --input: 215 14% 89%;
+    --ring: 42 78% 45%;
     --radius: 0.5rem;
   }
 
@@ -66,10 +75,22 @@
   }
 
   * { @apply border-border; }
-  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* احترام الـ safe-area على iPhone (notch/home indicator) */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    background: hsl(var(--background));
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: 'rlig' 1, 'calt' 1, 'ss01' 1, 'cv11' 1, 'tnum' 1;
+    /* امنع تمرير الـ overflow والاهتزاز على iOS */
+    overscroll-behavior-y: none;
+  }
+  /* امنع iOS من تكبير الإدخال تلقائياً (يحدث عندما يكون font-size < 16px) */
+  @media (max-width: 640px) {
+    input, select, textarea { font-size: 16px !important; }
   }
 
   /* Refined scrollbar */
@@ -86,6 +107,19 @@
 }
 
 @layer components {
+  /* ‎ارتفاع البطاقات في الوضع النهاري: ظل بمستويين كنسخة الطباعة الرسمية.
+     الأول حافة دقيقة 1px لرسم حدود البطاقة، الثاني أوسع لإيحاء عمق
+     ورق المستند. الوضع الليلي يلغي الظلال (الحدود تكفي). */
+  :root .bg-card {
+    box-shadow:
+      0 0 0 1px rgb(26 36 47 / 0.05),
+      0 1px 2px 0 rgb(26 36 47 / 0.04),
+      0 4px 16px -2px rgb(26 36 47 / 0.06);
+  }
+  .dark .bg-card {
+    box-shadow: none;
+  }
+
   /* Subtle ambient gradient for hero sections */
   .gradient-hero {
     background:
@@ -122,6 +156,19 @@
     @apply transition-colors hover:bg-accent/30;
   }
 
+  /* الجداول على الجوال: نص أصغر و padding أقل لتفادي القصّ */
+  @media (max-width: 640px) {
+    .data-table { font-size: 0.78rem; }
+    .data-table th { @apply px-2 py-2; }
+    .data-table td { @apply px-2 py-2; }
+  }
+
+  /* تمرير أفقي للجدول في الجوال — يلفّ <table> داخل <div class="table-scroll"> */
+  .table-scroll {
+    @apply -mx-2 overflow-x-auto sm:mx-0;
+    -webkit-overflow-scrolling: touch;
+  }
+
   /* تقرير كشف الحساب: تجاوز تجريد الجدول حتى لا تُقصّ أيادٍ ضبط الأعمدة */
   .account-statement-report.data-table thead {
     text-transform: none;
@@ -143,9 +190,18 @@
     @apply font-mono tabular-nums tracking-tight;
   }
 
-  /* KPI value */
+  /* KPI value - مرن مع شاشات الموبايل + يمنع كسر "د.ع" بين الحرفين.
+     overflow-wrap: anywhere كان يكسر "د.ع" عند نقطة العطف فيظهر "ع." لوحده.
+     normal + keep-all يحافظ على الـ token كاملاً مع السماح بكسره عند المسافة. */
   .kpi-value {
-    @apply font-display text-3xl font-semibold tracking-tight tnum;
+    @apply font-display text-2xl font-semibold tracking-tight tnum sm:text-3xl;
+    word-break: keep-all;
+    overflow-wrap: normal;
+    line-height: 1.2;
+  }
+  /* ‎في الشاشات الضيقة جداً نُصغّر الخط ليتسع الرقم في سطر واحد بدل كسره. */
+  @media (max-width: 480px) {
+    .kpi-value { font-size: 1.25rem; }
   }
 }
 

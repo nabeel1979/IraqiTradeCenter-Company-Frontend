@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Bell, Calendar, RefreshCw, ArrowDownLeft, ArrowUpRight, BookOpen } from 'lucide-react';
+import { Bell, Calendar, RefreshCw, ArrowDownLeft, ArrowUpRight, BookOpen, Menu, Sun, Moon } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/hooks/useTheme';
+import { LicenseBadge } from '@/components/license/LicenseBadge';
 
 const routeTitles: Record<string, { title: string; description?: string }> = {
   '/': { title: 'لوحة القيادة', description: 'نظرة عامة على أعمال الشركة' },
@@ -15,6 +17,8 @@ const routeTitles: Record<string, { title: string; description?: string }> = {
   '/inventory/movements': { title: 'حركات المخزون', description: 'سجل دخول وخروج المواد' },
   '/orders': { title: 'الطلبيات الواردة', description: 'طلبيات من تجار المنصة' },
   '/accounting/accounts': { title: 'شجرة الحسابات', description: 'الهيكل المحاسبي الكامل' },
+  '/accounting/accounts/trash': { title: 'سلة المهملات — الحسابات', description: 'الحسابات المحذوفة مؤقتاً — قابلة للاستعادة' },
+  '/system/trash': { title: 'سلة المهملات', description: 'كل المحذوفات في النظام — قابلة للاستعادة أو الحذف النهائي' },
   '/accounting/journal': { title: 'القيود المحاسبية', description: 'القيود اليومية المرحّلة' },
   '/accounting/journal/new': { title: 'قيد محاسبي جديد', description: 'إنشاء قيد محاسبي' },
   '/accounting/trial-balance': { title: 'ميزان المراجعة', description: 'الأرصدة المدينة والدائنة' },
@@ -41,11 +45,17 @@ function matchVoucherReportCode(pathname: string): string | null {
   return m ? decodeURIComponent(m[1]).toUpperCase() : null;
 }
 
-export function TopBar() {
+interface TopBarProps {
+  /** يفتح الـ Sidebar Drawer على الجوال — يُمرَّر من Layout. */
+  onOpenSidebar?: () => void;
+}
+
+export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
   const location = useLocation();
   const meta = matchTitle(location.pathname);
   const voucherCode = matchVoucherReportCode(location.pathname);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { theme, toggleTheme } = useTheme();
 
   // ‎جلب أنواع السندات لعرض بطاقة الرأس في تقارير السندات المخصّصة
   const voucherTypesQuery = useQuery({
@@ -101,33 +111,45 @@ export function TopBar() {
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 h-20 border-b border-border/60 bg-background/80 backdrop-blur-xl">
-      <div className="flex h-full items-center justify-between px-8">
+    <header className="sticky top-0 z-30 h-16 border-b border-border/60 bg-background/85 backdrop-blur-xl sm:h-20">
+      <div className="flex h-full items-center justify-between gap-2 px-3 sm:px-6 lg:px-8">
+        {/* Hamburger — يظهر فقط على الشاشات الأصغر من lg */}
+        {onOpenSidebar && (
+          <button
+            type="button"
+            onClick={onOpenSidebar}
+            aria-label="فتح القائمة"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
+
         {/* Title */}
         {voucherType ? (
           // ‎بطاقة نوع السند — تحلّ محل العنوان النصي العام في مسارات تقارير السندات
-          <div className="flex items-center gap-2.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
             {voucherType.nature === 'Debit' ? (
-              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-400">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-400 sm:h-10 sm:w-10">
                 <ArrowDownLeft className="h-5 w-5" />
               </span>
             ) : voucherType.nature === 'Credit' ? (
-              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-500/15 text-amber-400">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-400 sm:h-10 sm:w-10">
                 <ArrowUpRight className="h-5 w-5" />
               </span>
             ) : (
-              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/15 text-primary">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary sm:h-10 sm:w-10">
                 <BookOpen className="h-5 w-5" />
               </span>
             )}
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
-                <h2 className="font-display text-xl font-semibold leading-none tracking-tight">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate font-display text-base font-semibold leading-none tracking-tight sm:text-xl">
                   {voucherType.nameAr}
                 </h2>
                 <span
                   className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                    'hidden rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline',
                     voucherType.nature === 'Debit'
                       ? 'bg-emerald-500/15 text-emerald-400'
                       : voucherType.nature === 'Credit'
@@ -142,37 +164,42 @@ export function TopBar() {
                   }
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">سجلّ السندات وتقريرها</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">سجلّ السندات وتقريرها</p>
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-0.5">
-            <h2 className="font-display text-2xl font-semibold tracking-tight">{meta.title}</h2>
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <h2 className="truncate font-display text-base font-semibold tracking-tight sm:text-2xl">
+              {meta.title}
+            </h2>
             {meta.description && (
-              <p className="text-xs text-muted-foreground">{meta.description}</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">{meta.description}</p>
             )}
           </div>
         )}
 
-        {/* Search + Actions */}
-        <div className="flex items-center gap-3">
-          <div className="relative w-72">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="search"
-              placeholder="بحث سريع..."
-              className="w-full rounded-md border border-border bg-secondary/40 py-2 pr-10 pl-3 text-sm placeholder:text-muted-foreground/60 focus:border-primary/50 focus:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring transition-colors"
-            />
-            <kbd className="absolute left-3 top-1/2 hidden -translate-y-1/2 select-none rounded border border-border/50 bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline-block">
-              Ctrl K
-            </kbd>
-          </div>
+        {/* License Badge + Actions */}
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          {/* ‎شارة ترخيص النظام — تحلّ محلّ صندوق البحث القديم.
+              تُظهر عدّاداً تنازلياً بالأيام المتبقية + تفتح حواراً للتفعيل والشراء. */}
+          <LicenseBadge />
 
-          <button className="flex h-10 items-center gap-2 rounded-md border border-border bg-secondary/40 px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+          {/* التاريخ: مخفي على الجوال (يأخذ مساحة كبيرة)؛ يظهر من md */}
+          <button className="hidden h-10 items-center gap-2 rounded-md border border-border bg-secondary/40 px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:flex">
             <Calendar className="h-4 w-4" />
             <span className="tnum">
               {new Intl.DateTimeFormat('ar-IQ', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}
             </span>
+          </button>
+
+          {/* ‎تبديل الوضع: ليلي/نهاري — يحفظ التفضيل في localStorage */}
+          <button
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'تفعيل الوضع النهاري' : 'تفعيل الوضع الليلي'}
+            aria-label={theme === 'dark' ? 'تفعيل الوضع النهاري' : 'تفعيل الوضع الليلي'}
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-amber-400"
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
           <button

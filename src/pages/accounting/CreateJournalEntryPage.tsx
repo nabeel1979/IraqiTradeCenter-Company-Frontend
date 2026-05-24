@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Save, Search, Trash2, ArrowRight,
-  AlertTriangle, BookOpen, X, CheckCircle2, Printer, FilePlus2,
+  AlertTriangle, BookOpen, X, CheckCircle2, Printer, FilePlus2, Lock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,8 @@ import { companySettingsApi } from '@/lib/api/companySettings';
 import { currenciesApi } from '@/lib/api/currencies';
 import { journalVoucherTypesApi, type JournalVoucherTypeDto } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
+import { fiscalYearsApi } from '@/lib/api/fiscalYears';
+import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { printSingleJournalEntry } from '@/lib/printUtils';
 import { formatAmount, cn, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
 import type { AccountDto } from '@/types/api';
@@ -118,6 +120,29 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const voucherTypeAppliedRef = useRef<number | null>(null);
 
+  // ‎حالة الفترة المحاسبية لتاريخ القيد: تتبدّل مع كل تعديل لـ entryDate.
+  // ‎عندما تكون الفترة مغلقة/مقفلة (أو السنة مغلقة) ⇒ الصفحة قراءة فقط:
+  // ‎تختفي أزرار الحفظ/الحذف ويظهر شريط تنبيه واضح للمستخدم.
+  const periodStatusQuery = useQuery({
+    queryKey: ['period-status', entryDate],
+    queryFn: () => fiscalYearsApi.getPeriodStatusByDate(entryDate),
+    enabled: !!entryDate,
+    staleTime: 30_000,
+  });
+  const periodStatus = periodStatusQuery.data ?? null;
+
+  // ‎السنة المالية المُفَعَّلة — مرجع مستقلّ عن الفترات: حتى لو كانت
+  // ‎الفترة مفتوحة، لا يُسمح بتعديل قيد ينتمي لسنة مالية أخرى.
+  const { activeFiscalYear } = useActiveFiscalYear();
+  const isPeriodLocked = !!periodStatus && !periodStatus.isEditable;
+  const periodLockReason = (() => {
+    if (!periodStatus) return null;
+    if (periodStatus.fiscalYearIsClosed) return `السنة المالية "${periodStatus.fiscalYearName}" مغلقة`;
+    if (periodStatus.periodStatus === 2) return `الفترة ${periodStatus.periodNumber} مغلقة`;
+    if (periodStatus.periodStatus === 3) return `الفترة ${periodStatus.periodNumber} مقفلة`;
+    return null;
+  })();
+
   // ── جلب الحسابات
   const treeQuery = useQuery({
     queryKey: ['accounts', 'tree'],
@@ -189,6 +214,19 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     queryFn: () => accountingApi.getJournalEntryById(editId!),
     enabled: isEdit,
   });
+
+  // ‎تاريخ القيد الأصلي كما هو في قاعدة البيانات. نستخدمه (وليس قيمة
+  // ‎حقل التاريخ في النموذج) لتقييم انتماء القيد للسنة النشطة، فلا
+  // ‎يستطيع المستخدم الالتفاف على القيد عبر تعديل التاريخ في الحقل.
+  const originalEntryDate = isEdit ? editQuery.data?.entryDate ?? null : null;
+  const isOriginalOutsideActiveFY =
+    isEdit &&
+    !!activeFiscalYear &&
+    !!originalEntryDate &&
+    !isDateInFiscalYear(originalEntryDate, activeFiscalYear);
+  const outsideFYReason = isOriginalOutsideActiveFY && activeFiscalYear
+    ? `هذا القيد بتاريخ ${toIsoLocalDate(new Date(originalEntryDate as string))} خارج السنة المالية النشطة "${activeFiscalYear.name}". لا يمكن تعديله أو حذفه.`
+    : null;
 
   // ── إعدادات الشركة (للطباعة)
   const companyQuery = useQuery({
@@ -377,6 +415,10 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
       if (!l.amount || l.amount <= 0) return 'كل سطر لازم يحوي مبلغ أكبر من صفر';
     }
     if (!isBalanced) return 'القيد غير متوازن، لازم مجموع المدين = مجموع الدائن';
+    // ‎حارس السنة المالية النشطة: حماية إضافية ضد التحايل من الواجهة.
+    if (isOriginalOutsideActiveFY && activeFiscalYear) {
+      return `لا يمكن تعديل قيد خارج السنة المالية النشطة "${activeFiscalYear.name}". لتعديله، فعِّل السنة المالية المناسبة أولاً.`;
+    }
     return null;
   };
 
@@ -605,7 +647,16 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               طباعة
             </Button>
           )}
-          {isView && editId && (
+          {/*
+            • قيود مولَّدة من مناقلات الصناديق (CashBoxTransfer / CashBoxTransferReversal)
+              مقفولة من التعديل في هذه الصفحة وفي السندات؛ يجب التعديل من
+              نافذة المناقلات نفسها (صفحة الصناديق ⇒ تبويب "المناقلات").
+              لذا نُخفي زرّ "تعديل" نهائياً للمستخدم حتى لا يصل إلى رسالة
+              قفل من السيرفر.
+          */}
+          {isView && editId && !isPeriodLocked && !isOriginalOutsideActiveFY
+            && loadedEntry?.referenceType !== 'CashBoxTransfer'
+            && loadedEntry?.referenceType !== 'CashBoxTransferReversal' && (
             <Button
               variant="outline"
               size="sm"
@@ -617,7 +668,23 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               تعديل
             </Button>
           )}
-          {isEdit && !isView && (
+          {isView
+            && (loadedEntry?.referenceType === 'CashBoxTransfer'
+              || loadedEntry?.referenceType === 'CashBoxTransferReversal') && (
+            <span
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[11px] font-medium text-amber-500"
+              title="مقفول للتعديل — يُعدَّل من صفحة الصناديق ⇒ تبويب المناقلات"
+            >
+              مناقلة صناديق · مقفول
+            </span>
+          )}
+          {/*
+            • تختفي أزرار الحفظ/الحذف عند:
+              - فترة مغلقة (isPeriodLocked)
+              - أو قيد خارج السنة المالية النشطة (isOriginalOutsideActiveFY)
+              ويُستبدل بشريط "قراءة فقط".
+          */}
+          {isEdit && !isView && !isPeriodLocked && !isOriginalOutsideActiveFY && (
             <Button
               variant="outline"
               size="sm"
@@ -629,7 +696,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               حذف
             </Button>
           )}
-          {!isView && (
+          {!isView && !isPeriodLocked && !isOriginalOutsideActiveFY && (
             <label className="flex items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 py-1 text-xs">
               <input
                 type="checkbox"
@@ -640,7 +707,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               <span>ترحيل فوري</span>
             </label>
           )}
-          {!isView && (
+          {!isView && !isPeriodLocked && !isOriginalOutsideActiveFY && (
             <Button
               size="sm"
               onClick={handleSave}
@@ -651,8 +718,40 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               {saveMutation.isPending ? 'جارٍ الحفظ...' : 'حفظ القيد'}
             </Button>
           )}
+          {!isView && (isPeriodLocked || isOriginalOutsideActiveFY) && (
+            <span className="flex h-8 items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 text-xs text-warning">
+              <Lock className="h-3.5 w-3.5" />
+              قراءة فقط
+            </span>
+          )}
         </div>
       </div>
+
+      {/* شريط تنبيه واضح يشرح لماذا الصفحة في وضع القراءة فقط */}
+      {!isView && isPeriodLocked && periodLockReason && (
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            <div className="font-medium">{periodLockReason} — لا يمكن إنشاء أو تعديل أو حذف القيود في هذا التاريخ.</div>
+            <div className="mt-0.5 text-[11px] text-warning/80">
+              لإجراء تعديلات، يجب فك إغلاق الفترة من صفحة "الفترات المحاسبية"، أو اختيار تاريخ ضمن فترة مفتوحة.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* شريط تنبيه: القيد خارج السنة المالية النشطة */}
+      {!isView && isOriginalOutsideActiveFY && outsideFYReason && (
+        <div className="flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            <div className="font-medium">{outsideFYReason}</div>
+            <div className="mt-0.5 text-[11px] text-rose-300/80">
+              ملاحظة: تغيير حقل التاريخ في النموذج لا يفك هذا القيد — السنة المالية الأصلية للقيد هي ما يُحدِّد قابلية التعديل. لتعديله، فعّل السنة المالية المناسبة من صفحة "السنوات المالية".
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* رأس القيد - سطر واحد */}
       <div className={cn(
@@ -779,24 +878,24 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
           )}
           aria-disabled={isView || undefined}
         >
-          {/* table-fixed لضمان احترام عرض كل عمود؛ الحساب/البيان أصغر،
-              ومدين/دائن أعرض لاستيعاب أرقام كبيرة بدون قصّ. */}
+          {/* table-fixed لضمان احترام عرض كل عمود.
+              الترتيب RTL (يمين→يسار): ت | مدين | دائن | الحساب | البيان */}
           <table className="w-full table-fixed text-sm">
             <colgroup>
               <col className="w-10" />
+              <col className="w-[18%]" />
+              <col className="w-[18%]" />
               <col className="w-[28%]" />
-              <col className="w-[22%]" />
-              <col className="w-[22%]" />
-              <col className="w-[22%]" />
+              <col className="w-[26%]" />
               <col className="w-10" />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-secondary/60 text-xs text-muted-foreground backdrop-blur">
               <tr>
-                <th className="p-1.5 text-center">#</th>
-                <th className="p-1.5 text-right">الحساب</th>
-                <th className="p-1.5 text-right">البيان</th>
-                <th className="p-1.5 text-left">مدين</th>
-                <th className="p-1.5 text-left">دائن</th>
+                <th className="p-1.5 text-center">ت</th>
+                <th className="p-1.5 text-center">مدين</th>
+                <th className="p-1.5 text-center">دائن</th>
+                <th className="p-1.5 text-center">الحساب</th>
+                <th className="p-1.5 text-center">البيان</th>
                 <th></th>
               </tr>
             </thead>
@@ -932,6 +1031,24 @@ function LineRow({
     <tr className="border-b border-border/40 hover:bg-secondary/20">
       <td className="p-1 text-center text-xs text-muted-foreground">{index}</td>
       <td className="p-1 align-top">
+        <AmountInput
+          value={line.isDebit ? line.amount : 0}
+          active={line.isDebit}
+          onChange={n => onChange({ isDebit: true, amount: n })}
+          onFocus={() => !line.isDebit && onChange({ isDebit: true, amount: 0 })}
+          className={cn('border-emerald-500/50', !line.isDebit && 'opacity-50')}
+        />
+      </td>
+      <td className="p-1 align-top">
+        <AmountInput
+          value={!line.isDebit ? line.amount : 0}
+          active={!line.isDebit}
+          onChange={n => onChange({ isDebit: false, amount: n })}
+          onFocus={() => line.isDebit && onChange({ isDebit: false, amount: 0 })}
+          className={cn('border-rose-500/50', line.isDebit && 'opacity-50')}
+        />
+      </td>
+      <td className="p-1 align-top">
         <AccountPicker
           accounts={accounts}
           value={line.accountId}
@@ -954,24 +1071,6 @@ function LineRow({
           placeholder="بيان البند (اختياري)"
           className="h-8 text-xs"
           title={line.description}
-        />
-      </td>
-      <td className="p-1 align-top">
-        <AmountInput
-          value={line.isDebit ? line.amount : 0}
-          active={line.isDebit}
-          onChange={n => onChange({ isDebit: true, amount: n })}
-          onFocus={() => !line.isDebit && onChange({ isDebit: true, amount: 0 })}
-          className={cn('border-emerald-500/50', !line.isDebit && 'opacity-50')}
-        />
-      </td>
-      <td className="p-1 align-top">
-        <AmountInput
-          value={!line.isDebit ? line.amount : 0}
-          active={!line.isDebit}
-          onChange={n => onChange({ isDebit: false, amount: n })}
-          onFocus={() => line.isDebit && onChange({ isDebit: false, amount: 0 })}
-          className={cn('border-rose-500/50', line.isDebit && 'opacity-50')}
         />
       </td>
       <td className="p-1 align-top">

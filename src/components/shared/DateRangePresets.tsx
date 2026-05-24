@@ -60,17 +60,29 @@ export function DateRangePresets({
     if (hideFiscalYear) return null;
     const list = fiscalYearsQuery.data ?? [];
     if (list.length === 0) return null;
-    // ‎الأولوية: السنة التي يقع التاريخ الحالي ضمنها
-    const active = list.find(fy => {
+    // ‎الأولوية 1: السنة المُعَلَّمة كنشطة (المصدر الأساسي)
+    const explicit = list.find(fy => (fy as any).isActive);
+    if (explicit) return explicit;
+    // ‎الأولوية 2: السنة المفتوحة التي تحتوي تاريخ اليوم
+    const openContainsToday = list.find(fy => {
+      const s = (fy.startDate ?? '').slice(0, 10);
+      const e = (fy.endDate ?? '').slice(0, 10);
+      return s && e && today >= s && today <= e && !(fy as any).isClosed;
+    });
+    if (openContainsToday) return openContainsToday;
+    // ‎الأولوية 3: أحدث سنة مفتوحة
+    const newestOpen = [...list]
+      .filter(fy => !(fy as any).isClosed)
+      .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
+    if (newestOpen) return newestOpen;
+    // ‎الأولوية 4: السنة المغلقة التي تحتوي اليوم
+    const closedContainsToday = list.find(fy => {
       const s = (fy.startDate ?? '').slice(0, 10);
       const e = (fy.endDate ?? '').slice(0, 10);
       return s && e && today >= s && today <= e;
     });
-    if (active) return active;
-    // ‎ثم آخر سنة مفتوحة (غير مغلقة)
-    const open = list.find(fy => !(fy as any).isClosed);
-    if (open) return open;
-    // ‎ثم أحدث سنة
+    if (closedContainsToday) return closedContainsToday;
+    // ‎الأولوية 5: الأحدث مطلقاً
     return [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0] ?? null;
   }, [fiscalYearsQuery.data, today, hideFiscalYear]);
 
@@ -86,11 +98,12 @@ export function DateRangePresets({
         list.push({ id: 'fy-full', label: 'السنة المالية', from: fyStart, to: fyEnd });
       }
       if (fyStart) {
+        // ‎"من بداية السنة" = من بداية السنة المالية إلى اليوم دائماً
         list.push({
           id: 'fy-to-today',
           label: 'من بداية السنة',
           from: fyStart,
-          to: fyEnd && today > fyEnd ? fyEnd : today,
+          to: today,
         });
       }
     }

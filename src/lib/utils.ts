@@ -37,7 +37,8 @@ export function formatIQD(amount: number | null | undefined, opts: { decimals?: 
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }).format(amount);
-  return symbol ? `${formatted} د.ع` : formatted;
+  // ‎NBSP بين الرقم ورمز العملة لمنع الانكسار عبر سطرين على الشاشات الضيقة
+  return symbol ? `${formatted}\u00A0د.ع` : formatted;
 }
 
 /** تنسيق مبلغ بدون رمز عملة، يعرض الكسور (افتراضياً 3 خانات عشرية مع إخفاء الأصفار اللاحقة) */

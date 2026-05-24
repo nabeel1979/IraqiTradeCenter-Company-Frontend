@@ -363,6 +363,12 @@ function resolveSourceLink(row: {
   const src = (row.source || '').trim();
   const refType = (row.referenceType || '').trim();
   const refId = row.referenceId;
+  // ‎قيود المناقلات بين الصناديق: التعديل/الحذف ممنوع من شاشات القيود
+  // ‎اليدوية؛ نوجّه فوراً إلى تبويب "المناقلات" في صفحة الصناديق حتى يتم
+  // ‎التعديل/الإلغاء من هناك حصراً.
+  if (refType === 'CashBoxTransfer' || refType === 'CashBoxTransferReversal') {
+    return { href: '/accounting/cash-boxes?tab=transfers', label: 'مناقلة صناديق' };
+  }
   switch (src) {
     case 'SalesInvoice':
       if (refId) return { href: `/sales/invoices/${refId}`, label: 'فاتورة بيع' };
@@ -569,39 +575,47 @@ export function AccountStatementPage() {
   });
 
   /**
-   * السنة المالية الحالية: أول سنة تحوي اليوم بين [start, end]
-   * — وإن لم نجدها نأخذ آخر سنة غير مغلقة، وإلا أحدث سنة على الإطلاق.
+   * السنة المالية الحالية بترتيب الأولوية:
+   *   1. السنة المفتوحة التي تحتوي تاريخ اليوم.
+   *   2. أحدث سنة مالية مفتوحة.
+   *   3. السنة المغلقة التي تحتوي تاريخ اليوم.
+   *   4. الأحدث مطلقاً.
    */
   const currentFiscalYear = useMemo(() => {
     const list = fiscalYearsQuery.data ?? [];
     if (list.length === 0) return null;
+    // ‎1) السنة المُعَلَّمة كنشطة (المصدر الأساسي)
+    const explicit = list.find(fy => fy.isActive);
+    if (explicit) return explicit;
     const todayDate = today;
-    const containsToday = list.find(fy => {
+    const openContainsToday = list.find(fy => {
+      const s = (fy.startDate ?? '').slice(0, 10);
+      const e = (fy.endDate ?? '').slice(0, 10);
+      return s && e && todayDate >= s && todayDate <= e && !fy.isClosed;
+    });
+    if (openContainsToday) return openContainsToday;
+    const newestOpen = [...list]
+      .filter(fy => !fy.isClosed)
+      .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
+    if (newestOpen) return newestOpen;
+    const closedContainsToday = list.find(fy => {
       const s = (fy.startDate ?? '').slice(0, 10);
       const e = (fy.endDate ?? '').slice(0, 10);
       return s && e && todayDate >= s && todayDate <= e;
     });
-    if (containsToday) return containsToday;
-    const open = [...list].filter(fy => !fy.isClosed)
-      .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
-    if (open) return open;
+    if (closedContainsToday) return closedContainsToday;
     return [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0] ?? null;
   }, [fiscalYearsQuery.data, today]);
 
-  /** عند توفّر السنة المالية، عيّن التواريخ الافتراضية: من بداية السنة → اليوم */
+  /** عند توفّر السنة المالية، عيّن التواريخ الافتراضية: من بداية السنة المالية → اليوم */
   useEffect(() => {
     if (userTouchedDatesRef.current) return;
     if (!currentFiscalYear) return;
     const fyStart = (currentFiscalYear.startDate ?? '').slice(0, 10);
-    const fyEnd = (currentFiscalYear.endDate ?? '').slice(0, 10);
     if (!fyStart) return;
+    // ‎البداية = بداية السنة المالية، النهاية = اليوم دائماً (طلب المستخدم: "لحد اليوم")
     setFrom(prev => prev || fyStart);
-    setTo(prev => {
-      if (!prev) return today;
-      // إن كان "to" أكبر من نهاية السنة المالية حدّه عند نهايتها
-      if (fyEnd && prev > fyEnd) return fyEnd;
-      return prev;
-    });
+    setTo(prev => prev || today);
   }, [currentFiscalYear, today]);
 
   /** Presets جاهزة لاختيار سريع للفترة — مطابقة لمجموعة DateRangePresets المشتركة */
@@ -619,11 +633,12 @@ export function AccountStatementPage() {
         list.push({ id: 'fy-full', label: 'السنة المالية', from: fyStart, to: fyEnd });
       }
       if (fyStart) {
+        // ‎"من بداية السنة" = من بداية السنة المالية إلى اليوم دائماً
         list.push({
           id: 'fy-to-today',
           label: 'من بداية السنة',
           from: fyStart,
-          to: fyEnd && today > fyEnd ? fyEnd : today,
+          to: today,
         });
       }
     }
@@ -989,9 +1004,8 @@ export function AccountStatementPage() {
 
   const handleReset = () => {
     const fyStart = (currentFiscalYear?.startDate ?? '').slice(0, 10);
-    const fyEnd = (currentFiscalYear?.endDate ?? '').slice(0, 10);
     setFrom(fyStart || '');
-    setTo(fyEnd && today > fyEnd ? fyEnd : today);
+    setTo(today);
     setAccountId(null);
     setSelectedCurrencies([]);
     setSubmitted(false);
@@ -1477,6 +1491,66 @@ export function AccountStatementPage() {
                 icon={<Scale className="h-4 w-4" />}
               />
             </CardContent>
+            {/*
+             * قيود الافتتاح: تُعرض كصف معلوماتي تحت البطاقات الإحصائية لتوضيح
+             * مصدر الرصيد الافتتاحي. لا تُكرَّر بين الحركات لأنها مدمجة بالفعل
+             * في openingBalance.
+             */}
+            {rd.openingEntries && rd.openingEntries.length > 0 && (
+              <div className="border-t border-blue-500/30 bg-blue-500/5 px-4 py-2 text-[11px]">
+                <div className="mb-1.5 flex items-center gap-1.5 font-medium text-blue-300">
+                  <Wallet className="h-3.5 w-3.5" />
+                  قيود الافتتاح المؤثرة في الرصيد الافتتاحي ({rd.openingEntries.length})
+                </div>
+                <div className="space-y-1">
+                  {rd.openingEntries.map(oe => {
+                    const sign = oe.net >= 0 ? '+' : '';
+                    const isCredit = oe.net < 0;
+                    return (
+                      <div
+                        key={oe.entryId}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded border border-blue-500/20 bg-blue-500/5 px-2 py-1"
+                      >
+                        <span className="font-semibold text-blue-200">
+                          #{oe.entryNumber}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {new Date(oe.entryDate).toLocaleDateString('ar-IQ')}
+                        </span>
+                        {oe.description && (
+                          <span className="truncate text-muted-foreground" title={oe.description}>
+                            {oe.description}
+                          </span>
+                        )}
+                        <span className="ms-auto inline-flex items-center gap-2">
+                          {oe.debit > 0 && (
+                            <span className="text-emerald-300">
+                              مدين: <span className="num-display">{formatAmount(oe.debit)}</span>
+                            </span>
+                          )}
+                          {oe.credit > 0 && (
+                            <span className="text-rose-300">
+                              دائن: <span className="num-display">{formatAmount(oe.credit)}</span>
+                            </span>
+                          )}
+                          <span
+                            className={cn(
+                              'rounded px-1.5 py-0.5 font-bold',
+                              isCredit
+                                ? 'bg-rose-500/20 text-rose-200'
+                                : 'bg-emerald-500/20 text-emerald-200'
+                            )}
+                          >
+                            {sign}
+                            <span className="num-display">{formatAmount(Math.abs(oe.net))}</span> {oe.currency}
+                          </span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {rd.fxBulletinName ? (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-emerald-500/30 bg-emerald-500/5 px-4 py-2 text-[11px] text-emerald-200">
                 <span className="inline-flex items-center gap-1">

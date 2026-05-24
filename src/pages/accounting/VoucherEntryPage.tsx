@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowRight, Save, Wallet, Banknote, AlertTriangle, BookOpen, X, ArrowDownLeft, ArrowUpRight, Pencil,
-  Trash2, FilePlus2, Printer,
+  Trash2, FilePlus2, Printer, Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,10 @@ import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi, type CashBoxDto } from '@/lib/api/cashBoxes';
 import { currenciesApi } from '@/lib/api/currencies';
 import { companySettingsApi } from '@/lib/api/companySettings';
+import { fiscalYearsApi } from '@/lib/api/fiscalYears';
+import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { printSingleVoucher } from '@/lib/printUtils';
+import { usePermissions } from '@/lib/auth/usePermissions';
 import { cn, formatAmount, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
 import type { AccountDto } from '@/types/api';
 
@@ -76,6 +79,17 @@ export function VoucherEntryPage() {
   });
   const cashBoxes = cashBoxesQuery.data ?? [];
 
+  // ‎الصناديق المتاحة للمستخدم الحالي:
+  //   • SuperAdmin أو لا توجد قيود (cashBoxIds فارغة) → كل الصناديق النشطة.
+  //   • مستخدم عادي → فقط الصناديق التي يملك صلاحية استخدامها.
+  // ‎الترتيب يتبع ترتيب القائمة الأصلية (displayOrder من الـ API).
+  const { cashBoxIds, isSuper } = usePermissions();
+  const allowedBoxes = useMemo(() => {
+    if (isSuper || cashBoxIds.length === 0) return cashBoxes;
+    const allowedSet = new Set(cashBoxIds);
+    return cashBoxes.filter(b => allowedSet.has(b.id));
+  }, [cashBoxes, cashBoxIds, isSuper]);
+
   // الحسابات (للطرف الآخر)
   const treeQuery = useQuery({
     queryKey: ['accounts', 'tree'],
@@ -112,8 +126,42 @@ export function VoucherEntryPage() {
     staleTime: 5 * 60_000,
   });
 
+  // ‎حالة الفترة المحاسبية المرتبطة بتاريخ السند: تُستخدم لإخفاء أزرار
+  // ‎الحفظ/التعديل/الحذف (وعرض شريط "قراءة فقط") عندما يقع التاريخ ضمن
+  // ‎فترة مغلقة/مقفلة أو ضمن سنة مالية مغلقة. يَعتمد على `entryDate`
+  // ‎فيُعاد الجلب تلقائياً عند تغيير المستخدم للتاريخ.
+  // (مُعرَّف هنا لأن `entryDate` يُعرَّف لاحقاً، لذا نُؤجّل التعريف للأسفل.)
+
   // ── حالة النموذج
   const [entryDate, setEntryDate] = useState(() => toIsoLocalDate(new Date()));
+
+  // ‎حالة الفترة المحاسبية لتاريخ السند:
+  //   • IsEditable=false ⇒ السند ضمن فترة مغلقة/مقفلة أو سنة مغلقة → قراءة فقط.
+  //   • تُستدعى مع كل تغيير لـ entryDate لإظهار/إخفاء أزرار الحفظ/الحذف فوراً.
+  const periodStatusQuery = useQuery({
+    queryKey: ['period-status', entryDate],
+    queryFn: () => fiscalYearsApi.getPeriodStatusByDate(entryDate),
+    enabled: !!entryDate,
+    staleTime: 30_000,
+  });
+  const periodStatus = periodStatusQuery.data ?? null;
+
+  // ‎السنة المالية المُفَعَّلة: تستخدمها الواجهة لتقرير ما إن كان القيد
+  // ‎الأصلي يقع ضمن السنة الحالية. هذا حارس مستقلّ عن إغلاق الفترة:
+  // ‎حتى لو كانت الفترة مفتوحة، إذا كان القيد يخصّ سنة مالية أخرى فلا
+  // ‎يُسمح بتعديله. التغيير اليدوي للتاريخ لا يفلت من هذا القيد لأن
+  // ‎التحقق يتم على تاريخ القيد المحمَّل من قاعدة البيانات (وليس على
+  // ‎قيمة حقل الإدخال الحالية).
+  const { activeFiscalYear } = useActiveFiscalYear();
+  const isPeriodLocked = !!periodStatus && !periodStatus.isEditable;
+  const periodLockReason = (() => {
+    if (!periodStatus) return null;
+    if (periodStatus.fiscalYearIsClosed) return `السنة المالية "${periodStatus.fiscalYearName}" مغلقة`;
+    if (periodStatus.periodStatus === 2) return `الفترة ${periodStatus.periodNumber} مغلقة`;
+    if (periodStatus.periodStatus === 3) return `الفترة ${periodStatus.periodNumber} مقفلة`;
+    return null;
+  })();
+
   const [cashBoxId, setCashBoxId] = useState<number | null>(null);
   const [counterAccountId, setCounterAccountId] = useState<number | null>(null);
   const [amount, setAmount] = useState<number>(0);
@@ -137,6 +185,19 @@ export function VoucherEntryPage() {
     enabled: isEditMode,
     staleTime: 0,
   });
+
+  // ‎تاريخ القيد كما هو في قاعدة البيانات (وليس قيمة حقل الإدخال). هذا
+  // ‎هو المرجع الذي نقارن به مع السنة المالية النشطة، فلا يستطيع المستخدم
+  // ‎الالتفاف على القيد بتعديل التاريخ في الحقل.
+  const originalEntryDate = isEditMode ? editEntryQuery.data?.entryDate ?? null : null;
+  const isOriginalOutsideActiveFY =
+    isEditMode &&
+    !!activeFiscalYear &&
+    !!originalEntryDate &&
+    !isDateInFiscalYear(originalEntryDate, activeFiscalYear);
+  const outsideFYReason = isOriginalOutsideActiveFY && activeFiscalYear
+    ? `هذا السند بتاريخ ${toIsoLocalDate(new Date(originalEntryDate as string))} خارج السنة المالية النشطة "${activeFiscalYear.name}". لا يمكن تعديله أو حذفه. لتعديله، فعّل السنة المالية المناسبة من صفحة "السنوات المالية".`
+    : null;
 
   // ‎effect مستقل لتحميل التاريخ من القيد بمجرد وصوله من الـ API،
   // ‎بدون انتظار تحميل الصناديق/الحسابات. هذا يضمن ظهور التاريخ الفعلي
@@ -170,6 +231,16 @@ export function VoucherEntryPage() {
     setPostImmediately(entry.status !== 'Draft');
     setPrefilled(true);
   }, [isEditMode, prefilled, editEntryQuery.data, voucherType, cashBoxes]);
+
+  // ‎في وضع الإنشاء: عيّن أول صندوق متاح للمستخدم افتراضياً.
+  // ‎يعمل بمجرد توفّر قائمة `allowedBoxes` ويبقى يحترم اختيار المستخدم
+  // ‎(لأنه يُفعَّل فقط حين يكون cashBoxId == null).
+  useEffect(() => {
+    if (isEditMode) return;
+    if (cashBoxId != null) return;
+    if (allowedBoxes.length === 0) return;
+    setCashBoxId(allowedBoxes[0].id);
+  }, [isEditMode, cashBoxId, allowedBoxes]);
 
   const selectedBox: CashBoxDto | null = useMemo(
     () => cashBoxes.find(b => b.id === cashBoxId) ?? null,
@@ -234,6 +305,12 @@ export function VoucherEntryPage() {
       return 'لا يجوز أن يكون حساب الصندوق هو نفسه حساب الطرف المقابل';
     if (!amount || amount <= 0) return 'المبلغ يجب أن يكون أكبر من صفر';
     if (!entryDate) return 'التاريخ مطلوب';
+    // ‎حارس السنة المالية النشطة على مستوى التحقق:
+    //   حتى لو أُخفيت أزرار الواجهة، نمنع الحفظ صراحةً عند التعديل خارج
+    //   نطاق السنة الحالية مع رسالة موضِّحة.
+    if (isOriginalOutsideActiveFY && activeFiscalYear) {
+      return `لا يمكن تعديل سند خارج السنة المالية النشطة "${activeFiscalYear.name}". لتعديله، فعِّل السنة المالية المناسبة أولاً.`;
+    }
     return null;
   };
 
@@ -428,6 +505,72 @@ export function VoucherEntryPage() {
     return <RedirectTo to={target} />;
   }
 
+  // ‎قيد مولَّد من مناقلة بين صناديق: لا يُسمح بتعديله أو حذفه من هنا (ولا
+  // ‎من أي شاشة قيود يدوية). كل التعديل/الإلغاء يتم من نافذة "الصناديق ⇒
+  // ‎المناقلات" حصراً، حفاظاً على ترابط قيدَيْ الإرسال/الاستلام والأرصدة.
+  const lockedRefType = isEditMode && editEntryQuery.data
+    ? (editEntryQuery.data.referenceType === 'CashBoxTransfer' ? 'transfer'
+      : editEntryQuery.data.referenceType === 'CashBoxTransferReversal' ? 'reversal'
+      : null)
+    : null;
+  if (isEditMode && lockedRefType && editEntryQuery.data) {
+    const entry = editEntryQuery.data;
+    const lockedTitle = lockedRefType === 'reversal'
+      ? 'هذا القيد عكس مناقلة'
+      : 'هذا القيد مولَّد من مناقلة بين صناديق';
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center p-6">
+        <div className="w-full max-w-lg rounded-lg border border-amber-400/40 bg-amber-400/5 p-6 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-400/15">
+            <Lock className="h-6 w-6 text-amber-400" />
+          </div>
+          <h2 className="mb-2 text-base font-semibold">{lockedTitle}</h2>
+          <p className="mb-1 text-sm text-muted-foreground">
+            القيد رقم{' '}
+            <span className="font-mono text-foreground">
+              {entry.voucherNumber ?? `#${entry.entryNumber}`}
+            </span>{' '}
+            لا يمكن تعديله أو حذفه من هذه الصفحة.
+          </p>
+          <p className="mb-5 text-xs text-muted-foreground">
+            للحفاظ على ترابط قيدَيْ الإرسال والاستلام يجب التعديل/الإلغاء من
+            تبويب «المناقلات» في نافذة الصناديق (تراجع عن الاستلام أوّلاً إن
+            كانت المناقلة مستلَمة).
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button
+              size="sm"
+              onClick={() =>
+                navigate('/accounting/cash-boxes?tab=transfers', {
+                  state: { returnTo: backHref, returnLabel: 'القيد' },
+                })
+              }
+              className="gap-1.5"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              فتح المناقلات
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                navigate(`/accounting/journal/${entry.id}/view`, {
+                  state: { returnTo: backHref, returnLabel: 'القيد' },
+                })
+              }
+              className="gap-1.5"
+            >
+              عرض القيد فقط
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate(backHref)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ‎في وضع التعديل: ننتظر اكتمال تحميل القيد ثم تعبئته في الحقول قبل العرض
   if (isEditMode && (editEntryQuery.isLoading || !prefilled)) {
     return <LoadingSpinner text="تحميل القيد للتعديل..." />;
@@ -440,21 +583,26 @@ export function VoucherEntryPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      {/* شريط أدوات علوي */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      {/* ‎شريط أدوات علوي - مرن على الموبايل:
+            • صف 1: زر رجوع + اسم السند + الـ badges (التفاف عند الضرورة)
+            • صف 2: الأزرار (طباعة/جديد/حذف/ترحيل فوري/حفظ) - يلتف لسطرين على الموبايل */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        {/* القسم الأيمن: العنوان + الشارات */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <Button
             variant="outline"
             size="sm"
             onClick={() => navigate(backHref)}
-            className="h-8 gap-1 px-2"
+            className="h-9 shrink-0 gap-1 px-2 sm:h-8"
           >
             <ArrowRight className="h-3.5 w-3.5" />
             رجوع
           </Button>
-          <h1 className="flex items-center gap-1.5 text-base font-semibold">
-            {isCashDebit ? <ArrowDownLeft className="h-4 w-4 text-emerald-400" /> : <ArrowUpRight className="h-4 w-4 text-amber-400" />}
-            {voucherType.nameAr}
+          <h1 className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-base font-semibold">
+            <span className="inline-flex items-center gap-1">
+              {isCashDebit ? <ArrowDownLeft className="h-4 w-4 text-emerald-400" /> : <ArrowUpRight className="h-4 w-4 text-amber-400" />}
+              {voucherType.nameAr}
+            </span>
             <span className={cn(
               'rounded-full px-2 py-0.5 text-[10px] font-medium border',
               isCashDebit
@@ -490,14 +638,15 @@ export function VoucherEntryPage() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* القسم الأيسر: الأزرار */}
+        <div className="flex flex-wrap items-center gap-2">
           {isEditMode && (
             <Button
               variant="outline"
               size="sm"
               onClick={handlePrint}
               title="طباعة السند (نسخة شركة + نسخة زبون)"
-              className="h-8 gap-1.5 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+              className="h-9 gap-1.5 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary sm:h-8"
             >
               <Printer className="h-3.5 w-3.5" />
               طباعة
@@ -509,49 +658,91 @@ export function VoucherEntryPage() {
               size="sm"
               onClick={handleCreateNew}
               title={`إنشاء ${voucherType.nameAr} جديد`}
-              className="h-8 gap-1.5"
+              className="h-9 gap-1.5 sm:h-8"
             >
               <FilePlus2 className="h-3.5 w-3.5" />
               جديد
             </Button>
           )}
-          {isEditMode && (
+          {/*
+            • أزرار الحذف/الحفظ تختفي عند:
+              - فترة مغلقة (IsEditable=false)
+              - أو سند أصلي خارج السنة المالية النشطة (isOriginalOutsideActiveFY)
+              في كلتا الحالتين تتحوّل الصفحة إلى وضع "قراءة فقط".
+          */}
+          {isEditMode && !isPeriodLocked && !isOriginalOutsideActiveFY && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowDeleteConfirm(true)}
               title="حذف السند"
-              className="h-8 gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className="h-9 gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-8"
             >
               <Trash2 className="h-3.5 w-3.5" />
               حذف
             </Button>
           )}
-          <label
-            className="flex items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 py-1 text-xs"
-            title="حفظ القيد كمُرحَّل مباشرةً (Posted) أو إبقائه كمسودة (Draft)"
-          >
-            <input
-              type="checkbox"
-              checked={postImmediately}
-              onChange={e => setPostImmediately(e.target.checked)}
-              className="h-3.5 w-3.5 accent-primary"
-            />
-            <span>ترحيل فوري</span>
-          </label>
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={saveMutation.isPending}
-            className="h-8 gap-1.5"
-          >
-            <Save className="h-3.5 w-3.5" />
-            {saveMutation.isPending
-              ? (isEditMode ? 'جارٍ التحديث...' : 'جارٍ الحفظ...')
-              : (isEditMode ? 'تحديث السند' : 'حفظ السند')}
-          </Button>
+          {!isPeriodLocked && !isOriginalOutsideActiveFY && (
+            <label
+              className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 text-xs sm:h-8"
+              title="حفظ القيد كمُرحَّل مباشرةً (Posted) أو إبقائه كمسودة (Draft)"
+            >
+              <input
+                type="checkbox"
+                checked={postImmediately}
+                onChange={e => setPostImmediately(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              <span>ترحيل فوري</span>
+            </label>
+          )}
+          {!isPeriodLocked && !isOriginalOutsideActiveFY && (
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              className="h-9 gap-1.5 sm:h-8"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {saveMutation.isPending
+                ? (isEditMode ? 'جارٍ التحديث...' : 'جارٍ الحفظ...')
+                : (isEditMode ? 'تحديث السند' : 'حفظ السند')}
+            </Button>
+          )}
+          {(isPeriodLocked || isOriginalOutsideActiveFY) && (
+            <span className="flex h-9 items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 text-xs text-warning sm:h-8">
+              <Lock className="h-3.5 w-3.5" />
+              قراءة فقط
+            </span>
+          )}
         </div>
       </div>
+
+      {/* شريط تنبيه واضح يشرح لماذا الصفحة في وضع القراءة فقط */}
+      {isPeriodLocked && periodLockReason && (
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            <div className="font-medium">{periodLockReason} — لا يمكن إنشاء أو تعديل أو حذف القيود في هذا التاريخ.</div>
+            <div className="mt-0.5 text-[11px] text-warning/80">
+              لإجراء تعديلات، يجب فك إغلاق الفترة من صفحة "الفترات المحاسبية"، أو اختيار تاريخ ضمن فترة مفتوحة.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* شريط تنبيه: السند خارج السنة المالية النشطة */}
+      {isOriginalOutsideActiveFY && outsideFYReason && (
+        <div className="flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            <div className="font-medium">{outsideFYReason}</div>
+            <div className="mt-0.5 text-[11px] text-rose-300/80">
+              ملاحظة: تغيير حقل التاريخ في النموذج لا يفك هذا القيد — السنة المالية الأصلية للسند هي ما يُحدِّد قابلية التعديل.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* النموذج */}
       <div className="grid flex-1 gap-3 lg:grid-cols-3">
@@ -581,14 +772,27 @@ export function VoucherEntryPage() {
               <select
                 value={cashBoxId ?? ''}
                 onChange={e => setCashBoxId(e.target.value === '' ? null : Number(e.target.value))}
-                className="h-9 w-full rounded-md border border-input bg-secondary/40 px-2 text-sm"
+                disabled={allowedBoxes.length <= 1}
+                title={allowedBoxes.length <= 1 ? 'لا تتوفر سوى صندوق واحد ضمن صلاحياتك' : undefined}
+                className={cn(
+                  'h-9 w-full rounded-md border border-input bg-secondary/40 px-2 text-sm',
+                  allowedBoxes.length <= 1 && 'cursor-not-allowed opacity-90'
+                )}
               >
-                <option value="">— اختر الصندوق —</option>
-                {cashBoxes.map(b => (
-                  <option key={b.id} value={b.id}>
-                    {b.nameAr} ({b.code})
-                  </option>
-                ))}
+                {allowedBoxes.length === 0 ? (
+                  <option value="">— لا توجد صناديق متاحة —</option>
+                ) : allowedBoxes.length === 1 ? (
+                  <option value={allowedBoxes[0].id}>{allowedBoxes[0].nameAr}</option>
+                ) : (
+                  <>
+                    <option value="">— اختر الصندوق —</option>
+                    {allowedBoxes.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.nameAr}
+                      </option>
+                    ))}
+                  </>
+                )}
               </select>
               {selectedBox && (
                 <p className="mt-1 text-[10px] text-muted-foreground">

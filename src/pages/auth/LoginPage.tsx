@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { authApi } from '@/lib/api/auth';
 import { setToken } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/auth/auth-store';
+import { primeSidebarPrefsFromServer } from '@/lib/sidebarPreferences';
 
 // مفتاح حفظ بيانات الدخول للمرة القادمة (مشفّر بسيطاً بـ Base64)
 const REMEMBER_KEY = 'iqtc_remember';
@@ -68,7 +69,7 @@ export function LoginPage() {
   const loginMutation = useMutation({
     // ‎الـ backend ما زال يقرأ الحقل باسم phone — نرسلها مع نفس الاسم لكن من حقل username.
     mutationFn: () => authApi.login({ phone: username.trim(), password }),
-    onSuccess: res => {
+    onSuccess: async res => {
       if (res.success && res.data) {
         setToken(res.data.token);
         setUser(res.data.user);
@@ -78,7 +79,11 @@ export function LoginPage() {
           clearRemembered();
         }
         toast.success(`أهلاً ${res.data.user.fullName}`);
-        // بعد تسجيل الدخول نوجّه دائماً للصفحة الرئيسية (نتجاهل أي from سابق)
+        // ‎جلب تفضيلات الـ Sidebar من الخادم وحفظها محلياً قبل التوجيه،
+        // حتى يستخدم الـ Sidebar حالة الطي/الفتح المحفوظة من أول render
+        // ‎(بدلاً من ومضة الافتراضي → الفعلي بعد ms قليلة).
+        try { await primeSidebarPrefsFromServer(res.data.user.id); } catch { /* non-critical */ }
+        // ‎بعد تسجيل الدخول نوجّه دائماً للصفحة الرئيسية (نتجاهل أي from سابق)
         navigate('/', { replace: true });
       }
     },

@@ -90,18 +90,29 @@ export function TrialBalancePage() {
     queryFn: fiscalYearsApi.getAll,
     staleTime: 5 * 60 * 1000,
   });
+  // ‎الأولوية للسنة النشطة (المُعَلَّمة من قِبل المستخدم)، مع المنطق الاحتياطي
   const currentFY = useMemo(() => {
-    const today = toISODate(new Date());
     const list = fiscalQuery.data ?? [];
     if (list.length === 0) return null;
-    const active = list.find(fy => {
+    const explicit = list.find(fy => fy.isActive);
+    if (explicit) return explicit;
+    const today = toISODate(new Date());
+    const openContainsToday = list.find(fy => {
+      const s = (fy.startDate ?? '').slice(0, 10);
+      const e = (fy.endDate ?? '').slice(0, 10);
+      return s && e && today >= s && today <= e && !fy.isClosed;
+    });
+    if (openContainsToday) return openContainsToday;
+    const newestOpen = [...list]
+      .filter(fy => !fy.isClosed)
+      .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
+    if (newestOpen) return newestOpen;
+    const closedContainsToday = list.find(fy => {
       const s = (fy.startDate ?? '').slice(0, 10);
       const e = (fy.endDate ?? '').slice(0, 10);
       return s && e && today >= s && today <= e;
     });
-    if (active) return active;
-    const open = list.find(fy => !fy.isClosed);
-    if (open) return open;
+    if (closedContainsToday) return closedContainsToday;
     return [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0] ?? null;
   }, [fiscalQuery.data]);
 
@@ -123,17 +134,16 @@ export function TrialBalancePage() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // ضبط الفترة الافتراضية على السنة المالية عند تحميلها
+  // ضبط الفترة الافتراضية على السنة المالية عند تحميلها:
+  // ‎البداية = بداية السنة المالية، النهاية = اليوم دائماً (طلب: "لحد اليوم")
   useEffect(() => {
     if (from && to) return;
+    const today = toISODate(new Date());
     if (currentFY) {
       const fyStart = (currentFY.startDate ?? '').slice(0, 10);
-      const fyEnd = (currentFY.endDate ?? '').slice(0, 10);
-      const today = toISODate(new Date());
       if (fyStart) setFrom(prev => prev || fyStart);
-      setTo(prev => prev || (fyEnd && today > fyEnd ? fyEnd : today));
+      setTo(prev => prev || today);
     } else {
-      const today = toISODate(new Date());
       const yStart = toISODate(new Date(new Date().getFullYear(), 0, 1));
       setFrom(prev => prev || yStart);
       setTo(prev => prev || today);
@@ -254,17 +264,50 @@ export function TrialBalancePage() {
             <div>
               <Label className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                 <Layers className="h-3 w-3" /> مستوى الشجرة
+                <span className="ms-1 text-[9px] text-muted-foreground/70">
+                  ({maxLevel === '' ? 'الكل' : `≤ ${maxLevel}`})
+                </span>
               </Label>
-              <select
-                className="h-8 w-full rounded-md border border-input bg-secondary/40 px-2 text-sm"
-                value={maxLevel}
-                onChange={e => setMaxLevel(e.target.value === '' ? '' : Number(e.target.value))}
+              {/* أزرار سريعة بدل dropdown — أكثر وضوحاً وأسرع في الاستخدام */}
+              <div
+                role="radiogroup"
+                aria-label="مستوى عمق الشجرة"
+                className="flex h-8 items-stretch overflow-hidden rounded-md border border-input bg-secondary/40 text-xs"
               >
-                <option value="">كل المستويات</option>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={maxLevel === ''}
+                  onClick={() => setMaxLevel('')}
+                  title="عرض جميع المستويات بدون تقييد عمق الشجرة"
+                  className={cn(
+                    'flex flex-1 items-center justify-center px-2 font-medium transition',
+                    maxLevel === ''
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                  )}
+                >
+                  الكل
+                </button>
                 {Array.from({ length: MAX_LEVELS }, (_, i) => i + 1).map(lv => (
-                  <option key={lv} value={lv}>حتى مستوى {lv}</option>
+                  <button
+                    key={lv}
+                    type="button"
+                    role="radio"
+                    aria-checked={maxLevel === lv}
+                    onClick={() => setMaxLevel(lv)}
+                    title={`عرض الحسابات حتى المستوى ${lv} (تجميع الحسابات الأعمق ضمن آبائها)`}
+                    className={cn(
+                      'flex w-7 items-center justify-center border-r border-input/60 font-semibold tabular-nums transition',
+                      maxLevel === lv
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    )}
+                  >
+                    {lv}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
             <div className="flex flex-col gap-1">
               <Label className="mb-0 text-[11px] text-muted-foreground">خيارات</Label>

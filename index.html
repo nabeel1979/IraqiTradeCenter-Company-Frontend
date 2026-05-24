@@ -1,11 +1,43 @@
 <!doctype html>
-<html lang="ar" dir="rtl" class="dark">
+<html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo.png?v=3" />
     <link rel="apple-touch-icon" href="/logo.png?v=3" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0F0F11" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" id="itc-theme-color" content="#0F0F11" />
+    <meta name="color-scheme" id="itc-color-scheme" content="dark" />
+
+    <!--
+      تطبيق وضع الألوان قبل الـ render لتجنّب وميض (FOUC).
+      الترتيب: تفضيل المستخدم (localStorage) → الوضع الليلي افتراضياً.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('itc-theme');
+          var theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
+          var root = document.documentElement;
+          if (theme === 'dark') root.classList.add('dark');
+          else root.classList.remove('dark');
+          var meta = document.getElementById('itc-theme-color');
+          if (meta) meta.setAttribute('content', theme === 'dark' ? '#0F0F11' : '#F7F2EA');
+          var scheme = document.getElementById('itc-color-scheme');
+          if (scheme) scheme.setAttribute('content', theme);
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+
+    <!-- PWA meta -->
+    <meta name="application-name" content="مركز التجارة العراقي" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="تجارة العراقي" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+
     <title>مركز التجارة العراقي - لوحة الشركة</title>
 
     <!-- Premium Typography -->

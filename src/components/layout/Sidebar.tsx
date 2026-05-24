@@ -5,20 +5,30 @@ import {
   LayoutDashboard, Receipt, Package, Users, UserCog, Inbox,
   BookOpen, Settings, LogOut, Sparkles, TrendingUp, ChevronDown,
   Calculator, ShoppingCart, Warehouse, FolderTree, Scale,
-  ChevronsDown, ChevronsUp, ListChecks, FileText, CalendarRange, Coins, Tag,
-  Wallet, ArrowDownLeft, ArrowUpRight,
+  ChevronsDown, ChevronsUp, FileText, CalendarRange, Coins, Tag,
+  Wallet, ArrowDownLeft, ArrowUpRight, X, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth/auth-store';
 import { Separator } from '@/components/ui/separator';
 import { useSidebarPrefs } from '@/lib/sidebarPreferences';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
+import { usePermissions } from '@/lib/auth/usePermissions';
+import { PERMS } from '@/lib/auth/permissions';
 
 interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
+  /** صلاحية القراءة المطلوبة لإظهار هذا الرابط (اختيارية — لو غابت يُظهر للجميع). */
+  permission?: string;
+  /**
+   * بديل لـ <see cref="permission"/> عندما تكون الصفحة تحوي عدّة موارد منفصلة
+   * (كصفحة "الصناديق" بتبويبات: الصناديق/الأرصدة/المناقلات). يظهر الرابط لو
+   * المستخدم يملك صلاحية قراءة <i>واحدة</i> على الأقل من القائمة.
+   */
+  permissionAny?: string[];
 }
 
 export interface NavGroup {
@@ -51,14 +61,24 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Calculator,
     mandatory: true,
     items: [
-      { to: '/accounting/accounts', label: 'شجرة الحسابات', icon: FolderTree },
-      { to: '/accounting/journal', label: 'القيود اليومية', icon: BookOpen },
-      { to: '/accounting/account-statement', label: 'كشف الحساب', icon: FileText },
-      { to: '/accounting/trial-balance', label: 'ميزان المراجعة', icon: Scale },
-      { to: '/accounting/fiscal-years', label: 'الفترات المحاسبية', icon: CalendarRange },
-      { to: '/accounting/currency-rates', label: 'نشرات أسعار العملات', icon: Coins },
-      { to: '/accounting/voucher-types', label: 'أنواع السندات', icon: Tag },
-      { to: '/accounting/cash-boxes', label: 'الصناديق', icon: Wallet },
+      { to: '/accounting/accounts', label: 'شجرة الحسابات', icon: FolderTree, permission: PERMS.Accounting.Accounts.Read },
+      { to: '/accounting/journal', label: 'القيود اليومية', icon: BookOpen, permission: PERMS.Accounting.JournalEntries.Read },
+      { to: '/accounting/account-statement', label: 'كشف الحساب', icon: FileText, permission: PERMS.Accounting.AccountStatement.Read },
+      { to: '/accounting/trial-balance', label: 'ميزان المراجعة', icon: Scale, permission: PERMS.Accounting.TrialBalance.Read },
+      { to: '/accounting/fiscal-years', label: 'الفترات المحاسبية', icon: CalendarRange, permission: PERMS.Accounting.FiscalYears.Read },
+      { to: '/accounting/currency-rates', label: 'نشرات أسعار العملات', icon: Coins, permission: PERMS.Accounting.CurrencyRates.Read },
+      { to: '/accounting/voucher-types', label: 'أنواع السندات', icon: Tag, permission: PERMS.Accounting.VoucherTypes.Read },
+      {
+        to: '/accounting/cash-boxes',
+        label: 'الصناديق',
+        icon: Wallet,
+        // ‎الصفحة فيها 3 تبويبات بصلاحيات مستقلة — أيٌّ منها كافية لإظهار الرابط.
+        permissionAny: [
+          PERMS.Accounting.CashBoxes.Read,
+          PERMS.Accounting.CashBoxBalances.Read,
+          PERMS.Accounting.CashBoxTransfers.Read,
+        ],
+      },
     ],
   },
   {
@@ -66,11 +86,11 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'الفواتير',
     icon: ShoppingCart,
     items: [
-      { to: '/invoices', label: 'الفواتير', icon: Receipt },
-      { to: '/invoices/new', label: 'فاتورة جديدة', icon: Sparkles },
-      { to: '/orders', label: 'الطلبيات الواردة', icon: Inbox },
-      { to: '/customers', label: 'العملاء', icon: Users },
-      { to: '/sales-reps', label: 'المندوبون', icon: UserCog },
+      { to: '/invoices', label: 'الفواتير', icon: Receipt, permission: PERMS.Sales.Invoices.Read },
+      { to: '/invoices/new', label: 'فاتورة جديدة', icon: Sparkles, permission: PERMS.Sales.Invoices.Create },
+      { to: '/orders', label: 'الطلبيات الواردة', icon: Inbox, permission: PERMS.Sales.Orders.Read },
+      { to: '/customers', label: 'العملاء', icon: Users, permission: PERMS.Sales.Customers.Read },
+      { to: '/sales-reps', label: 'المندوبون', icon: UserCog, permission: PERMS.Sales.SalesReps.Read },
     ],
   },
   {
@@ -78,8 +98,8 @@ export const NAV_GROUPS: NavGroup[] = [
     title: 'المستودعات',
     icon: Warehouse,
     items: [
-      { to: '/inventory', label: 'المواد', icon: Package },
-      { to: '/inventory/movements', label: 'حركات المخزون', icon: TrendingUp },
+      { to: '/inventory', label: 'المواد', icon: Package, permission: PERMS.Inventory.Items.Read },
+      { to: '/inventory/movements', label: 'حركات المخزون', icon: TrendingUp, permission: PERMS.Inventory.Movements.Read },
     ],
   },
   {
@@ -88,16 +108,26 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Settings,
     mandatory: true,
     items: [
-      { to: '/settings', label: 'إعدادات الشركة', icon: Settings },
-      { to: '/settings/menu', label: 'إعدادات المنيو', icon: ListChecks },
+      { to: '/settings', label: 'إعدادات الشركة', icon: Settings, permission: PERMS.System.CompanySettings.Read },
+      { to: '/system/trash', label: 'سلة المهملات', icon: Trash2, permission: PERMS.System.Trash.Read },
+      // ‎"المستخدمون" و"إعدادات المنيو" يُوصَل لهما من داخل صفحة "إعدادات الشركة"
+      // ‎(بطاقات NavTile)، فلا حاجة لتكرارهما في الشريط الجانبي.
     ],
   },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  /** هل الـ drawer مفتوح على الجوال؟ (يُتجاهل على الشاشات ≥ lg لأن الـ sidebar ثابت). */
+  isOpen?: boolean;
+  /** يُستدعى لإغلاق الـ drawer (زر X أو خروج). */
+  onClose?: () => void;
+}
+
+export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
   const location = useLocation();
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
+  const { can, canAny } = usePermissions();
   const { isCollapsed, isHidden, toggleCollapsed, setAllCollapsed } = useSidebarPrefs();
 
   // جلب أنواع السندات المعلّمة "إظهار في القائمة"
@@ -110,6 +140,7 @@ export function Sidebar() {
   // مجموعة "السندات" الديناميكية بناءً على ShowInSidebar (لجميع الطبائع)
   // - Debit/Credit → صفحة سند مبسّطة (صندوق + حساب مقابل)
   // - Mixed → صفحة قيد متعدد البنود (مثل القيود اليومية) مع تثبيت نوع السند
+  // - الفلترة بصلاحية القراءة الديناميكية لكل نوع: Accounting.Vouchers.{CODE}.Read
   const dynamicVoucherItems: NavItem[] = useMemo(() => {
     const types = voucherTypesQuery.data ?? [];
     return types
@@ -120,6 +151,7 @@ export function Sidebar() {
         icon: t.nature === 'Debit' ? ArrowDownLeft
           : t.nature === 'Credit' ? ArrowUpRight
           : BookOpen, // ‎مختلط: أيقونة الدفتر اليومي
+        permission: PERMS.Accounting.Vouchers.read(t.code),
       }));
   }, [voucherTypesQuery.data]);
 
@@ -142,17 +174,53 @@ export function Sidebar() {
     return next;
   }, [dynamicVoucherItems]);
 
-  const visibleGroups = groupsWithVouchers.filter(g => g.mandatory || !isHidden(g.key));
+  // فلترة الـ items داخل كل مجموعة بناءً على صلاحية القراءة، ثم إخفاء المجموعات الفارغة (إلا direct).
+  const permissionFiltered: NavGroup[] = useMemo(() => {
+    return groupsWithVouchers
+      .map(g => ({
+        ...g,
+        items: g.items.filter(i => {
+          if (i.permission && !can(i.permission)) return false;
+          if (i.permissionAny && !canAny(...i.permissionAny)) return false;
+          return true;
+        }),
+      }))
+      .filter(g => g.direct || g.items.length > 0);
+  }, [groupsWithVouchers, can, canAny]);
+
+  const visibleGroups = permissionFiltered.filter(g => g.mandatory || !isHidden(g.key));
   // أقسام قابلة للطي فقط (لا تشمل direct links)
   const collapsibleKeys = visibleGroups.filter(g => !g.direct).map(g => g.key);
   const allCollapsed = collapsibleKeys.length > 0 && collapsibleKeys.every(k => isCollapsed(k));
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-72 flex-col border-l border-border/60 bg-card/30 backdrop-blur-xl">
+    <aside
+      className={cn(
+        'fixed inset-y-0 right-0 z-50 flex w-72 max-w-[85vw] flex-col border-l border-border/60 bg-card/95 backdrop-blur-xl transition-transform duration-300 ease-out',
+        // ‎على الشاشات ≥ lg الـ sidebar مرئي دائماً (ثابت)؛ على الأصغر يتحوّل لدراور
+        // ‎ينزلق من اليمين (RTL → translate-x-full = للخارج/يمين الشاشة).
+        'lg:translate-x-0 lg:bg-card/30',
+        isOpen ? 'translate-x-0 shadow-2xl' : 'translate-x-full lg:translate-x-0'
+      )}
+      aria-hidden={!isOpen ? undefined : 'false'}
+    >
+      {/* زر إغلاق الدراور — يظهر فقط على الشاشات الأصغر من lg */}
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="إغلاق القائمة"
+          className="absolute left-2 top-2 z-10 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground lg:hidden"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      )}
+
       {/* Brand — clickable, navigates to dashboard */}
       <NavLink
         to="/"
         title="الصفحة الرئيسية"
+        onClick={onClose}
         className="group relative flex h-20 items-center gap-3 border-b border-border/60 px-6 transition-colors hover:bg-primary/5"
       >
         <img

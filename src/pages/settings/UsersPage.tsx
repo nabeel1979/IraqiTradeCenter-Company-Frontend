@@ -1,0 +1,663 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import {
+  Users, Plus, Pencil, Trash2, X, Save, Search, Shield, Wallet, KeySquare,
+  Info, ShieldCheck, Eye, EyeOff,
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { PermissionTreeEditor } from '@/components/settings/PermissionTreeEditor';
+import { usersApi } from '@/lib/api/users';
+import { rolesApi } from '@/lib/api/roles';
+import { permissionsApi } from '@/lib/api/permissions';
+import { cashBoxesApi, type CashBoxDto } from '@/lib/api/cashBoxes';
+import { cn, extractApiError } from '@/lib/utils';
+import { usePermissions } from '@/lib/auth/usePermissions';
+import { PERMS } from '@/lib/auth/permissions';
+import type {
+  RoleListItemDto,
+  UserDetailDto,
+  UserListItemDto,
+} from '@/types/api';
+
+type Tab = 'basic' | 'roles' | 'permissions' | 'cashboxes';
+
+export function UsersPage() {
+  const qc = useQueryClient();
+  const { can } = usePermissions();
+  const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState<UserListItemDto | null>(null);
+  const [creatingNew, setCreatingNew] = useState(false);
+
+  const usersQuery = useQuery({
+    queryKey: ['users', 'list', search],
+    queryFn: () => usersApi.list(search || undefined),
+  });
+
+  const removeM = useMutation({
+    mutationFn: (id: string) => usersApi.remove(id),
+    onSuccess: () => {
+      toast.success('تم حذف المستخدم');
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (e: unknown) => toast.error(extractApiError(e)),
+  });
+
+  const close = () => {
+    setEditing(null);
+    setCreatingNew(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-semibold">المستخدمون</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            أنشئ حسابات النظام، اربطها بأدوار، خصِّص صلاحيات وصناديق لكل مستخدم.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {can(PERMS.System.Roles.Read) && (
+            <Button asChild variant="outline" className="gap-1.5">
+              <Link to="/settings/roles">
+                <Shield className="h-4 w-4" />
+                الأدوار والصلاحيات
+              </Link>
+            </Button>
+          )}
+          {can(PERMS.System.Users.Create) && (
+            <Button onClick={() => setCreatingNew(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              مستخدم جديد
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2">
+          <Users className="h-4 w-4 text-primary" />
+          <CardTitle>قائمة المستخدمين</CardTitle>
+          <div className="ms-auto flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="بحث بالاسم أو اسم المستخدم..."
+                className="h-8 w-56 pr-7 text-sm"
+              />
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {usersQuery.data?.length ?? 0}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {usersQuery.isLoading ? (
+            <LoadingSpinner />
+          ) : (usersQuery.data?.length ?? 0) === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">لا يوجد مستخدمون.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 text-right text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">الاسم</th>
+                    <th className="px-3 py-2 font-medium">اسم المستخدم</th>
+                    <th className="px-3 py-2 font-medium">الأدوار</th>
+                    <th className="px-3 py-2 font-medium text-center">صناديق</th>
+                    <th className="px-3 py-2 font-medium text-center">الحالة</th>
+                    <th className="px-3 py-2 font-medium text-left">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usersQuery.data?.map(u => (
+                    <tr key={u.id} className="border-b border-border/30 hover:bg-secondary/30">
+                      <td className="px-3 py-2.5 font-medium">{u.fullName}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{u.phone}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex flex-wrap gap-1">
+                          {u.roles.length === 0 ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : (
+                            u.roles.map(r => (
+                              <span
+                                key={r}
+                                className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                              >
+                                {r}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-sm">{u.cashBoxCount}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span
+                          className={cn(
+                            'inline-block rounded px-2 py-0.5 text-xs',
+                            u.isActive
+                              ? 'bg-emerald-500/10 text-emerald-400'
+                              : 'bg-muted/40 text-muted-foreground'
+                          )}
+                        >
+                          {u.isActive ? 'فعّال' : 'موقوف'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-left">
+                        <div className="inline-flex gap-1">
+                          {can(PERMS.System.Users.Update) && (
+                            <Button size="icon" variant="ghost" onClick={() => setEditing(u)}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {can(PERMS.System.Users.Delete) && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => {
+                                if (confirm(`حذف المستخدم "${u.fullName}"؟`)) removeM.mutate(u.id);
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {(creatingNew || editing) && (
+        <UserEditorDialog
+          mode={editing ? 'edit' : 'create'}
+          existing={editing}
+          onClose={close}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ['users'] });
+            close();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+//  Dialog: إنشاء / تعديل مستخدم
+// ────────────────────────────────────────────────────────────
+interface DialogProps {
+  mode: 'create' | 'edit';
+  existing: UserListItemDto | null;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
+  const [tab, setTab] = useState<Tab>('basic');
+  const [showPassword, setShowPassword] = useState(false);
+
+  // الحقول الأساسية
+  const [fullName, setFullName] = useState(existing?.fullName ?? '');
+  const [phone, setPhone] = useState(existing?.phone ?? '');
+  const [password, setPassword] = useState('');
+  const [isActive, setIsActive] = useState(existing?.isActive ?? true);
+
+  // الأدوار + الـ overrides + الصناديق (تُحمَّل من الـ detail)
+  const [roleIds, setRoleIds] = useState<number[]>([]);
+  const [grantedOverrides, setGrantedOverrides] = useState<Set<string>>(new Set());
+  const [deniedOverrides, setDeniedOverrides] = useState<Set<string>>(new Set());
+  const [userCashBoxes, setUserCashBoxes] = useState<Map<number, { canReceive: boolean; canPay: boolean }>>(new Map());
+
+  const rolesQuery = useQuery({ queryKey: ['roles', 'list'], queryFn: rolesApi.list });
+  const treeQuery  = useQuery({ queryKey: ['permissions', 'tree'], queryFn: permissionsApi.tree, staleTime: 5 * 60_000 });
+  const cashBoxesQuery = useQuery({ queryKey: ['cash-boxes', 'active'], queryFn: () => cashBoxesApi.getAll(true) });
+  const detailQuery = useQuery({
+    queryKey: ['users', 'detail', existing?.id],
+    queryFn: () => usersApi.get(existing!.id),
+    enabled: mode === 'edit' && !!existing,
+  });
+
+  useEffect(() => {
+    if (!detailQuery.data) return;
+    const d = detailQuery.data as UserDetailDto;
+    setRoleIds(d.roleIds);
+    setGrantedOverrides(new Set(d.overrides.filter(o => o.isGranted).map(o => o.permissionCode)));
+    setDeniedOverrides(new Set(d.overrides.filter(o => !o.isGranted).map(o => o.permissionCode)));
+    const m = new Map<number, { canReceive: boolean; canPay: boolean }>();
+    for (const c of d.cashBoxes) m.set(c.cashBoxId, { canReceive: c.canReceive, canPay: c.canPay });
+    setUserCashBoxes(m);
+  }, [detailQuery.data]);
+
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [onClose]);
+
+  // ── حفظ
+  const saveM = useMutation({
+    mutationFn: async () => {
+      // 1) أنشئ/حدِّث الحساب
+      let userId = existing?.id ?? '';
+      if (mode === 'create') {
+        const res = await usersApi.create({
+          fullName: fullName.trim(),
+          phone: phone.trim(),
+          password,
+          isActive,
+          roleIds,
+        });
+        if (!res.success || !res.data) throw new Error(res.errors?.[0] ?? 'فشل إنشاء المستخدم');
+        userId = res.data.id;
+      } else {
+        const upd = await usersApi.update(existing!.id, {
+          fullName: fullName.trim(),
+          phone: phone.trim(),
+          password: password || undefined,
+          isActive,
+        });
+        if (!upd.success) throw new Error(upd.errors?.[0] ?? 'فشل تعديل المستخدم');
+
+        // الأدوار (في وضع التعديل فقط — في الإنشاء أُرسلت ضمن create)
+        const rr = await usersApi.setRoles(userId, roleIds);
+        if (!rr.success) throw new Error(rr.errors?.[0] ?? 'فشل تعديل الأدوار');
+      }
+
+      // 2) الـ overrides
+      const overrides = [
+        ...Array.from(grantedOverrides).map(c => ({ permissionCode: c, isGranted: true })),
+        ...Array.from(deniedOverrides).map(c => ({ permissionCode: c, isGranted: false })),
+      ];
+      const ro = await usersApi.setOverrides(userId, overrides);
+      if (!ro.success) throw new Error(ro.errors?.[0] ?? 'فشل تعديل الاستثناءات');
+
+      // 3) الصناديق
+      const boxes = Array.from(userCashBoxes.entries()).map(([cashBoxId, v]) => ({
+        cashBoxId, canReceive: v.canReceive, canPay: v.canPay,
+      }));
+      const rb = await usersApi.setCashBoxes(userId, boxes);
+      if (!rb.success) throw new Error(rb.errors?.[0] ?? 'فشل تعديل الصناديق');
+
+      return userId;
+    },
+    onSuccess: () => {
+      toast.success(mode === 'create' ? 'تم إنشاء المستخدم' : 'تم تحديث المستخدم');
+      onSaved();
+    },
+    onError: (e: unknown) => toast.error(extractApiError(e)),
+  });
+
+  const canSave =
+    fullName.trim().length >= 2 &&
+    phone.trim().length >= 3 &&
+    (mode === 'edit' || password.length >= 4);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="flex max-h-[92vh] w-[min(1080px,96vw)] flex-col rounded-xl border border-border/60 bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-primary" />
+            <h2 className="font-medium">
+              {mode === 'create' ? 'مستخدم جديد' : `تعديل: ${existing?.fullName}`}
+            </h2>
+          </div>
+          <Button size="icon" variant="ghost" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* التبويبات */}
+        <div className="flex flex-wrap items-center gap-1 border-b border-border/60 px-3 py-2">
+          <TabButton active={tab === 'basic'}       onClick={() => setTab('basic')}       icon={<Info className="h-3.5 w-3.5" />} label="معلومات أساسية" />
+          <TabButton active={tab === 'roles'}       onClick={() => setTab('roles')}       icon={<Shield className="h-3.5 w-3.5" />} label="الأدوار" />
+          <TabButton active={tab === 'permissions'} onClick={() => setTab('permissions')} icon={<KeySquare className="h-3.5 w-3.5" />} label="استثناءات الصلاحيات" />
+          <TabButton active={tab === 'cashboxes'}   onClick={() => setTab('cashboxes')}   icon={<Wallet className="h-3.5 w-3.5" />} label="الصناديق المسموحة" />
+          {mode === 'edit' && detailQuery.data?.isSuperAdmin && (
+            <span className="ms-auto inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-400">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              SuperAdmin — يتجاوز كل الفحوصات
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {tab === 'basic' && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+              <div className="md:col-span-6">
+                <Label>الاسم الكامل *</Label>
+                <Input value={fullName} onChange={e => setFullName(e.target.value)} className="mt-1" />
+              </div>
+              <div className="md:col-span-6">
+                <Label>اسم المستخدم *</Label>
+                <Input
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  className="mt-1"
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  dir="ltr"
+                  placeholder="مثل: nabeel أو 07901234567"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  هذا ما سيكتبه المستخدم في شاشة الدخول. يقبل اسم لاتيني أو رقم هاتف.
+                </p>
+              </div>
+              <div className="md:col-span-6">
+                <Label>{mode === 'create' ? 'كلمة المرور *' : 'كلمة مرور جديدة (اختياري)'}</Label>
+                <div className="relative mt-1">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder={mode === 'edit' ? 'اتركها فارغة لعدم التغيير' : '••••••••'}
+                    className="pl-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(s => !s)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-end md:col-span-6">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    onChange={e => setIsActive(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <span>الحساب فعّال</span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {tab === 'roles' && (
+            <RolesPicker roles={rolesQuery.data ?? []} selected={roleIds} onChange={setRoleIds} />
+          )}
+
+          {tab === 'permissions' && (
+            <OverridesPanel
+              treeReady={!!treeQuery.data}
+              tree={treeQuery.data ?? []}
+              granted={grantedOverrides}
+              denied={deniedOverrides}
+              setGranted={setGrantedOverrides}
+              setDenied={setDeniedOverrides}
+              isSuperAdmin={!!detailQuery.data?.isSuperAdmin}
+              effective={detailQuery.data?.effectivePermissions ?? []}
+            />
+          )}
+
+          {tab === 'cashboxes' && (
+            <CashBoxesPicker
+              all={cashBoxesQuery.data ?? []}
+              selected={userCashBoxes}
+              onChange={setUserCashBoxes}
+            />
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-background/40 px-5 py-3">
+          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button disabled={!canSave || saveM.isPending} onClick={() => saveM.mutate()} className="gap-1.5">
+            <Save className="h-4 w-4" />
+            {saveM.isPending ? '...' : 'حفظ'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabButton({
+  active, onClick, icon, label,
+}: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm transition',
+        active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-secondary/40 hover:text-foreground'
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+// ── أدوار
+function RolesPicker({
+  roles, selected, onChange,
+}: { roles: RoleListItemDto[]; selected: number[]; onChange: (next: number[]) => void }) {
+  const toggle = (id: number) => {
+    onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]);
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        يحصل المستخدم على جميع صلاحيات الأدوار المختارة (إذا اختار دور SuperAdmin فإنه يحصل على كل صلاحيات النظام).
+      </p>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {roles.filter(r => r.isActive).map(r => {
+          const checked = selected.includes(r.id);
+          return (
+            <label
+              key={r.id}
+              className={cn(
+                'flex cursor-pointer items-start gap-3 rounded-lg border border-border/60 bg-card/30 p-3 transition',
+                checked && 'border-primary/60 bg-primary/5'
+              )}
+            >
+              <input type="checkbox" className="mt-1 h-4 w-4" checked={checked} onChange={() => toggle(r.id)} />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  {r.isSuperAdmin ? (
+                    <ShieldCheck className="h-4 w-4 text-amber-500" />
+                  ) : (
+                    <Shield className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="text-sm font-medium">{r.nameAr}</span>
+                  <span className="ms-auto font-mono text-[10px] text-muted-foreground">{r.code}</span>
+                </div>
+                {r.description && <p className="mt-1 text-xs text-muted-foreground">{r.description}</p>}
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── استثناءات الصلاحيات (Grant / Deny فوق ما يمنحه الدور)
+interface OverridesPanelProps {
+  treeReady: boolean;
+  tree: import('@/types/api').ModuleNode[];
+  granted: Set<string>;
+  denied: Set<string>;
+  setGranted: (s: Set<string>) => void;
+  setDenied: (s: Set<string>) => void;
+  isSuperAdmin: boolean;
+  effective: string[];
+}
+
+function OverridesPanel({
+  treeReady, tree, granted, denied, setGranted, setDenied, isSuperAdmin, effective,
+}: OverridesPanelProps) {
+  if (isSuperAdmin) {
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-400">
+        SuperAdmin — كل الصلاحيات ممنوحة تلقائياً، الاستثناءات غير قابلة للتعديل.
+      </div>
+    );
+  }
+  if (!treeReady) return <LoadingSpinner />;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        استخدم هذه الاستثناءات لمنح صلاحية لم يعطها الدور، أو لمنع صلاحية أعطاها الدور — دون تعديل الدور نفسه.
+      </p>
+
+      <details open className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+        <summary className="cursor-pointer text-sm font-medium text-emerald-400">
+          صلاحيات مُضافة (Grant) — {granted.size}
+        </summary>
+        <div className="mt-2">
+          <PermissionTreeEditor
+            tree={tree}
+            selected={granted}
+            onChange={next => {
+              // لا يمكن منح وحجب نفس الصلاحية معاً
+              const cleaned = new Set(denied);
+              next.forEach(c => cleaned.delete(c));
+              setDenied(cleaned);
+              setGranted(next);
+            }}
+          />
+        </div>
+      </details>
+
+      <details className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2">
+        <summary className="cursor-pointer text-sm font-medium text-rose-400">
+          صلاحيات محجوبة (Deny) — {denied.size}
+        </summary>
+        <div className="mt-2">
+          <PermissionTreeEditor
+            tree={tree}
+            selected={denied}
+            onChange={next => {
+              const cleaned = new Set(granted);
+              next.forEach(c => cleaned.delete(c));
+              setGranted(cleaned);
+              setDenied(next);
+            }}
+          />
+        </div>
+      </details>
+
+      {effective.length > 0 && (
+        <details className="rounded-lg border border-border/60 bg-secondary/20 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+            الصلاحيات الفعّالة الحالية — {effective.length}
+          </summary>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {effective.map(p => (
+              <span key={p} className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+                {p}
+              </span>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// ── الصناديق المسموحة
+interface CashBoxesPickerProps {
+  all: CashBoxDto[];
+  selected: Map<number, { canReceive: boolean; canPay: boolean }>;
+  onChange: (next: Map<number, { canReceive: boolean; canPay: boolean }>) => void;
+}
+
+function CashBoxesPicker({ all, selected, onChange }: CashBoxesPickerProps) {
+  const setEntry = (id: number, patch: Partial<{ canReceive: boolean; canPay: boolean }>) => {
+    const next = new Map(selected);
+    const cur = next.get(id) ?? { canReceive: true, canPay: true };
+    next.set(id, { ...cur, ...patch });
+    onChange(next);
+  };
+  const toggleAssign = (id: number, on: boolean) => {
+    const next = new Map(selected);
+    if (on) next.set(id, { canReceive: true, canPay: true });
+    else next.delete(id);
+    onChange(next);
+  };
+
+  if (all.length === 0) {
+    return <p className="text-sm text-muted-foreground">لا توجد صناديق مُعرَّفة. أنشئها من صفحة الصناديق أولاً.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        المستخدم يستطيع استخدام الصناديق المُحدَّدة فقط. أنواع العمليات المسموحة لكل صندوق:
+        <strong> قبض</strong> = إدخال مال، <strong>صرف</strong> = إخراج مال.
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-border/60">
+        <table className="w-full text-sm">
+          <thead className="bg-secondary/40 text-xs text-muted-foreground">
+            <tr className="text-right">
+              <th className="px-3 py-2 font-medium">مُربوط</th>
+              <th className="px-3 py-2 font-medium">الكود</th>
+              <th className="px-3 py-2 font-medium">الاسم</th>
+              <th className="px-3 py-2 font-medium text-center">يسمح بالقبض</th>
+              <th className="px-3 py-2 font-medium text-center">يسمح بالصرف</th>
+            </tr>
+          </thead>
+          <tbody>
+            {all.map(b => {
+              const assignment = selected.get(b.id);
+              const assigned = !!assignment;
+              return (
+                <tr key={b.id} className="border-t border-border/30">
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={assigned}
+                      onChange={e => toggleAssign(b.id, e.target.checked)}
+                    />
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs">{b.code}</td>
+                  <td className="px-3 py-2">{b.nameAr}</td>
+                  <td className="px-3 py-2 text-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      disabled={!assigned}
+                      checked={assignment?.canReceive ?? false}
+                      onChange={e => setEntry(b.id, { canReceive: e.target.checked })}
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      disabled={!assigned}
+                      checked={assignment?.canPay ?? false}
+                      onChange={e => setEntry(b.id, { canPay: e.target.checked })}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

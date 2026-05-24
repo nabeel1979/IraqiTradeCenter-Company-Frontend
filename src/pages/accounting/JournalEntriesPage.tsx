@@ -30,6 +30,7 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
 import { JournalEntryViewDialog } from '@/components/accounting/JournalEntryViewDialog';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
+import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
@@ -313,6 +314,7 @@ function EntryCard({
   userNs,
   isOpen,
   onToggle,
+  outsideActiveFY = false,
 }: {
   entry: JournalEntryDto;
   onView: () => void;
@@ -325,6 +327,8 @@ function EntryCard({
   userNs: string;
   isOpen: boolean;
   onToggle: () => void;
+  /** هل تاريخ هذا القيد خارج السنة المالية النشطة؟ يُعطّل زر "أصل القيد" بصرياً. */
+  outsideActiveFY?: boolean;
 }) {
   const totalD = entry.lines?.reduce((s, l) => s + (l.isDebit ? l.amount : 0), 0) ?? entry.totalDebit;
   const totalC = entry.lines?.reduce((s, l) => s + (!l.isDebit ? l.amount : 0), 0) ?? entry.totalCredit;
@@ -458,8 +462,17 @@ function EntryCard({
           <button
             type="button"
             onClick={onViewSource}
-            title="أصل القيد (فتح في نافذة المصدر)"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-violet-500/10 hover:text-violet-400"
+            title={
+              outsideActiveFY
+                ? 'القيد خارج السنة المالية النشطة — لا يمكن فتح الأصل'
+                : 'أصل القيد (فتح في نافذة المصدر)'
+            }
+            className={cn(
+              'rounded-md p-1.5 transition-colors',
+              outsideActiveFY
+                ? 'cursor-not-allowed text-muted-foreground/40 hover:bg-rose-500/5 hover:text-rose-400/60'
+                : 'text-muted-foreground hover:bg-violet-500/10 hover:text-violet-400'
+            )}
           >
             <FileText className="h-4 w-4" />
           </button>
@@ -558,6 +571,9 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     staleTime: 5 * 60 * 1000,
   });
 
+  // ‎السنة المالية النشطة — لمنع فتح/تعديل قيود من خارج نطاقها
+  const { activeFiscalYear } = useActiveFiscalYear();
+
   // ‎الفترة الافتراضية = من بداية السنة المالية الحالية → اليوم
   useEffect(() => {
     if (userTouchedDatesRef.current) return;
@@ -567,28 +583,35 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
     let fyStart = '';
-    let fyEnd = '';
     if (list.length > 0) {
-      const active = list.find(fy => {
+      // ‎الأولوية: السنة النشطة → المفتوحة التي تحتوي اليوم → أحدث مفتوحة → المغلقة التي تحتوي اليوم → الأحدث
+      const explicit = list.find(fy => (fy as any).isActive);
+      const openContainsToday = list.find(fy => {
+        const s = (fy.startDate ?? '').slice(0, 10);
+        const e = (fy.endDate ?? '').slice(0, 10);
+        return s && e && todayIso >= s && todayIso <= e && !(fy as any).isClosed;
+      });
+      const newestOpen = [...list]
+        .filter(fy => !(fy as any).isClosed)
+        .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
+      const closedContainsToday = list.find(fy => {
         const s = (fy.startDate ?? '').slice(0, 10);
         const e = (fy.endDate ?? '').slice(0, 10);
         return s && e && todayIso >= s && todayIso <= e;
       });
-      const open = list.find(fy => !(fy as any).isClosed);
       const newest = [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
-      const chosen = active ?? open ?? newest;
+      const chosen = explicit ?? openContainsToday ?? newestOpen ?? closedContainsToday ?? newest;
       if (chosen) {
         fyStart = (chosen.startDate ?? '').slice(0, 10);
-        fyEnd = (chosen.endDate ?? '').slice(0, 10);
       }
     }
     // ‎احتياط: لو لم تتوفر سنة مالية، استخدم 1 يناير من السنة التقويمية
     if (!fyStart) {
       fyStart = `${today.getFullYear()}-01-01`;
     }
-    const to = fyEnd && todayIso > fyEnd ? fyEnd : todayIso;
+    // ‎النهاية = اليوم دائماً (طلب المستخدم: "ولحد اليوم")
     setFromDate(fyStart);
-    setToDate(to);
+    setToDate(todayIso);
   }, [fiscalYearsQuery.data, fromDate, toDate]);
   const [colOrder, setColOrder] = useState<LineColKey[]>(() => loadLineColOrder(userNs));
   const [colWidths, setColWidths] = useState<Record<LineColKey, number>>(() => loadLineColWidths(userNs));
@@ -960,6 +983,25 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
                 //  - سند مخصّص (مختلط) → صفحة القيد متعدد البنود (وضع التعديل)
                 //  - فاتورة → صفحة الفاتورة
                 //  - يدوي → صفحة القيد المحاسبي (وضع العرض)
+                //
+                // ‎حارس السنة المالية النشطة:
+                //   إذا كان تاريخ القيد خارج نطاق السنة المالية المُفَعَّلة،
+                //   نمنع الفتح ونعرض إشعاراً يوضّح السبب. هذا يُكمِّل حارس
+                //   "الفترة المغلقة" بحيث لا يصل المستخدم إطلاقاً إلى نموذج
+                //   تعديل قيد لا يخصّ السنة الحالية.
+                if (activeFiscalYear && !isDateInFiscalYear(e.entryDate, activeFiscalYear)) {
+                  toast.error('تعذّر فتح أصل القيد', {
+                    description: `تاريخ القيد (${formatDate(e.entryDate)}) خارج السنة المالية النشطة "${activeFiscalYear.name}". يمكنك معاينة القيد فقط بزر العرض، أو فعّل سنة مالية أخرى لتعديله.`,
+                    duration: 6000,
+                  });
+                  return;
+                }
+                // ‎قيد مناقلة بين صناديق: لا يُفتح للتعديل من هنا — يوجَّه
+                // ‎للمناقلات حصراً (تعديل/إلغاء/تراجع عن استلام).
+                if (e.referenceType === 'CashBoxTransfer' || e.referenceType === 'CashBoxTransferReversal') {
+                  navigate('/accounting/cash-boxes?tab=transfers');
+                  return;
+                }
                 // ‎نمرّر returnTo/returnLabel ليرجع المستخدم إلى صفحة السند بعد الحفظ/الإلغاء
                 const returnState = isLocked && lockedVoucherType
                   ? { returnTo: `/accounting/vouchers/${lockedVoucherType.code}`, returnLabel: lockedVoucherType.nameAr }
@@ -991,6 +1033,9 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               userNs={userNs}
               isOpen={openIds.has(e.id)}
               onToggle={() => toggleEntry(e.id)}
+              outsideActiveFY={
+                !!activeFiscalYear && !isDateInFiscalYear(e.entryDate, activeFiscalYear)
+              }
             />
           ))}
         </div>

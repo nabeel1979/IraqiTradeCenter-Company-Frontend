@@ -1,5 +1,5 @@
 import {
-  Receipt, Package, Users, Wallet, ArrowUpRight, AlertTriangle, ShoppingBag
+  Receipt, Package, Users, Wallet, AlertTriangle, ShoppingBag
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
@@ -8,8 +8,9 @@ import {
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { formatIQD } from '@/lib/utils';
+import { useTheme } from '@/hooks/useTheme';
+import { ShortcutsBar } from '@/components/dashboard/ShortcutsBar';
 
 // بيانات تجريبية - في الإنتاج تُجلب من الـ API
 const salesData = [
@@ -58,44 +59,66 @@ export function DashboardPage() {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   }).format(new Date());
 
+  // ‎ألوان الرسم البياني تتكيّف مع الوضع الفعّال — لا hardcoded.
+  const { theme } = useTheme();
+  const chartColors = theme === 'dark'
+    ? {
+        primary: 'hsl(35 50% 65%)',
+        primaryFaint: 'hsl(35 50% 65% / 0.05)',
+        grid: 'hsl(240 5% 17%)',
+        axis: 'hsl(30 5% 58%)',
+        tooltipBg: 'hsl(240 5% 10%)',
+        tooltipBorder: 'hsl(240 5% 17%)',
+        tooltipText: 'hsl(36 15% 90%)',
+      }
+    : {
+        primary: 'hsl(36 45% 42%)',
+        primaryFaint: 'hsl(36 45% 42% / 0.06)',
+        grid: 'hsl(220 13% 91%)',
+        axis: 'hsl(220 9% 46%)',
+        tooltipBg: 'hsl(0 0% 100%)',
+        tooltipBorder: 'hsl(220 13% 91%)',
+        tooltipText: 'hsl(222 47% 11%)',
+      };
+
   return (
     <div className="space-y-6">
       {/* Hero strip */}
-      <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card p-6">
+      <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card p-4 sm:p-6">
         <div className="pattern-meso absolute inset-0 opacity-40" />
-        <div className="relative flex items-center justify-between gap-4">
-          <div className="flex items-center gap-5">
-            {/* لوكو مركز التجارة العراقي */}
-            <div className="shrink-0">
-              <img
-                src="/logo.png?v=3"
-                alt="مركز التجارة العراقي"
-                className="h-24 w-24 object-contain"
-                draggable={false}
-              />
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-primary/70">{todayDate}</p>
-              <h1 className="mt-1.5 font-display text-2xl font-semibold leading-tight md:text-3xl">
-                مركز التجارة العراقي
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                صباح الخير  ·  مبيعات اليوم:{' '}
-                <span className="font-medium tnum text-foreground">{formatIQD(5800000)}</span>
-                {' · '}
-                <span className="text-success">+18% عن الأمس</span>
-              </p>
-            </div>
+        <div className="relative flex items-center gap-3 sm:gap-5">
+          {/* لوكو مركز التجارة العراقي - أصغر على الموبايل */}
+          <div className="shrink-0">
+            <img
+              src="/logo.png?v=3"
+              alt="مركز التجارة العراقي"
+              className="h-16 w-16 object-contain sm:h-24 sm:w-24"
+              draggable={false}
+            />
           </div>
-          <Link to="/invoices/new" className="shrink-0">
-            <Button size="lg" className="glow-primary">
-              <Receipt className="h-4 w-4" />
-              فاتورة جديدة
-              <ArrowUpRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[11px] uppercase tracking-[0.14em] text-primary/70 sm:text-xs sm:tracking-[0.18em]">
+              {todayDate}
+            </p>
+            <h1 className="mt-1 font-display text-xl font-semibold leading-tight sm:mt-1.5 sm:text-2xl md:text-3xl">
+              مركز التجارة العراقي
+            </h1>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
+              <span className="font-medium text-foreground/90">صباح الخير</span>
+              {' · '}
+              <span className="whitespace-nowrap">
+                مبيعات اليوم:{' '}
+                <span className="font-medium tnum text-foreground">{formatIQD(5800000)}</span>
+              </span>
+              {' · '}
+              <span className="whitespace-nowrap text-success">+18% عن الأمس</span>
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* Quick shortcuts — قسم مستقل أسفل Hero مباشرة، خاص بكل مستخدم وفق صلاحياته */}
+      <ShortcutsBar />
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -153,27 +176,28 @@ export function DashboardPage() {
                 <AreaChart data={salesData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="hsl(35 50% 65%)" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="hsl(35 50% 65%)" stopOpacity={0} />
+                      <stop offset="0%" stopColor={chartColors.primary} stopOpacity={0.4} />
+                      <stop offset="100%" stopColor={chartColors.primary} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 5% 17%)" vertical={false} />
-                  <XAxis dataKey="day" stroke="hsl(30 5% 58%)" fontSize={12} reversed tickLine={false} axisLine={false} />
-                  <YAxis stroke="hsl(30 5% 58%)" fontSize={12} tickLine={false} axisLine={false}
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
+                  <XAxis dataKey="day" stroke={chartColors.axis} fontSize={12} reversed tickLine={false} axisLine={false} />
+                  <YAxis stroke={chartColors.axis} fontSize={12} tickLine={false} axisLine={false}
                     tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`}
                     orientation="right"
                   />
                   <Tooltip
                     contentStyle={{
-                      background: 'hsl(240 5% 10%)',
-                      border: '1px solid hsl(240 5% 17%)',
+                      background: chartColors.tooltipBg,
+                      border: `1px solid ${chartColors.tooltipBorder}`,
                       borderRadius: 8,
+                      color: chartColors.tooltipText,
                       fontFamily: '"IBM Plex Sans Arabic", sans-serif',
                     }}
                     formatter={(v: number) => [formatIQD(v), 'المبيعات']}
-                    cursor={{ fill: 'hsl(35 50% 65% / 0.05)' }}
+                    cursor={{ fill: chartColors.primaryFaint }}
                   />
-                  <Area type="monotone" dataKey="sales" stroke="hsl(35 50% 65%)" strokeWidth={2} fill="url(#salesGradient)" />
+                  <Area type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} fill="url(#salesGradient)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

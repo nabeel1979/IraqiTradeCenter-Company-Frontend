@@ -11,6 +11,8 @@ import { CustomersListPage } from '@/pages/customers/CustomersListPage';
 import { SalesRepsListPage } from '@/pages/sales-reps/SalesRepsListPage';
 import { IncomingOrdersListPage } from '@/pages/orders/IncomingOrdersListPage';
 import { AccountsTreePage } from '@/pages/accounting/AccountsTreePage';
+import { AccountsTrashPage } from '@/pages/accounting/AccountsTrashPage';
+import { TrashPage } from '@/pages/system/TrashPage';
 import { JournalEntriesPage } from '@/pages/accounting/JournalEntriesPage';
 import { CreateJournalEntryPage } from '@/pages/accounting/CreateJournalEntryPage';
 import { TrialBalancePage } from '@/pages/accounting/TrialBalancePage';
@@ -23,6 +25,8 @@ import { VoucherEntryPage } from '@/pages/accounting/VoucherEntryPage';
 import { VoucherReportPage } from '@/pages/accounting/VoucherReportPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { MenuSettingsPage } from '@/pages/settings/MenuSettingsPage';
+import { UsersPage } from '@/pages/settings/UsersPage';
+import { RolesPage } from '@/pages/settings/RolesPage';
 
 /**
  * Wrappers صغيرة تُجبر إعادة تركيب المكون عند تغيير الـ URL بين
@@ -78,6 +82,8 @@ export default function App() {
 
         {/* Accounting */}
         <Route path="accounting/accounts" element={<AccountsTreePage />} />
+        <Route path="accounting/accounts/trash" element={<AccountsTrashPage />} />
+        <Route path="system/trash" element={<TrashPage />} />
         <Route path="accounting/journal" element={<JournalEntriesPage />} />
         <Route path="accounting/journal/new" element={<CreateJournalEntryRoute />} />
         <Route path="accounting/journal/:id/edit" element={<CreateJournalEntryRoute />} />
@@ -96,6 +102,8 @@ export default function App() {
         {/* Settings */}
         <Route path="settings" element={<SettingsPage />} />
         <Route path="settings/menu" element={<MenuSettingsPage />} />
+        <Route path="settings/users" element={<UsersPage />} />
+        <Route path="settings/roles" element={<RolesPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

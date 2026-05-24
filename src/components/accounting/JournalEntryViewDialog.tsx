@@ -120,11 +120,27 @@ export function JournalEntryViewDialog({ entryId, onClose, allowEdit = true }: P
                 طباعة
               </Button>
             )}
-            {allowEdit && data && (
+            {/*
+              • قيود مناقلات الصناديق (CashBoxTransfer / CashBoxTransferReversal)
+                لا تُعدَّل من هنا — مقفولة على نافذة المناقلات.
+            */}
+            {allowEdit && data
+              && data.referenceType !== 'CashBoxTransfer'
+              && data.referenceType !== 'CashBoxTransferReversal' && (
               <Button variant="outline" size="sm" onClick={handleEdit} className="h-7 gap-1 px-2 text-xs">
                 <Pencil className="h-3.5 w-3.5" />
                 تعديل
               </Button>
+            )}
+            {data
+              && (data.referenceType === 'CashBoxTransfer'
+                || data.referenceType === 'CashBoxTransferReversal') && (
+              <span
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 text-[10px] font-medium text-amber-500"
+                title="يُعدَّل من صفحة الصناديق ⇒ تبويب المناقلات"
+              >
+                مناقلة صناديق · مقفول
+              </span>
             )}
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />

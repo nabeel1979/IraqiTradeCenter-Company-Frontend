@@ -6,6 +6,8 @@ export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   errors?: string[];
+  /** رسالة معلوماتية إضافية يُرسلها الـ backend (مثل رسائل الفشل المباشرة في DomainException). */
+  message?: string;
 }
 
 export interface PagedResult<T> {
@@ -30,7 +32,121 @@ export interface LoginResponse {
     fullName: string;
     phone: string;
     role: string;
+    roles?: string[];
+    permissions?: string[];
+    isSuperAdmin?: boolean;
   };
+}
+
+// ── Permissions & Roles
+export interface PermissionNode {
+  code: string;
+  action: string;
+  actionAr: string;
+  nameAr: string;
+}
+export interface ResourceNode {
+  resource: string;
+  resourceAr: string;
+  actions: PermissionNode[];
+}
+export interface ModuleNode {
+  module: string;
+  moduleAr: string;
+  resources: ResourceNode[];
+}
+
+export interface RoleListItemDto {
+  id: number;
+  code: string;
+  nameAr: string;
+  description?: string | null;
+  isSystemRole: boolean;
+  isSuperAdmin: boolean;
+  isActive: boolean;
+  createdAt: string;
+  permissionCount: number;
+  userCount: number;
+}
+
+export interface RoleDetailDto {
+  id: number;
+  code: string;
+  nameAr: string;
+  description?: string | null;
+  isSystemRole: boolean;
+  isSuperAdmin: boolean;
+  isActive: boolean;
+  createdAt: string;
+  permissions: string[];
+}
+
+export interface RoleUpsertPayload {
+  code?: string;
+  nameAr: string;
+  description?: string | null;
+  isActive?: boolean;
+  permissions: string[];
+}
+
+export interface UserListItemDto {
+  id: string;
+  fullName: string;
+  phone: string;
+  isActive: boolean;
+  createdAt: string;
+  roles: string[];
+  cashBoxCount: number;
+}
+
+export interface UserPermissionOverrideDto {
+  permissionCode: string;
+  isGranted: boolean;
+}
+
+export interface UserCashBoxAssignmentDto {
+  cashBoxId: number;
+  canReceive: boolean;
+  canPay: boolean;
+}
+
+export interface UserDetailDto {
+  id: string;
+  fullName: string;
+  phone: string;
+  isActive: boolean;
+  createdAt: string;
+  roleIds: number[];
+  overrides: UserPermissionOverrideDto[];
+  cashBoxes: UserCashBoxAssignmentDto[];
+  effectivePermissions: string[];
+  isSuperAdmin: boolean;
+}
+
+export interface UserCreatePayload {
+  fullName: string;
+  phone: string;
+  password: string;
+  isActive?: boolean;
+  roleIds?: number[];
+}
+
+export interface UserUpdatePayload {
+  fullName?: string;
+  phone?: string;
+  password?: string;
+  isActive?: boolean;
+}
+
+export interface MeDto {
+  id: string;
+  fullName: string;
+  phone: string;
+  isActive: boolean;
+  roles: string[];
+  permissions: string[];
+  cashBoxIds: number[];
+  isSuperAdmin: boolean;
 }
 
 // ── Inventory
@@ -232,7 +348,40 @@ export interface AccountDto {
   level: number;
   isLeaf: boolean;
   openingBalance: number;
+  /**
+   * هل الحساب مفعَّل؟ يُرجَع فقط حين يُطلب الـ tree بـ `includeInactive=true`
+   * (شاشة شجرة الحسابات). في باقي المواضع (شاشات الاختيار) يكون دائماً true
+   * لأن الـ backend يستبعد المعطَّلة بشكل افتراضي.
+   */
+  isActive: boolean;
+  /**
+   * هل الحساب مرتبط فعلاً بقيد محاسبي / صندوق / نوع سند (كحساب افتراضي)
+   * أو لديه رصيد افتتاحي؟ عندما يكون true تحجب الواجهة أزرار إضافة الفروع
+   * والحذف لأن العملية ستفشل على الخادم على أي حال.
+   */
+  isUsed: boolean;
   children: AccountDto[];
+}
+
+/**
+ * مدخل في سلة مهملات شجرة الحسابات — تمثيل مسطّح مع سياق الأب.
+ * يأتي من `GET /accounts/trash`.
+ */
+export interface TrashedAccountDto {
+  id: number;
+  code: string;
+  nameAr: string;
+  type: number;
+  nature: number;
+  level: number;
+  isLeaf: boolean;
+  parentId?: number | null;
+  parentCode?: string | null;
+  parentNameAr?: string | null;
+  /** هل الأب نفسه ما زال محذوفاً؟ في هذه الحالة لا يمكن الاستعادة قبل استعادته. */
+  parentIsDeleted: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface TrialBalanceRowDto {
@@ -336,7 +485,23 @@ export interface AccountStatementDto {
   totalDebitValuated: number;
   totalCreditValuated: number;
   closingBalanceValuated: number;
+  /** تفاصيل قيود الافتتاح (EntryType=Opening) المؤثرة في الرصيد الافتتاحي */
+  openingEntries?: OpeningEntryRowDto[];
   rows: AccountStatementRowDto[];
+}
+
+export interface OpeningEntryRowDto {
+  entryId: number;
+  entryNumber: string;
+  entryDate: string;
+  currency: string;
+  description?: string | null;
+  debit: number;
+  credit: number;
+  /** صافي السطر (مدين − دائن) بعملة القيد */
+  net: number;
+  /** صافي السطر بالعملة الأساسية بعد التقويم */
+  netValuated: number;
 }
 
 // ── Fiscal Years / Accounting Periods
@@ -359,6 +524,8 @@ export interface FiscalYearDto {
   endDate: string;
   isClosed: boolean;
   closedAt?: string | null;
+  /** السنة المالية المفعَّلة (النشطة) — التقارير تعتمد عليها افتراضياً. */
+  isActive?: boolean;
   periods: AccountingPeriodDto[];
 }
 
@@ -386,6 +553,16 @@ export interface FiscalYearValidationDto {
   draftEntries: number;
   isBalanced: boolean;
   difference: number;
+  draftEntriesList?: DraftJournalEntryRefDto[];
+}
+
+export interface DraftJournalEntryRefDto {
+  id: number;
+  entryNumber: string;
+  entryDate: string;
+  description: string;
+  voucherTypeCode?: string | null;
+  voucherSequence?: number | null;
 }
 
 export interface FiscalYearCloseResultDto {
