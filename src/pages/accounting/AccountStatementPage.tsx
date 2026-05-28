@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
@@ -21,8 +22,13 @@ import {
   ChevronUp,
   ChevronDown,
   CheckCircle2,
+  Receipt,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import { useLocale } from '@/lib/i18n/useLocale';
+import { localizedName, localizedEntryDescription } from '@/lib/i18n';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -35,8 +41,10 @@ import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { currenciesApi } from '@/lib/api/currencies';
+import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { formatAmount, formatDate, cn } from '@/lib/utils';
 import { printAccountStatement } from '@/lib/printUtils';
+import { auditApi } from '@/lib/api/audit';
 import { useAuthStore } from '@/lib/auth/auth-store';
 import type { AccountDto, AccountStatementDto, AccountStatementRowDto } from '@/types/api';
 
@@ -65,20 +73,6 @@ function statementLayoutStorageKeys(userNs: string): StatementLayoutStorageKeys 
 }
 
 type StatementColKey = 'idx' | 'date' | 'entry' | 'account' | 'desc' | 'debit' | 'credit' | 'balance' | 'valBalance' | 'currency' | 'actions';
-
-const COL_LABEL: Record<StatementColKey, string> = {
-  idx: '#',
-  date: 'التاريخ',
-  entry: 'السند / القيد',
-  account: 'الحساب',
-  desc: 'البيان',
-  debit: 'مدين',
-  credit: 'دائن',
-  balance: 'الرصيد',
-  valBalance: 'رصيد مقوم',
-  currency: 'العملة',
-  actions: 'إجراءات',
-};
 
 /** يُسمح إخفاء أي عمود عدا المرجع */
 const REQUIRED_COL: StatementColKey = 'idx';
@@ -200,6 +194,8 @@ function StatementColHead({
   onDragLeaveHeader,
   onDropOnHeader,
   onGripDragEnd,
+  colLabels,
+  t,
 }: {
   colKey: StatementColKey;
   width: number;
@@ -208,6 +204,8 @@ function StatementColHead({
   truncateLabel?: boolean;
   className?: string;
   children: ReactNode;
+  colLabels: Record<StatementColKey, string>;
+  t: TFunction;
   onResizeDelta: (key: StatementColKey, pixelDelta: number) => void;
   onResizePersist: () => void;
   onDragEnterHeader?: (e: ReactDragEvent<HTMLTableHeaderCellElement>) => void;
@@ -287,8 +285,8 @@ function StatementColHead({
           draggable
           onDragStart={onGripDragStart}
           onDragEnd={onGripDragEnd}
-          title={`إعادة ترتيب عمود «${COL_LABEL[colKey]}»`}
-          aria-label={`سحب لإعادة ترتيب عمود ${COL_LABEL[colKey]}`}
+          title={t('accountStatement.table.reorderColumn', { name: colLabels[colKey] })}
+          aria-label={t('accountStatement.table.reorderColumn', { name: colLabels[colKey] })}
           className="absolute top-1/2 z-30 -translate-y-1/2 cursor-grab touch-none rounded p-0.5 text-muted-foreground/40 opacity-0 transition-opacity hover:bg-accent/70 hover:text-primary group-hover:opacity-100 active:cursor-grabbing"
           style={{ insetInlineStart: '2px' }}
           onMouseDown={e => e.stopPropagation()}
@@ -300,7 +298,7 @@ function StatementColHead({
       <span
         role="separator"
         aria-hidden="true"
-        title="ضبط عرض العمود"
+        title={t('accountStatement.table.resizeColumn')}
         onMouseDown={onResizeStripDown}
         className="group/resizer absolute inset-y-0 z-40 flex cursor-col-resize items-center justify-center"
         style={{ width: '6px', insetInlineEnd: '-3px' }}
@@ -354,52 +352,51 @@ function SummaryCell({
  *
  * بعد التعديل وحفظ التغييرات يُمكن المستخدم الرجوع إلى صفحة الكشف عبر زر "رجوع".
  */
-function resolveSourceLink(row: {
-  entryId: number;
-  source?: string;
-  referenceType?: string | null;
-  referenceId?: number | null;
-}): { href: string; label: string } {
+function resolveSourceLink(
+  row: {
+    entryId: number;
+    source?: string;
+    referenceType?: string | null;
+    referenceId?: number | null;
+  },
+  t: TFunction,
+): { href: string; label: string } {
   const src = (row.source || '').trim();
   const refType = (row.referenceType || '').trim();
   const refId = row.referenceId;
-  // ‎قيود المناقلات بين الصناديق: التعديل/الحذف ممنوع من شاشات القيود
-  // ‎اليدوية؛ نوجّه فوراً إلى تبويب "المناقلات" في صفحة الصناديق حتى يتم
-  // ‎التعديل/الإلغاء من هناك حصراً.
   if (refType === 'CashBoxTransfer' || refType === 'CashBoxTransferReversal') {
-    return { href: '/accounting/cash-boxes?tab=transfers', label: 'مناقلة صناديق' };
+    return { href: '/accounting/cash-boxes?tab=transfers', label: t('accountStatement.sources.cashTransfer') };
   }
   switch (src) {
     case 'SalesInvoice':
-      if (refId) return { href: `/sales/invoices/${refId}`, label: 'فاتورة بيع' };
+      if (refId) return { href: `/sales/invoices/${refId}`, label: t('accountStatement.sources.salesInvoice') };
       break;
     case 'PurchaseInvoice':
-      if (refId) return { href: `/purchases/invoices/${refId}`, label: 'فاتورة شراء' };
+      if (refId) return { href: `/purchases/invoices/${refId}`, label: t('accountStatement.sources.purchaseInvoice') };
       break;
     case 'Payment':
-      if (refId) return { href: `/finance/payments/${refId}`, label: 'إيصال دفع' };
+      if (refId) return { href: `/finance/payments/${refId}`, label: t('accountStatement.sources.paymentReceipt') };
       break;
     case 'Receipt':
-      if (refId) return { href: `/finance/receipts/${refId}`, label: 'إيصال قبض' };
+      if (refId) return { href: `/finance/receipts/${refId}`, label: t('accountStatement.sources.financeReceipt') };
       break;
     case 'StockMovement':
-      if (refId) return { href: `/inventory/movements/${refId}`, label: 'حركة مخزون' };
+      if (refId) return { href: `/inventory/movements/${refId}`, label: t('accountStatement.sources.stockMovement') };
       break;
     case 'CommissionPayment':
-      if (refId) return { href: `/finance/commissions/${refId}`, label: 'دفعة عمولة' };
+      if (refId) return { href: `/finance/commissions/${refId}`, label: t('accountStatement.sources.commission') };
       break;
     case 'SalaryPayment':
-      if (refId) return { href: `/hr/salaries/${refId}`, label: 'دفعة راتب' };
+      if (refId) return { href: `/hr/salaries/${refId}`, label: t('accountStatement.sources.salary') };
       break;
     default:
       if (refId) {
-        if (refType.toLowerCase().includes('sales')) return { href: `/sales/invoices/${refId}`, label: 'فاتورة بيع' };
-        if (refType.toLowerCase().includes('purchase')) return { href: `/purchases/invoices/${refId}`, label: 'فاتورة شراء' };
+        if (refType.toLowerCase().includes('sales')) return { href: `/sales/invoices/${refId}`, label: t('accountStatement.sources.salesInvoice') };
+        if (refType.toLowerCase().includes('purchase')) return { href: `/purchases/invoices/${refId}`, label: t('accountStatement.sources.purchaseInvoice') };
       }
       break;
   }
-  // قيد يدوي أو مصدر غير معروف → يفتح القيد نفسه للتحرير
-  return { href: `/accounting/journal/${row.entryId}/edit`, label: 'قيد يدوي' };
+  return { href: `/accounting/journal/${row.entryId}/edit`, label: t('accountStatement.sources.manualEntry') };
 }
 
 function flattenLeaves(tree: AccountDto[]): AccountDto[] {
@@ -415,8 +412,27 @@ function flattenLeaves(tree: AccountDto[]): AccountDto[] {
 }
 
 export function AccountStatementPage() {
+  const { t } = useTranslation();
+  const { locale, isRtl } = useLocale();
   const today = new Date().toISOString().slice(0, 10);
   const navigate = useNavigate();
+
+  const colLabels = useMemo(
+    (): Record<StatementColKey, string> => ({
+      idx: t('accountStatement.table.cols.idx'),
+      date: t('accountStatement.table.cols.date'),
+      entry: t('accountStatement.table.cols.entry'),
+      account: t('accountStatement.table.cols.account'),
+      desc: t('accountStatement.table.cols.desc'),
+      debit: t('accountStatement.table.cols.debit'),
+      credit: t('accountStatement.table.cols.credit'),
+      balance: t('accountStatement.table.cols.balance'),
+      valBalance: t('accountStatement.table.cols.valBalance'),
+      currency: t('accountStatement.table.cols.currency'),
+      actions: t('accountStatement.table.cols.actions'),
+    }),
+    [t],
+  );
 
   const reportPrefsUserNs = useAuthStore(s => s.user?.id ?? '__guest__');
   const layoutKeysRef = useRef(statementLayoutStorageKeys(reportPrefsUserNs));
@@ -439,7 +455,9 @@ export function AccountStatementPage() {
         from: string;
         to: string;
         accountId: number | null;
+        accountLabel?: string;
         selectedCurrencies: string[];
+        autoSubmit?: boolean;
         focusEntryId?: number | null;
         ts: number;
       };
@@ -453,6 +471,11 @@ export function AccountStatementPage() {
   const [from, setFrom] = useState(initialReturnState?.from ?? '');
   const [to, setTo] = useState(initialReturnState?.to ?? today);
   const [accountId, setAccountId] = useState<number | null>(initialReturnState?.accountId ?? null);
+  /**
+   * اسم الحساب المختار (كود + اسم) — يُستعمل كـ fallback في الـ AccountPicker
+   * عندما يأتي accountId من صفحة أخرى ولا يكون ضمن الأوراق المُمرَّرة.
+   */
+  const [accountLabel, setAccountLabel] = useState<string>(initialReturnState?.accountLabel ?? '');
   /** عملات مختارة (فارغ = جميع العملات). تعدد الاختيار يدعم checkboxes. */
   const [selectedCurrencies, setSelectedCurrencies] = useState<string[]>(
     initialReturnState?.selectedCurrencies ?? []
@@ -461,6 +484,11 @@ export function AccountStatementPage() {
 
   /** معرّف القيد المعروض حالياً في النافذة المنبثقة (null = الـ Dialog مغلق) */
   const [viewEntryId, setViewEntryId] = useState<number | null>(null);
+
+  /** قائمة السياق عند النقر بالزر الأيمن على صف */
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number; y: number; row: AccountStatementRowDto;
+  } | null>(null);
 
   /**
    * معرّف القيد الذي يجب التمرير إليه وتمييزه مؤقتاً بعد الرجوع من صفحة "أصل القيد".
@@ -489,6 +517,7 @@ export function AccountStatementPage() {
         from,
         to,
         accountId,
+        accountLabel,
         selectedCurrencies,
         focusEntryId: entryId,
         ts: Date.now(),
@@ -500,10 +529,10 @@ export function AccountStatementPage() {
     navigate(href, {
       state: {
         returnTo: '/accounting/account-statement',
-        returnLabel: 'كشف الحساب',
+        returnLabel: t('accountStatement.returnLabel'),
       },
     });
-  }, [from, to, accountId, selectedCurrencies, navigate]);
+  }, [from, to, accountId, accountLabel, selectedCurrencies, navigate]);
 
   /** العملات المُفعَّلة من إعدادات الشركة، مرتبة حسب DisplayOrder */
   const enabledCurrenciesQuery = useQuery({
@@ -518,7 +547,7 @@ export function AccountStatementPage() {
         : FALLBACK_CURRENCIES,
     [enabledCurrenciesQuery.data]
   );
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(!!(initialReturnState?.autoSubmit));
   /** هل عدّل المستخدم التواريخ يدوياً؟ لو نعم لا نستبدلها بقيم السنة المالية تلقائياً */
   const userTouchedDatesRef = useRef(false);
 
@@ -571,6 +600,13 @@ export function AccountStatementPage() {
   const fiscalYearsQuery = useQuery({
     queryKey: ['fiscal-years'],
     queryFn: fiscalYearsApi.getAll,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // ‎الصناديق — للاستعمال كسياق ترجمة لوصف القيد المُولّد تلقائياً.
+  const cashBoxesQuery = useQuery({
+    queryKey: ['cash-boxes', 'all-for-translation'],
+    queryFn: () => cashBoxesApi.getAll(false),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -630,75 +666,65 @@ export function AccountStatementPage() {
       const fyStart = (currentFiscalYear.startDate ?? '').slice(0, 10);
       const fyEnd = (currentFiscalYear.endDate ?? '').slice(0, 10);
       if (fyStart && fyEnd) {
-        list.push({ id: 'fy-full', label: 'السنة المالية', from: fyStart, to: fyEnd });
+        list.push({ id: 'fy-full', label: t('dateRange.presets.fyFull'), from: fyStart, to: fyEnd });
       }
       if (fyStart) {
-        // ‎"من بداية السنة" = من بداية السنة المالية إلى اليوم دائماً
         list.push({
           id: 'fy-to-today',
-          label: 'من بداية السنة',
+          label: t('dateRange.presets.fyToToday'),
           from: fyStart,
           to: today,
         });
       }
     }
 
-    // ── اليوم
-    list.push({ id: 'today', label: 'اليوم', from: today, to: today });
+    list.push({ id: 'today', label: t('dateRange.presets.today'), from: today, to: today });
 
-    // ── أمس
     const yest = new Date(now);
     yest.setDate(yest.getDate() - 1);
     const yestIso = toIso(yest);
-    list.push({ id: 'yesterday', label: 'أمس', from: yestIso, to: yestIso });
+    list.push({ id: 'yesterday', label: t('dateRange.presets.yesterday'), from: yestIso, to: yestIso });
 
-    // ── هذا الأسبوع (بداية السبت — التقويم العربي/العراقي)
-    const dow = now.getDay(); // 0=Sun, 6=Sat
+    const dow = now.getDay();
     const daysSinceSat = (dow + 1) % 7;
     const weekStart = new Date(now);
     weekStart.setDate(weekStart.getDate() - daysSinceSat);
-    list.push({ id: 'this-week', label: 'هذا الأسبوع', from: toIso(weekStart), to: today });
+    list.push({ id: 'this-week', label: t('dateRange.presets.thisWeek'), from: toIso(weekStart), to: today });
 
-    // ── الأسبوع الماضي
     const lastWeekEnd = new Date(weekStart);
     lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
     const lastWeekStart = new Date(lastWeekEnd);
     lastWeekStart.setDate(lastWeekStart.getDate() - 6);
     list.push({
       id: 'last-week',
-      label: 'الأسبوع الماضي',
+      label: t('dateRange.presets.lastWeek'),
       from: toIso(lastWeekStart),
       to: toIso(lastWeekEnd),
     });
 
-    // ── هذا الشهر
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    list.push({ id: 'this-month', label: 'هذا الشهر', from: toIso(monthStart), to: today });
+    list.push({ id: 'this-month', label: t('dateRange.presets.thisMonth'), from: toIso(monthStart), to: today });
 
-    // ── الشهر الماضي
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     list.push({
       id: 'last-month',
-      label: 'الشهر الماضي',
+      label: t('dateRange.presets.lastMonth'),
       from: toIso(lastMonthStart),
       to: toIso(lastMonthEnd),
     });
 
-    // ── هذا الربع
     const q = Math.floor(now.getMonth() / 3);
     const qStart = new Date(now.getFullYear(), q * 3, 1);
-    list.push({ id: 'this-quarter', label: 'هذا الربع', from: toIso(qStart), to: today });
+    list.push({ id: 'this-quarter', label: t('dateRange.presets.thisQuarter'), from: toIso(qStart), to: today });
 
-    // ── هذا العام (تقويمي) — يُعرض فقط حين لا تتوفر سنة مالية،
-    // ── لأنّ "بداية السنة" في سياقنا المحاسبي = بداية السنة المالية.
     if (!currentFiscalYear) {
       const yearStart = new Date(now.getFullYear(), 0, 1);
-      list.push({ id: 'this-year', label: 'هذا العام', from: toIso(yearStart), to: today });
+      list.push({ id: 'this-year', label: t('dateRange.presets.thisYear'), from: toIso(yearStart), to: today });
     }
 
     return list;
-  }, [currentFiscalYear, today]);
+  }, [currentFiscalYear, today, t]);
 
   const leaves = useMemo(() => (treeQuery.data ? flattenLeaves(treeQuery.data) : []), [treeQuery.data]);
 
@@ -1007,6 +1033,7 @@ export function AccountStatementPage() {
     setFrom(fyStart || '');
     setTo(today);
     setAccountId(null);
+    setAccountLabel('');
     setSelectedCurrencies([]);
     setSubmitted(false);
     setReportData(null);
@@ -1020,11 +1047,37 @@ export function AccountStatementPage() {
   };
 
   const currencyButtonLabel = useMemo(() => {
-    if (selectedCurrencies.length === 0) return 'الكل';
+    if (selectedCurrencies.length === 0) return t('accountStatement.filters.allCurrencies');
     if (selectedCurrencies.length === 1) return selectedCurrencies[0];
-    if (selectedCurrencies.length === CURRENCIES.length) return 'الكل';
-    return `${selectedCurrencies.length} عملات`;
-  }, [selectedCurrencies]);
+    if (selectedCurrencies.length === CURRENCIES.length) return t('accountStatement.filters.allCurrencies');
+    return t('accountStatement.filters.multiCurrency', { count: selectedCurrencies.length });
+  }, [selectedCurrencies, t]);
+
+  const accountNamesEnByCode = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of leaves) {
+      if (a.code && a.nameEn) m[a.code] = a.nameEn;
+    }
+    return m;
+  }, [leaves]);
+
+  // ‎خريطة (nameAr → nameEn) مشتقّة من الحسابات + الصناديق — لترجمة وصف القيد
+  // ‎المركّب (سند قبض — صندوق نبيل) عند العرض في كشف الحساب.
+  const descriptionContextMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of leaves) {
+      const ar = (a.nameAr ?? '').trim();
+      const en = (a.nameEn ?? '').trim();
+      if (ar && en) m[ar] = en;
+    }
+    for (const cb of cashBoxesQuery.data ?? []) {
+      const ar = (cb.nameAr ?? '').trim();
+      const en = (cb.nameEn ?? '').trim();
+      if (ar && en) m[ar] = en;
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaves, cashBoxesQuery.data]);
 
   /** إغلاق نافذة العملات عند النقر خارجها */
   const currencyPanelRef = useRef<HTMLDivElement>(null);
@@ -1050,7 +1103,40 @@ export function AccountStatementPage() {
 
   const handlePrint = () => {
     if (!rd) return;
-    printAccountStatement(rd, companyQuery.data ?? null);
+    // نمرّر نفس الأعمدة المرئية على الشاشة (باستثناء عمود الإجراءات غير القابل للطباعة)
+    // كي يكون تنسيق الطباعة مطابقاً تماماً للتقرير: نفس الترتيب، نفس الإخفاء، نفس العرض.
+    const printableOrder = visibleCols.filter(k => k !== 'actions');
+    // ‎مرّر nameEn للحساب المختار حتى تستخدمه الطباعة عندما اللغة EN
+    const selectedAcc = accountId != null
+      ? (treeQuery.data ?? []).find(a => a.id === accountId)
+      : null;
+    const accountNamesEn: Record<string, string> = {};
+    for (const leaf of leaves) {
+      if (leaf.code && leaf.nameEn) accountNamesEn[leaf.code] = leaf.nameEn;
+    }
+    printAccountStatement(
+      rd,
+      companyQuery.data ?? null,
+      {
+        order:  printableOrder,
+        hidden: [],
+        widths: colWidths,
+      },
+      undefined,
+      { accountNameEn: selectedAcc?.nameEn ?? null, accountNamesEn },
+    );
+    void auditApi.logPrint({
+      entityType: 'AccountStatement',
+      entityId: accountId ? String(accountId) : '*',
+      summary: selectedAcc
+        ? `طباعة كشف حساب ${selectedAcc.code} — ${selectedAcc.nameAr}`
+        : 'طباعة كشف حساب',
+      details: {
+        accountId,
+        accountCode: selectedAcc?.code ?? null,
+        rowCount: rd?.rows?.length ?? 0,
+      },
+    });
   };
 
   const renderHeadLabel = useCallback((k: StatementColKey) => {
@@ -1058,14 +1144,14 @@ export function AccountStatementPage() {
     if (k === 'valBalance')
       return (
         <>
-          <span className="block leading-tight">{COL_LABEL[k]}</span>
+          <span className="block leading-tight">{colLabels[k]}</span>
           <span className="mt-0.5 block text-[9px] font-normal text-muted-foreground opacity-90">
             ({rd.baseCurrency ?? 'IQD'})
           </span>
         </>
       );
-    return COL_LABEL[k];
-  }, [rd]);
+    return colLabels[k];
+  }, [rd, colLabels]);
 
   const renderOpeningCell = (
     k: StatementColKey,
@@ -1088,7 +1174,7 @@ export function AccountStatementPage() {
         return <td key={k} className="overflow-hidden px-2 text-xs text-muted-foreground">—</td>;
       case 'desc':
         return (
-          <td key={k} className="overflow-hidden px-2 text-xs italic text-muted-foreground">رصيد افتتاحي</td>
+          <td key={k} className="overflow-hidden px-2 text-xs italic text-muted-foreground">{t('accountStatement.table.openingBalanceRow')}</td>
         );
       case 'debit':
       case 'credit':
@@ -1137,7 +1223,7 @@ export function AccountStatementPage() {
                 <span className="num-display font-semibold text-primary">{row.voucherNumber}</span>
                 <span
                   className="num-display text-[10px] text-muted-foreground"
-                  title={`رقم القيد الداخلي: ${row.entryNumber}`}
+                  title={t('accountStatement.table.entryInternal', { num: row.entryNumber })}
                 >
                   #{row.entryNumber}
                 </span>
@@ -1153,18 +1239,25 @@ export function AccountStatementPage() {
             <div className="truncate" title={`${row.accountCode} ${row.accountName}`}>
               <span className="num-display text-muted-foreground">{row.accountCode}</span>
               {' - '}
-              <span>{row.accountName}</span>
+              <span>
+                {locale === 'en'
+                  ? (accountNamesEnByCode[row.accountCode] || row.accountName)
+                  : row.accountName}
+              </span>
             </div>
           </td>
         );
-      case 'desc':
+      case 'desc': {
+        const rawDesc = row.lineDescription || row.description || '';
+        const dispDesc = rawDesc ? localizedEntryDescription(locale, rawDesc, descriptionContextMap) : '';
         return (
           <td key={k} className="overflow-hidden px-2 text-xs align-middle">
             <div className="truncate" title={descTitle || '—'}>
-              {row.lineDescription || row.description || '—'}
+              {dispDesc || '—'}
             </div>
           </td>
         );
+      }
       case 'debit':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-emerald-400">
@@ -1190,7 +1283,7 @@ export function AccountStatementPage() {
           );
         }
         return (
-          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold text-amber-100/95">
+          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold text-amber-400">
             {formatAmount(bv)}
           </td>
         );
@@ -1199,11 +1292,11 @@ export function AccountStatementPage() {
           <td key={k} className="overflow-hidden px-2 text-center text-xs text-muted-foreground">{row.currency}</td>
         );
       case 'actions': {
-        const sourceLink = resolveSourceLink(row);
+        const sourceLink = resolveSourceLink(row, t);
         const refSuffix = row.referenceNumber ?? row.referenceId;
         const sourceDescr = refSuffix ? `${sourceLink.label} #${refSuffix}` : sourceLink.label;
         return (
-          <td key={k} className="overflow-visible px-1.5 text-center align-middle">
+          <td key={k} data-col="actions" className="overflow-visible px-1.5 text-center align-middle">
             <StatementRowActionsMenu
               entryNumber={row.entryNumber}
               sourceLabel={sourceDescr}
@@ -1239,8 +1332,8 @@ export function AccountStatementPage() {
     const ai = Math.max(1, firstAmountColumnIndex(visibleCols));
     const tail = visibleCols.slice(ai);
     const labelText = totals.opening
-      ? `الإجمالي (شامل افتتاحي ${formatAmount(totals.opening)})`
-      : 'الإجمالي';
+      ? t('accountStatement.table.totalWithOpening', { amount: formatAmount(totals.opening) })
+      : t('accountStatement.table.total');
     const cells: ReactNode[] = [
       <td key="lab" colSpan={ai} className="overflow-hidden px-3 py-2 text-right">{labelText}</td>,
     ];
@@ -1263,7 +1356,7 @@ export function AccountStatementPage() {
             </td>); break;
         case 'valBalance':
           cells.push(
-            <td key={k} className="overflow-hidden px-2 text-right num-display text-amber-200">
+            <td key={k} className="overflow-hidden px-2 text-right num-display font-bold text-amber-400">
               {formatAmount(totals.balanceValuated)}
             </td>); break;
         case 'currency':
@@ -1304,8 +1397,8 @@ export function AccountStatementPage() {
           {currentFiscalYear && (
             <span className="ms-auto inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 text-[10.5px] font-medium text-primary">
               <CalendarRange className="h-3 w-3" />
-              السنة المالية:
-              <span className="font-bold">{currentFiscalYear.name}</span>
+              {t('accountStatement.filters.fiscalYear')}
+              <span className="font-bold">{localizedName(locale, currentFiscalYear.name, currentFiscalYear.nameEn)}</span>
             </span>
           )}
         </div>
@@ -1315,7 +1408,7 @@ export function AccountStatementPage() {
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[140px]">
           <label className="mb-1 flex items-center gap-1 text-[10.5px] font-medium text-muted-foreground">
-            <CalendarRange className="h-3 w-3" /> من تاريخ
+            <CalendarRange className="h-3 w-3" /> {t('accountStatement.filters.fromDate')}
           </label>
           <Input
             type="date"
@@ -1328,7 +1421,7 @@ export function AccountStatementPage() {
           />
         </div>
         <div className="min-w-[140px]">
-          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">إلى تاريخ</label>
+          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">{t('accountStatement.filters.toDate')}</label>
           <Input
             type="date"
             className="h-9 w-full"
@@ -1341,19 +1434,23 @@ export function AccountStatementPage() {
         </div>
 
         <div className="flex-1 min-w-[260px]">
-          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">الحساب</label>
+          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">{t('accountStatement.filters.account')}</label>
           <AccountPicker
             accounts={filteredAccounts}
             value={accountId}
-            onChange={(id) => setAccountId(id)}
+            initialLabel={accountLabel}
+            onChange={(id, lbl) => {
+              setAccountId(id);
+              setAccountLabel(lbl);
+            }}
             allowClear
-            placeholder="جميع الحسابات (اكتب رقم/اسم للبحث)"
+            placeholder={t('accountStatement.filters.accountPlaceholder')}
             inputHeight={9}
           />
         </div>
 
         <div className="min-w-[130px]" ref={currencyPanelRef}>
-          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">العملة</label>
+          <label className="mb-1 block text-[10.5px] font-medium text-muted-foreground">{t('accountStatement.filters.currency')}</label>
           <div className="relative">
             <button
               type="button"
@@ -1365,8 +1462,8 @@ export function AccountStatementPage() {
               )}
               title={
                 selectedCurrencies.length === 0
-                  ? 'جميع العملات'
-                  : `العملات المحددة: ${selectedCurrencies.join('، ')}`
+                  ? t('accountStatement.filters.allCurrenciesTitle')
+                  : t('accountStatement.filters.selectedCurrencies', { list: selectedCurrencies.join(', ') })
               }
             >
               <span className={cn('truncate', selectedCurrencies.length === 0 && 'text-muted-foreground')}>
@@ -1377,17 +1474,17 @@ export function AccountStatementPage() {
             {currencyPanelOpen && (
               <div
                 className="absolute end-0 z-40 mt-1 w-56 overflow-hidden rounded-md border border-border bg-popover shadow-xl"
-                dir="rtl"
+                dir={isRtl ? 'rtl' : 'ltr'}
               >
                 <div className="flex items-center justify-between border-b border-border/60 bg-secondary/30 px-3 py-1.5 text-[10.5px] text-muted-foreground">
-                  <span>اختر عملة أو أكثر</span>
+                  <span>{t('accountStatement.filters.currencyPickerHint')}</span>
                   {selectedCurrencies.length > 0 && (
                     <button
                       type="button"
                       className="rounded px-1.5 py-0.5 text-[10px] hover:bg-secondary hover:text-foreground"
                       onClick={() => setSelectedCurrencies([])}
                     >
-                      مسح
+                      {t('accountStatement.filters.clearCurrency')}
                     </button>
                   )}
                 </div>
@@ -1417,8 +1514,8 @@ export function AccountStatementPage() {
                 </ul>
                 <div className="border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
                   {selectedCurrencies.length === 0
-                    ? 'سيتم عرض جميع العملات'
-                    : `${selectedCurrencies.length} من ${CURRENCIES.length}`}
+                    ? t('accountStatement.filters.showAllCurrencies')
+                    : t('accountStatement.filters.currencyCount', { selected: selectedCurrencies.length, total: CURRENCIES.length })}
                 </div>
               </div>
             )}
@@ -1428,17 +1525,17 @@ export function AccountStatementPage() {
         <div className="flex items-center gap-1.5">
           <Button onClick={handleShow} className="h-9 gap-2" disabled={!from || !to}>
             <Search className="h-4 w-4" />
-            عرض الكشف
+            {t('accountStatement.filters.show')}
           </Button>
           {rd && (
-            <Button variant="outline" size="sm" onClick={handlePrint} className="h-9 gap-1.5" title="طباعة الكشف">
+            <Button variant="outline" size="sm" onClick={handlePrint} className="h-9 gap-1.5" title={t('accountStatement.filters.printTooltip')}>
               <Printer className="h-3.5 w-3.5" />
-              طباعة
+              {t('accountStatement.filters.print')}
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={handleReset} className="h-9 gap-1.5" title="مسح الفلاتر">
+          <Button variant="ghost" size="sm" onClick={handleReset} className="h-9 gap-1.5" title={t('accountStatement.filters.resetTooltip')}>
             <RotateCcw className="h-3.5 w-3.5" />
-            مسح
+            {t('accountStatement.filters.reset')}
           </Button>
         </div>
       </div>
@@ -1446,48 +1543,48 @@ export function AccountStatementPage() {
       {!submitted ? (
         <EmptyState
           icon={FileText}
-          title="حدد الفلاتر ثم اضغط عرض"
-          description="اختر الفترة والحساب ثم اضغط زر عرض لعرض كشف الحساب"
+          title={t('accountStatement.empty.promptTitle')}
+          description={t('accountStatement.empty.promptDesc')}
         />
       ) : statementQuery.isLoading ? (
-        <LoadingSpinner text="جاري إعداد الكشف..." />
+        <LoadingSpinner text={t('accountStatement.loading')} />
       ) : statementQuery.isError || !rd ? (
         <EmptyState
           icon={AlertTriangle}
-          title="تعذّر تحميل الكشف"
-          description="حدث خطأ في الاتصال بالخادم"
+          title={t('accountStatement.empty.loadFailed')}
+          description={t('accountStatement.empty.loadError')}
         />
       ) : (
         <>
           <Card>
             <CardContent className="grid gap-3 p-4 md:grid-cols-4">
               <SummaryCell
-                label="الرصيد الافتتاحي"
+                label={t('accountStatement.summary.openingBalance')}
                 value={rd.openingBalanceValuated ?? 0}
                 accent="text-blue-400"
-                subtitle={`مقيم بـ ${rd.baseCurrency ?? 'IQD'}`}
+                subtitle={t('accountStatement.summary.valuedIn', { currency: rd.baseCurrency ?? 'IQD' })}
                 icon={<Wallet className="h-4 w-4" />}
               />
               <SummaryCell
-                label="إجمالي المدين"
+                label={t('accountStatement.summary.totalDebit')}
                 value={rd.totalDebitValuated ?? rd.totalDebit}
                 accent="text-emerald-400"
-                subtitle={`مقيم بـ ${rd.baseCurrency ?? 'IQD'}`}
+                subtitle={t('accountStatement.summary.valuedIn', { currency: rd.baseCurrency ?? 'IQD' })}
                 icon={<TrendingUp className="h-4 w-4" />}
               />
               <SummaryCell
-                label="إجمالي الدائن"
+                label={t('accountStatement.summary.totalCredit')}
                 value={rd.totalCreditValuated ?? rd.totalCredit}
                 accent="text-rose-400"
-                subtitle={`مقيم بـ ${rd.baseCurrency ?? 'IQD'}`}
+                subtitle={t('accountStatement.summary.valuedIn', { currency: rd.baseCurrency ?? 'IQD' })}
                 icon={<TrendingDown className="h-4 w-4" />}
               />
               <SummaryCell
-                label="الرصيد الختامي"
+                label={t('accountStatement.summary.closingBalance')}
                 value={rd.closingBalanceValuated ?? rd.closingBalance}
                 accent="text-primary"
                 highlight
-                subtitle={`مقيم بـ ${rd.baseCurrency ?? 'IQD'} — مجموع تقريري`}
+                subtitle={t('accountStatement.summary.closingNote', { currency: rd.baseCurrency ?? 'IQD' })}
                 icon={<Scale className="h-4 w-4" />}
               />
             </CardContent>
@@ -1500,7 +1597,7 @@ export function AccountStatementPage() {
               <div className="border-t border-blue-500/30 bg-blue-500/5 px-4 py-2 text-[11px]">
                 <div className="mb-1.5 flex items-center gap-1.5 font-medium text-blue-300">
                   <Wallet className="h-3.5 w-3.5" />
-                  قيود الافتتاح المؤثرة في الرصيد الافتتاحي ({rd.openingEntries.length})
+                  {t('accountStatement.openingEntries.title', { count: rd.openingEntries.length })}
                 </div>
                 <div className="space-y-1">
                   {rd.openingEntries.map(oe => {
@@ -1515,7 +1612,7 @@ export function AccountStatementPage() {
                           #{oe.entryNumber}
                         </span>
                         <span className="text-muted-foreground">
-                          {new Date(oe.entryDate).toLocaleDateString('ar-IQ')}
+                          {formatDate(oe.entryDate)}
                         </span>
                         {oe.description && (
                           <span className="truncate text-muted-foreground" title={oe.description}>
@@ -1525,12 +1622,12 @@ export function AccountStatementPage() {
                         <span className="ms-auto inline-flex items-center gap-2">
                           {oe.debit > 0 && (
                             <span className="text-emerald-300">
-                              مدين: <span className="num-display">{formatAmount(oe.debit)}</span>
+                              {t('accountStatement.openingEntries.debit')} <span className="num-display">{formatAmount(oe.debit)}</span>
                             </span>
                           )}
                           {oe.credit > 0 && (
                             <span className="text-rose-300">
-                              دائن: <span className="num-display">{formatAmount(oe.credit)}</span>
+                              {t('accountStatement.openingEntries.credit')} <span className="num-display">{formatAmount(oe.credit)}</span>
                             </span>
                           )}
                           <span
@@ -1555,18 +1652,18 @@ export function AccountStatementPage() {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-emerald-500/30 bg-emerald-500/5 px-4 py-2 text-[11px] text-emerald-200">
                 <span className="inline-flex items-center gap-1">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  التقويم بالنشرة المنشورة:
+                  {t('accountStatement.fx.bulletinPublished')}
                   <span className="font-bold text-emerald-100">{rd.fxBulletinName}</span>
                 </span>
                 {rd.fxBulletinEffectiveAt && (
                   <span className="text-emerald-300/80">
-                    — سريان: {new Date(rd.fxBulletinEffectiveAt).toLocaleDateString('ar-IQ')}
+                    {t('accountStatement.fx.effective')} {formatDate(rd.fxBulletinEffectiveAt)}
                   </span>
                 )}
                 {rd.fxUsedFallback && (
                   <span className="ms-auto inline-flex items-center gap-1 text-amber-300">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    تنبيه: بعض العملات غير مدرجة في النشرة — استُخدم لها مُضاعِف 1
+                    {t('accountStatement.fx.fallbackSome')}
                   </span>
                 )}
               </div>
@@ -1574,15 +1671,14 @@ export function AccountStatementPage() {
               <div className="flex items-center gap-1.5 border-t border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-200">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  لا توجد نشرة أسعار منشورة سارية — تم استخدام مُضاعِف 1 لجميع العملات.
-                  أنشئ نشرة من <span className="font-bold">نشرات أسعار العملات</span> ثم انشرها لتقويم صحيح.
+                  {t('accountStatement.fx.noBulletin')} {t('accountStatement.fx.noBulletinHint')}
                 </span>
               </div>
             ) : null}
           </Card>
 
           {rd.rows.length === 0 ? (
-            <EmptyState icon={FileText} title="لا حركات" description="لا توجد حركات للمعايير المحددة" />
+            <EmptyState icon={FileText} title={t('accountStatement.empty.noMovements')} description={t('accountStatement.empty.noMovementsDesc')} />
           ) : (
             <Card className="overflow-visible">
               <div className="sticky top-0 z-30 shrink-0 border-b border-border bg-card/95 px-3 py-2 backdrop-blur-sm">
@@ -1590,10 +1686,10 @@ export function AccountStatementPage() {
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10.5px] font-semibold text-primary">
                       <FileText className="h-3 w-3" />
-                      {rd.rows.length} حركة
+                      {t('accountStatement.table.movements', { count: rd.rows.length })}
                     </span>
                     <span className="hidden text-[10.5px] sm:inline">
-                      اسحب حافة العمود لتغيير العرض، أو حرّك الأيقونة لتغيير الترتيب
+                      {t('accountStatement.table.dragHint')}
                     </span>
                   </div>
                   <div className="relative flex shrink-0 items-center gap-1.5">
@@ -1605,9 +1701,9 @@ export function AccountStatementPage() {
                       onClick={() => setColsPanelOpen(v => !v)}
                     >
                       <Columns className="h-3.5 w-3.5" />
-                      الأعمدة
+                      {t('accountStatement.table.columns')}
                     </Button>
-                    <Button variant="ghost" size="sm" type="button" className="h-8 gap-1 px-2 text-xs" onClick={resetTableLayout} title="إعادة التخطيط الافتراضي">
+                    <Button variant="ghost" size="sm" type="button" className="h-8 gap-1 px-2 text-xs" onClick={resetTableLayout} title={t('accountStatement.table.resetLayout')}>
                       <RotateCcw className="h-3.5 w-3.5" />
                     </Button>
                 {colsPanelOpen && (() => {
@@ -1616,15 +1712,15 @@ export function AccountStatementPage() {
                   return (
                     <div
                       className="absolute end-0 top-[calc(100%+4px)] z-50 max-h-[min(70vh,520px)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
-                      dir="rtl"
+                      dir={isRtl ? 'rtl' : 'ltr'}
                     >
                       <div className="border-b border-border/60 bg-secondary/30 px-3 py-2">
                         <div className="flex items-center gap-2 text-xs font-semibold">
                           <Columns className="h-3.5 w-3.5 text-primary" />
-                          إعدادات الأعمدة
+                          {t('accountStatement.table.columnsSettings')}
                         </div>
                         <p className="mt-1 text-[10.5px] leading-snug text-muted-foreground">
-                          استخدم ☑ للإظهار/الإخفاء، و↑↓ لتقديم وتأخير العمود. تُحفظ الإعدادات لكل مستخدم.
+                          {t('accountStatement.table.columnsHelp')}
                         </p>
                       </div>
                       <ul className="space-y-0.5 p-2">
@@ -1659,12 +1755,12 @@ export function AccountStatementPage() {
                                   'flex-1 cursor-pointer select-none truncate',
                                   !checked && 'text-muted-foreground line-through'
                                 )}
-                                title={COL_LABEL[k]}
+                                title={colLabels[k]}
                               >
-                                {COL_LABEL[k]}
+                                {colLabels[k]}
                                 {disabled && (
                                   <span className="ms-1.5 rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
-                                    أساسي
+                                    {t('accountStatement.table.requiredCol')}
                                   </span>
                                 )}
                               </label>
@@ -1679,8 +1775,8 @@ export function AccountStatementPage() {
                                   )}
                                   onClick={() => canMoveUp && moveColumn(k, -1)}
                                   disabled={!canMoveUp}
-                                  title="تقديم العمود (للأعلى)"
-                                  aria-label={`تقديم ${COL_LABEL[k]}`}
+                                  title={t('accountStatement.table.moveUp')}
+                                  aria-label={t('accountStatement.table.moveUpAria', { name: colLabels[k] })}
                                 >
                                   <ChevronUp className="h-3.5 w-3.5" />
                                 </button>
@@ -1694,8 +1790,8 @@ export function AccountStatementPage() {
                                   )}
                                   onClick={() => canMoveDown && moveColumn(k, 1)}
                                   disabled={!canMoveDown}
-                                  title="تأخير العمود (للأسفل)"
-                                  aria-label={`تأخير ${COL_LABEL[k]}`}
+                                  title={t('accountStatement.table.moveDown')}
+                                  aria-label={t('accountStatement.table.moveDownAria', { name: colLabels[k] })}
                                 >
                                   <ChevronDown className="h-3.5 w-3.5" />
                                 </button>
@@ -1713,7 +1809,7 @@ export function AccountStatementPage() {
                           onClick={resetTableLayout}
                         >
                           <RotateCcw className="h-3 w-3" />
-                          استعادة الترتيب الافتراضي
+                          {t('accountStatement.table.restoreOrder')}
                         </Button>
                       </div>
                     </div>
@@ -1740,13 +1836,13 @@ export function AccountStatementPage() {
                             {cur}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
-                            {rows.length} حركة
+                            {t('accountStatement.table.currencyBlockMovements', { count: rows.length })}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-[10.5px] text-muted-foreground tnum">
-                          <span>مدين: <span className="font-bold text-emerald-400 num-display">{formatAmount(totals.debit)}</span></span>
-                          <span>دائن: <span className="font-bold text-rose-400 num-display">{formatAmount(totals.credit)}</span></span>
-                          <span>الرصيد: <span className="font-bold text-primary num-display">{formatAmount(totals.balance)}</span></span>
+                          <span>{t('accountStatement.table.debit')} <span className="font-bold text-emerald-400 num-display">{formatAmount(totals.debit)}</span></span>
+                          <span>{t('accountStatement.table.credit')} <span className="font-bold text-rose-400 num-display">{formatAmount(totals.credit)}</span></span>
+                          <span>{t('accountStatement.table.balance')} <span className="font-bold text-primary num-display">{formatAmount(totals.balance)}</span></span>
                         </div>
                       </div>
 
@@ -1763,6 +1859,8 @@ export function AccountStatementPage() {
                                 <StatementColHead
                                   key={k}
                                   colKey={k}
+                                  colLabels={colLabels}
+                                  t={t}
                                   width={colWidths[k]}
                                   draggable={k !== REQUIRED_COL}
                                   isDropTarget={dropHoverKey === k}
@@ -1811,8 +1909,17 @@ export function AccountStatementPage() {
                                       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
                                     });
                                   }}
+                                  onContextMenu={e => {
+                                    e.preventDefault();
+                                    setCtxMenu({ x: e.clientX, y: e.clientY, row });
+                                  }}
+                                  onClick={e => {
+                                    // لا نفتح القائمة إذا ضغط على خلية الإجراءات
+                                    if ((e.target as HTMLElement).closest('[data-col="actions"]')) return;
+                                    setCtxMenu({ x: e.clientX, y: e.clientY, row });
+                                  }}
                                   className={cn(
-                                    'h-9 border-b border-border/30 transition-colors hover:bg-secondary/30',
+                                    'h-9 cursor-pointer border-b border-border/30 transition-colors hover:bg-secondary/30',
                                     isFocused && 'bg-primary/15 ring-2 ring-primary/60 ring-inset'
                                   )}
                                 >
@@ -1838,12 +1945,12 @@ export function AccountStatementPage() {
                 <div className="overflow-hidden rounded-lg border border-primary/40 bg-primary/5">
                   <div className="flex items-center gap-2 border-b border-primary/30 bg-primary/15 px-3 py-2 text-xs font-bold text-primary">
                     <Scale className="h-3.5 w-3.5" />
-                    الإجمالي المُقوَّم بالعملة الأساسية ({rd.baseCurrency ?? 'IQD'})
+                    {t('accountStatement.table.grandTotalTitle', { currency: rd.baseCurrency ?? 'IQD' })}
                   </div>
                   <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-4">
                     <div className="rounded-md border border-border/60 bg-card p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] text-muted-foreground">الرصيد الافتتاحي</span>
+                        <span className="text-[10.5px] text-muted-foreground">{t('accountStatement.summary.openingBalance')}</span>
                         <Wallet className="h-3.5 w-3.5 text-blue-400 opacity-70" />
                       </div>
                       <div className="mt-1 text-lg font-bold tabular-nums num-display text-blue-400">
@@ -1852,7 +1959,7 @@ export function AccountStatementPage() {
                     </div>
                     <div className="rounded-md border border-border/60 bg-card p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] text-muted-foreground">إجمالي المدين</span>
+                        <span className="text-[10.5px] text-muted-foreground">{t('accountStatement.summary.totalDebit')}</span>
                         <TrendingUp className="h-3.5 w-3.5 text-emerald-400 opacity-70" />
                       </div>
                       <div className="mt-1 text-lg font-bold tabular-nums num-display text-emerald-400">
@@ -1861,7 +1968,7 @@ export function AccountStatementPage() {
                     </div>
                     <div className="rounded-md border border-border/60 bg-card p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] text-muted-foreground">إجمالي الدائن</span>
+                        <span className="text-[10.5px] text-muted-foreground">{t('accountStatement.summary.totalCredit')}</span>
                         <TrendingDown className="h-3.5 w-3.5 text-rose-400 opacity-70" />
                       </div>
                       <div className="mt-1 text-lg font-bold tabular-nums num-display text-rose-400">
@@ -1870,7 +1977,7 @@ export function AccountStatementPage() {
                     </div>
                     <div className="rounded-md border border-primary/40 bg-primary/10 p-3 ring-1 ring-primary/20">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] font-medium text-muted-foreground">الرصيد الختامي</span>
+                        <span className="text-[10.5px] font-medium text-muted-foreground">{t('accountStatement.summary.closingBalance')}</span>
                         <Scale className="h-3.5 w-3.5 text-primary opacity-80" />
                       </div>
                       <div className="mt-1 text-lg font-bold tabular-nums num-display text-primary">
@@ -1880,9 +1987,8 @@ export function AccountStatementPage() {
                   </div>
                   {currenciesPresent.length > 1 && (
                     <div className="border-t border-primary/20 bg-primary/5 px-3 py-2 text-[10.5px] text-muted-foreground">
-                      تم تجميع المجاميع من <span className="font-bold text-foreground">{currenciesPresent.length}</span> عملات مختلفة وتقويمها بالعملة الأساسية
-                      {rd.fxBulletinName && <> باستخدام نشرة <span className="font-bold text-foreground">{rd.fxBulletinName}</span></>}
-                      .
+                      {t('accountStatement.table.multiCurrencyFoot', { count: currenciesPresent.length })}
+                      {rd.fxBulletinName && t('accountStatement.table.multiCurrencyBulletin', { name: rd.fxBulletinName })}
                     </div>
                   )}
                 </div>
@@ -1897,6 +2003,124 @@ export function AccountStatementPage() {
         entryId={viewEntryId}
         onClose={() => setViewEntryId(null)}
       />
+
+      {/* ── قائمة السياق (كليك يمين على الصف) ── */}
+      {ctxMenu && createPortal(
+        <RowContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          row={ctxMenu.row}
+          isRtl={isRtl}
+          onClose={() => setCtxMenu(null)}
+          onView={() => { setCtxMenu(null); setViewEntryId(ctxMenu.row.entryId); }}
+          onOpenSource={() => {
+            const sl = resolveSourceLink(ctxMenu.row, t);
+            if (sl.href) { setCtxMenu(null); openSourceWithReturn(sl.href, ctxMenu.row.entryId); }
+          }}
+          t={t}
+        />,
+        document.body
+      )}
+    </div>
+  );
+}
+
+// ── مكوّن قائمة السياق ───────────────────────────────────────────────────────
+interface RowContextMenuProps {
+  x: number;
+  y: number;
+  row: AccountStatementRowDto;
+  isRtl: boolean;
+  onClose: () => void;
+  onView: () => void;
+  onOpenSource: () => void;
+  t: TFunction;
+}
+
+function RowContextMenu({ x, y, row, isRtl, onClose, onView, onOpenSource, t }: RowContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const sourceLink = resolveSourceLink(row, t);
+
+  // إغلاق عند الضغط أو اللمس خارج القائمة أو Esc
+  useEffect(() => {
+    const onOutside = (e: MouseEvent | TouchEvent) => {
+      const target = ('touches' in e ? e.touches[0]?.target : e.target) as Node | null;
+      if (target && !menuRef.current?.contains(target)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onOutside as EventListener);
+    document.addEventListener('touchstart', onOutside as EventListener, { passive: true });
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onOutside as EventListener);
+      document.removeEventListener('touchstart', onOutside as EventListener);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  // تعديل الموضع لضمان ظهور القائمة داخل حدود الشاشة
+  // إذا كانت الإحداثيات صفراً (نقر لمسي بدون موضع دقيق)، تُمركز القائمة أفقياً
+  const menuW = 220;
+  const menuH = 110;
+  const rawLeft = x || window.innerWidth / 2 - menuW / 2;
+  const rawTop  = y || window.innerHeight / 2 - menuH / 2;
+  const left = Math.min(Math.max(rawLeft, 8), window.innerWidth - menuW - 8);
+  const top  = Math.min(Math.max(rawTop, 8), window.innerHeight - menuH - 8);
+
+  const refSuffix = row.referenceNumber ?? row.referenceId;
+  const sourceDescr = refSuffix ? `${sourceLink.label} #${refSuffix}` : sourceLink.label;
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      dir={isRtl ? 'rtl' : 'ltr'}
+      style={{ position: 'fixed', top, left, width: menuW, zIndex: 9999 }}
+      className="overflow-hidden rounded-lg border border-border bg-popover/95 shadow-2xl backdrop-blur-sm"
+    >
+      {/* رأس القائمة: رقم القيد */}
+      <div className="border-b border-border/50 px-3 py-1.5">
+        <span className="num-display text-[11px] font-semibold text-muted-foreground">
+          # {row.entryNumber}
+        </span>
+      </div>
+      {/* عرض القيد */}
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onView}
+        className={cn(
+          'flex w-full items-center gap-2 px-3 py-2 text-xs text-foreground transition-colors hover:bg-primary/10 hover:text-primary',
+          isRtl ? 'text-right' : 'text-left'
+        )}
+      >
+        <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">{t('accountStatement.rowActions.viewEntry')}</div>
+          <div className="truncate text-[10px] text-muted-foreground">{t('accountStatement.rowActions.viewEntryHint')}</div>
+        </div>
+      </button>
+      <div className="h-px bg-border/50" />
+      {/* أصل القيد */}
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onOpenSource}
+        disabled={!sourceLink.href}
+        className={cn(
+          'flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors',
+          isRtl ? 'text-right' : 'text-left',
+          sourceLink.href
+            ? 'text-foreground hover:bg-amber-500/10 hover:text-amber-300'
+            : 'cursor-not-allowed text-muted-foreground/40'
+        )}
+      >
+        <Receipt className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">{t('accountStatement.rowActions.openSource')}</div>
+          <div className="truncate text-[10px] text-muted-foreground">{sourceDescr}</div>
+        </div>
+      </button>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Save, ArrowUp, ArrowDown, Check, GripVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -14,6 +15,7 @@ interface Props {
 const MAX_SHORTCUTS = 32;
 
 export function ShortcutsSettingsDialog({ onClose }: Props) {
+  const { t } = useTranslation();
   const { prefs, setItems, add, remove, move, has } = useShortcutsPrefs();
   const available = useAvailableNavItems();
 
@@ -53,13 +55,12 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
           <div>
-            <h2 className="font-display text-lg font-semibold">إعداد المختصرات</h2>
+            <h2 className="font-display text-lg font-semibold">{t('shortcuts.settingsTitle')}</h2>
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              اختر الصفحات التي تريد ظهورها كأزرار سريعة في لوحة القيادة. تظهر فقط الصفحات التي تسمح بها صلاحياتك،
-              والتفضيلات تُحفظ في حسابك.
+              {t('shortcuts.dialog.intro')}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 shrink-0 p-0" title="إغلاق">
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 shrink-0 p-0" title={t('common.close')}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -70,7 +71,7 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">
-                المختصرات المُختارة
+                {t('shortcuts.dialog.selectedTitle')}
                 <span className="ms-2 text-xs font-normal text-muted-foreground">
                   ({selectedItems.length} / {MAX_SHORTCUTS})
                 </span>
@@ -80,16 +81,16 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
                   type="button"
                   onClick={() => setItems([])}
                   className="text-xs text-destructive transition-colors hover:underline"
-                  title="إفراغ القائمة"
+                  title={t('shortcuts.dialog.clearTitle')}
                 >
-                  إفراغ
+                  {t('shortcuts.dialog.clear')}
                 </button>
               )}
             </div>
             <div className="flex-1 overflow-y-auto rounded-lg border border-border/60 bg-background/40 p-2">
               {selectedItems.length === 0 ? (
                 <div className="flex h-full min-h-[140px] items-center justify-center px-4 text-center text-xs text-muted-foreground">
-                  لا توجد مختصرات بعد — اختر من الصفحات المتاحة لإضافتها.
+                  {t('shortcuts.dialog.noneSelected')}
                 </div>
               ) : (
                 <ul className="space-y-1.5">
@@ -112,7 +113,7 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
                             onClick={() => move(idx, idx - 1)}
                             disabled={idx === 0}
                             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-                            title="نقل للأعلى"
+                            title={t('shortcuts.dialog.moveUp')}
                           >
                             <ArrowUp className="h-3.5 w-3.5" />
                           </button>
@@ -121,7 +122,7 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
                             onClick={() => move(idx, idx + 1)}
                             disabled={idx === selectedItems.length - 1}
                             className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-                            title="نقل للأسفل"
+                            title={t('shortcuts.dialog.moveDown')}
                           >
                             <ArrowDown className="h-3.5 w-3.5" />
                           </button>
@@ -129,7 +130,7 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
                             type="button"
                             onClick={() => remove(item.to)}
                             className="rounded p-1 text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
-                            title="إزالة"
+                            title={t('shortcuts.dialog.removeItem')}
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
@@ -144,11 +145,11 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
 
           {/* المتاحة (تصفّح) */}
           <div className="flex min-h-0 flex-1 flex-col">
-            <h3 className="mb-2 text-sm font-semibold text-foreground">الصفحات المتاحة</h3>
+            <h3 className="mb-2 text-sm font-semibold text-foreground">{t('shortcuts.dialog.availableTitle')}</h3>
             <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/60 bg-background/40 p-2">
               {grouped.length === 0 ? (
                 <div className="flex h-full min-h-[140px] items-center justify-center px-4 text-center text-xs text-muted-foreground">
-                  لا توجد صفحات متاحة بصلاحياتك الحالية.
+                  {t('shortcuts.dialog.noneAvailable')}
                 </div>
               ) : (
                 grouped.map(([groupKey, { title, items }]) => (
@@ -176,10 +177,10 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
                               )}
                               title={
                                 disabled
-                                  ? `وصلت للحد الأقصى (${MAX_SHORTCUTS} مختصرات)`
+                                  ? t('shortcuts.dialog.maxReached', { max: MAX_SHORTCUTS })
                                   : selected
-                                  ? 'إزالة من المختصرات'
-                                  : 'إضافة كمختصر'
+                                  ? t('shortcuts.dialog.removeFromShortcuts')
+                                  : t('shortcuts.dialog.addAsShortcut')
                               }
                             >
                               <Icon className="h-4 w-4 shrink-0" />
@@ -200,11 +201,11 @@ export function ShortcutsSettingsDialog({ onClose }: Props) {
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/60 bg-background/40 px-5 py-3">
           <p className="text-[11px] text-muted-foreground">
-            تُحفظ التغييرات تلقائياً وتُزامَن مع حسابك.
+            {t('shortcuts.dialog.autoSaved')}
           </p>
           <Button onClick={onClose}>
             <Save className="h-4 w-4" />
-            تم
+            {t('shortcuts.dialog.done')}
           </Button>
         </div>
       </div>

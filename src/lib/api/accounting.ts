@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { ApiResponse, AccountDto, AccountStatementDto, JournalEntryDto, PagedResult, TrashedAccountDto, TrialBalanceDto } from '@/types/api';
+import type { ApiResponse, AccountBalancesDto, AccountDto, AccountStatementDto, JournalEntryDto, PagedResult, TrashedAccountDto, TrialBalanceDto } from '@/types/api';
 
 export interface AccountStatementParams {
   from: string;          // YYYY-MM-DD
@@ -25,6 +25,8 @@ export interface PostJournalEntryPayload {
   currency?: string;
   postImmediately?: boolean;
   voucherTypeId?: number | null;
+  /** رقم يدوي اختياري — شيك، إيصال خارجي، … (قابل للبحث) */
+  manualNumber?: string | null;
   lines: JournalLinePayload[];
 }
 
@@ -35,6 +37,8 @@ export interface UpdateJournalEntryPayload {
   currency: string;
   postImmediately?: boolean;
   voucherTypeId?: number | null;
+  /** رقم يدوي اختياري — شيك، إيصال خارجي، … */
+  manualNumber?: string | null;
   lines: JournalLinePayload[];
 }
 
@@ -44,6 +48,8 @@ export interface UpdateVoucherEntryPayload {
   description: string;
   currency: string;
   postImmediately?: boolean;
+  /** رقم يدوي اختياري للسند */
+  manualNumber?: string | null;
   lines: JournalLinePayload[];
 }
 
@@ -125,6 +131,30 @@ export const accountingApi = {
   permanentlyDeleteAccount: async (id: number) => {
     const res = await api.delete<ApiResponse<unknown>>(`/accounts/${id}/permanent`);
     return res.data;
+  },
+  getAccountBalances: async (params: {
+    from: string;
+    to: string;
+    accountId?: number | null;
+    currency?: string | null;
+    valuated?: boolean;
+    maxLevel?: number | null;
+    leavesOnly?: boolean;
+    includeDraft?: boolean;
+  }) => {
+    const res = await api.get<ApiResponse<AccountBalancesDto>>('/accounts/balances', {
+      params: {
+        from: params.from,
+        to: params.to,
+        accountId: params.accountId ?? undefined,
+        currency: params.currency || undefined,
+        valuated: params.valuated ?? false,
+        maxLevel: params.maxLevel ?? undefined,
+        leavesOnly: params.leavesOnly ?? true,
+        includeDraft: params.includeDraft ?? false,
+      },
+    });
+    return res.data.data!;
   },
   getTrialBalance: async (params: {
     from: string;

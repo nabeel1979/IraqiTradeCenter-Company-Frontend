@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Trash2,
@@ -55,6 +56,7 @@ function formatRelative(iso?: string | null): string {
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Baghdad',
   }).format(d);
 }
 
@@ -82,6 +84,7 @@ function ConfirmDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -108,7 +111,7 @@ function ConfirmDialog({
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
           <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-            إلغاء
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -116,7 +119,7 @@ function ConfirmDialog({
             onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? 'جارٍ التنفيذ...' : confirmLabel}
+            {loading ? t('common.processing') : confirmLabel}
           </Button>
         </div>
       </div>
@@ -128,6 +131,7 @@ function ConfirmDialog({
 // الصفحة
 // ════════════════════════════════════════════════════════════════════
 export function TrashPage() {
+  const { t } = useTranslation();
   const { can } = usePermissions();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
@@ -162,7 +166,7 @@ export function TrashPage() {
       trashApi.restore(entityType, id),
     onSuccess: res => {
       if (!res.success) {
-        setActionError(res.errors?.join(' / ') ?? 'فشلت الاستعادة');
+        setActionError(res.errors?.join(' / ') ?? t('accountsTrash.restoreFailed'));
         return;
       }
       invalidateAll();
@@ -171,7 +175,7 @@ export function TrashPage() {
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { errors?: string[] } } };
-      setActionError(e.response?.data?.errors?.join(' / ') ?? 'حدث خطأ في الاتصال');
+      setActionError(e.response?.data?.errors?.join(' / ') ?? t('common.connectionError'));
     },
   });
 
@@ -180,7 +184,7 @@ export function TrashPage() {
       trashApi.permanentlyDelete(entityType, id),
     onSuccess: res => {
       if (!res.success) {
-        setActionError(res.errors?.join(' / ') ?? 'فشل الحذف النهائي');
+        setActionError(res.errors?.join(' / ') ?? t('accountsTrash.permanentDeleteFailed'));
         return;
       }
       invalidateAll();
@@ -189,7 +193,7 @@ export function TrashPage() {
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { errors?: string[] } } };
-      setActionError(e.response?.data?.errors?.join(' / ') ?? 'حدث خطأ في الاتصال');
+      setActionError(e.response?.data?.errors?.join(' / ') ?? t('common.connectionError'));
     },
   });
 
@@ -217,13 +221,13 @@ export function TrashPage() {
     });
   }, [data, search, typeFilter]);
 
-  if (isLoading) return <LoadingSpinner text="جاري تحميل سلة المهملات..." />;
+  if (isLoading) return <LoadingSpinner text={t('systemTrash.loading')} />;
   if (isError) {
     return (
       <EmptyState
         icon={Trash2}
-        title="تعذّر تحميل سلة المهملات"
-        description="حدث خطأ في الاتصال بالخادم"
+        title={t('systemTrash.loadError')}
+        description={t('common.serverConnectionError')}
       />
     );
   }
@@ -240,13 +244,13 @@ export function TrashPage() {
                 <Trash2 className="h-4 w-4" />
               </span>
               <div>
-                <CardTitle>سلة المهملات — كل النظام</CardTitle>
+                <CardTitle>{t('systemTrash.title')}</CardTitle>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  جميع العناصر المحذوفة مؤقتاً من المحاسبة والمبيعات والمخزون.
+                  {t('systemTrash.subtitle')}
                   {total > 0 && (
                     <>
                       {' · '}
-                      <span className="num-display">{total}</span> عنصر
+                      <span className="num-display">{total}</span> {t('systemTrash.itemCount')}
                     </>
                   )}
                 </p>
@@ -258,7 +262,7 @@ export function TrashPage() {
             <div className="relative min-w-0 flex-1">
               <Search className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="ابحث بالكود أو الاسم أو السياق..."
+                placeholder={t('systemTrash.searchPlaceholder')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="pr-9"
@@ -280,7 +284,7 @@ export function TrashPage() {
                     : 'border-border text-muted-foreground hover:border-border/80 hover:text-foreground',
                 )}
               >
-                الكل ({total})
+                {t('common.all')} ({total})
               </button>
               {Array.from(countsByType.entries()).map(([type, info]) => (
                 <button
@@ -305,14 +309,14 @@ export function TrashPage() {
           {total === 0 ? (
             <EmptyState
               icon={Inbox}
-              title="السلة فارغة"
-              description="لا توجد عناصر محذوفة حالياً في النظام."
+              title={t('systemTrash.emptyTitle')}
+              description={t('systemTrash.emptyDescription')}
             />
           ) : filtered.length === 0 ? (
             <EmptyState
               icon={Search}
-              title="لا نتائج"
-              description="لم يطابق البحث/الفلتر أي عنصر."
+              title={t('common.noResults')}
+              description={t('systemTrash.noSearchResults')}
             />
           ) : (
             <div className="space-y-2">
@@ -345,8 +349,8 @@ export function TrashPage() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                           {it.subInfo && <span>{it.subInfo}</span>}
-                          <span>حُذف: {formatRelative(it.deletedAt)}</span>
-                          {it.deletedBy && <span>بواسطة: {it.deletedBy}</span>}
+                          <span>{t('accountsTrash.deletedAt', { date: formatRelative(it.deletedAt) })}</span>
+                          {it.deletedBy && <span>{t('accountsTrash.deletedBy', { user: it.deletedBy })}</span>}
                         </div>
                         {blockRestore && it.cannotRestoreReason && (
                           <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-500">
@@ -367,10 +371,10 @@ export function TrashPage() {
                             setRestoreTarget(it);
                           }}
                           disabled={blockRestore}
-                          title={blockRestore ? it.cannotRestoreReason ?? '' : 'استعادة من السلة'}
+                          title={blockRestore ? it.cannotRestoreReason ?? '' : t('accountsTrash.restoreBtn')}
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
-                          استعادة
+                          {t('accountsTrash.restoreBtn')}
                         </Button>
                       )}
                       {canPurge && (
@@ -384,12 +388,12 @@ export function TrashPage() {
                           disabled={blockPurge}
                           title={
                             blockPurge
-                              ? it.cannotPurgeReason ?? 'الحذف النهائي محجوب لهذا العنصر'
-                              : 'حذف نهائي — لا يمكن التراجع'
+                              ? it.cannotPurgeReason ?? t('systemTrash.purgeBlocked')
+                              : t('accountsTrash.permanentDeleteTitle')
                           }
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                          حذف نهائي
+                          {t('accountsTrash.permanentDeleteBtn')}
                         </Button>
                       )}
                     </div>
@@ -403,8 +407,8 @@ export function TrashPage() {
 
       <ConfirmDialog
         open={!!restoreTarget}
-        title={`استعادة ${restoreTarget?.entityTypeLabel ?? 'عنصر'}`}
-        confirmLabel="استعادة"
+        title={t('systemTrash.restoreDialog.title', { type: restoreTarget?.entityTypeLabel ?? t('systemTrash.item') })}
+        confirmLabel={t('accountsTrash.restoreBtn')}
         confirmVariant="default"
         loading={restoreMut.isPending}
         error={actionError}
@@ -421,14 +425,14 @@ export function TrashPage() {
         message={
           restoreTarget && (
             <p>
-              سيُستعاد{' '}
+              {t('systemTrash.restoreDialog.messagePre')}{' '}
               <span className="font-bold">
                 {restoreTarget.code && (
                   <span className="num-display">{restoreTarget.code} · </span>
                 )}
                 {restoreTarget.displayName}
               </span>{' '}
-              ويعود للظهور في موقعه الأصلي.
+              {t('systemTrash.restoreDialog.messagePost')}
             </p>
           )
         }
@@ -436,8 +440,8 @@ export function TrashPage() {
 
       <ConfirmDialog
         open={!!permanentTarget}
-        title="حذف نهائي — لا يمكن التراجع"
-        confirmLabel="حذف نهائياً"
+        title={t('accountsTrash.permanentDeleteTitle')}
+        confirmLabel={t('accountsTrash.permanentDeleteBtn')}
         confirmVariant="destructive"
         loading={permanentMut.isPending}
         error={actionError}
@@ -460,19 +464,20 @@ export function TrashPage() {
               <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
                 <div>
-                  هذه العملية <span className="font-bold">لا يمكن التراجع عنها</span>. سيُمحى السجل
-                  نهائياً من قاعدة البيانات وكل ما يتبعه (أسطر، علاقات، …).
+                  {t('accountsTrash.permanentDeleteDialog.warningPre')}{' '}
+                  <span className="font-bold">{t('accountsTrash.permanentDeleteDialog.irreversible')}</span>.{' '}
+                  {t('systemTrash.permanentDeleteDialog.warningPost')}
                 </div>
               </div>
               <p className="text-sm">
-                هل أنت متأكد من حذف{' '}
+                {t('systemTrash.permanentDeleteDialog.confirmPre')}{' '}
                 <span className="font-bold">
                   {permanentTarget.code && (
                     <span className="num-display">{permanentTarget.code} · </span>
                   )}
                   {permanentTarget.displayName}
                 </span>{' '}
-                ({permanentTarget.entityTypeLabel}) نهائياً؟
+                ({permanentTarget.entityTypeLabel}) {t('systemTrash.permanentDeleteDialog.confirmPost')}
               </p>
             </div>
           )

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Trash2,
@@ -19,13 +20,16 @@ import { accountingApi } from '@/lib/api/accounting';
 import { cn } from '@/lib/utils';
 import type { TrashedAccountDto } from '@/types/api';
 
-const ACCOUNT_TYPE_LABELS: Record<number, string> = {
-  1: 'أصول',
-  2: 'خصوم',
-  3: 'حقوق ملكية',
-  4: 'إيرادات',
-  5: 'مصروفات',
-};
+function useAccountTypeLabels() {
+  const { t } = useTranslation();
+  return {
+    1: t('accountsTrash.typeAssets'),
+    2: t('accountsTrash.typeLiabilities'),
+    3: t('accountsTrash.typeEquity'),
+    4: t('accountsTrash.typeRevenue'),
+    5: t('accountsTrash.typeExpenses'),
+  } as Record<number, string>;
+}
 
 const ACCOUNT_TYPE_COLORS: Record<number, string> = {
   1: 'text-blue-400',
@@ -39,12 +43,13 @@ function formatRelative(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('ar-IQ', {
+  return new Intl.DateTimeFormat('ar-IQ-u-nu-latn', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    numberingSystem: 'latn',
   }).format(d);
 }
 
@@ -72,6 +77,7 @@ function ConfirmDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -98,7 +104,7 @@ function ConfirmDialog({
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
           <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
-            إلغاء
+            {t('common.cancel')}
           </Button>
           <Button
             type="button"
@@ -106,7 +112,7 @@ function ConfirmDialog({
             onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? 'جارٍ التنفيذ...' : confirmLabel}
+            {loading ? t('common.processing') : confirmLabel}
           </Button>
         </div>
       </div>
@@ -118,6 +124,8 @@ function ConfirmDialog({
 // الصفحة
 // ════════════════════════════════════════════════════════════════════
 export function AccountsTrashPage() {
+  const { t } = useTranslation();
+  const accountTypeLabels = useAccountTypeLabels();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [restoreTarget, setRestoreTarget] = useState<TrashedAccountDto | null>(null);
@@ -140,7 +148,7 @@ export function AccountsTrashPage() {
     mutationFn: (id: number) => accountingApi.restoreAccount(id),
     onSuccess: res => {
       if (!res.success) {
-        setActionError(res.errors?.join(' / ') ?? 'فشلت الاستعادة');
+        setActionError(res.errors?.join(' / ') ?? t('accountsTrash.restoreFailed'));
         return;
       }
       invalidateAll();
@@ -149,7 +157,7 @@ export function AccountsTrashPage() {
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { errors?: string[] } } };
-      setActionError(e.response?.data?.errors?.join(' / ') ?? 'حدث خطأ في الاتصال');
+      setActionError(e.response?.data?.errors?.join(' / ') ?? t('common.connectionError'));
     },
   });
 
@@ -157,7 +165,7 @@ export function AccountsTrashPage() {
     mutationFn: (id: number) => accountingApi.permanentlyDeleteAccount(id),
     onSuccess: res => {
       if (!res.success) {
-        setActionError(res.errors?.join(' / ') ?? 'فشل الحذف النهائي');
+        setActionError(res.errors?.join(' / ') ?? t('accountsTrash.permanentDeleteFailed'));
         return;
       }
       invalidateAll();
@@ -166,7 +174,7 @@ export function AccountsTrashPage() {
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { errors?: string[] } } };
-      setActionError(e.response?.data?.errors?.join(' / ') ?? 'حدث خطأ في الاتصال');
+      setActionError(e.response?.data?.errors?.join(' / ') ?? t('common.connectionError'));
     },
   });
 
@@ -182,13 +190,13 @@ export function AccountsTrashPage() {
     });
   }, [data, search]);
 
-  if (isLoading) return <LoadingSpinner text="جاري تحميل سلة المهملات..." />;
+  if (isLoading) return <LoadingSpinner text={t('accountsTrash.loading')} />;
   if (isError) {
     return (
       <EmptyState
         icon={Trash2}
-        title="تعذّر تحميل سلة المهملات"
-        description="حدث خطأ في الاتصال بالخادم"
+        title={t('accountsTrash.loadError')}
+        description={t('common.serverConnectionError')}
       />
     );
   }
@@ -205,13 +213,13 @@ export function AccountsTrashPage() {
                 <Trash2 className="h-4 w-4" />
               </span>
               <div>
-                <CardTitle>سلة المهملات — شجرة الحسابات</CardTitle>
+                <CardTitle>{t('accountsTrash.title')}</CardTitle>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  الحسابات المحذوفة مؤقتاً — يمكن استعادتها أو حذفها نهائياً.
+                  {t('accountsTrash.subtitle')}
                   {total > 0 && (
                     <>
                       {' · '}
-                      <span className="num-display">{total}</span> حساب
+                      <span className="num-display">{total}</span> {t('accountsTrash.accountCount')}
                     </>
                   )}
                 </p>
@@ -223,7 +231,7 @@ export function AccountsTrashPage() {
             <div className="relative min-w-0 flex-1">
               <Search className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="ابحث بالكود أو الاسم أو الأب..."
+                placeholder={t('accountsTrash.searchPlaceholder')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="pr-9"
@@ -236,20 +244,20 @@ export function AccountsTrashPage() {
           {total === 0 ? (
             <EmptyState
               icon={Inbox}
-              title="السلة فارغة"
-              description="لا توجد حسابات محذوفة حالياً."
+              title={t('accountsTrash.emptyTitle')}
+              description={t('accountsTrash.emptyDescription')}
             />
           ) : filtered.length === 0 ? (
             <EmptyState
               icon={Search}
-              title="لا نتائج"
-              description="لم يطابق البحث أي عنصر في السلة."
+              title={t('common.noResults')}
+              description={t('accountsTrash.noSearchResults')}
             />
           ) : (
             <div className="space-y-2">
               {filtered.map(a => {
                 const typeColor = ACCOUNT_TYPE_COLORS[a.type] ?? 'text-muted-foreground';
-                const typeLabel = ACCOUNT_TYPE_LABELS[a.type] ?? '—';
+                const typeLabel = accountTypeLabels[a.type] ?? '—';
                 return (
                   <div
                     key={a.id}
@@ -271,21 +279,21 @@ export function AccountsTrashPage() {
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                           {a.parentId ? (
                             <span>
-                              تحت:{' '}
+                              {t('accountsTrash.under')}{' '}
                               <span className="num-display">{a.parentCode}</span>
                               {' · '}
                               {a.parentNameAr}
                               {a.parentIsDeleted && (
                                 <span className="ms-1 inline-flex items-center gap-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
-                                  الأب في السلة
+                                  {t('accountsTrash.parentInTrash')}
                                 </span>
                               )}
                             </span>
                           ) : (
-                            <span>حساب جذر</span>
+                            <span>{t('accountsTrash.rootAccount')}</span>
                           )}
-                          <span>حُذف: {formatRelative(a.deletedAt)}</span>
-                          {a.deletedBy && <span>بواسطة: {a.deletedBy}</span>}
+                          <span>{t('accountsTrash.deletedAt', { date: formatRelative(a.deletedAt) })}</span>
+                          {a.deletedBy && <span>{t('accountsTrash.deletedBy', { user: a.deletedBy })}</span>}
                         </div>
                       </div>
                     </div>
@@ -301,12 +309,12 @@ export function AccountsTrashPage() {
                         disabled={a.parentIsDeleted}
                         title={
                           a.parentIsDeleted
-                            ? 'الأب في السلة — استعده أولاً'
-                            : 'استعادة من السلة'
+                            ? t('accountsTrash.restoreParentFirst')
+                            : t('accountsTrash.restoreBtn')
                         }
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
-                        استعادة
+                        {t('accountsTrash.restoreBtn')}
                       </Button>
                       <Button
                         size="sm"
@@ -315,10 +323,10 @@ export function AccountsTrashPage() {
                           setActionError(null);
                           setPermanentTarget(a);
                         }}
-                        title="حذف نهائي — لا يمكن التراجع"
+                        title={t('accountsTrash.permanentDeleteTitle')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        حذف نهائي
+                        {t('accountsTrash.permanentDeleteBtn')}
                       </Button>
                     </div>
                   </div>
@@ -332,8 +340,8 @@ export function AccountsTrashPage() {
       {/* تأكيد الاستعادة */}
       <ConfirmDialog
         open={!!restoreTarget}
-        title="استعادة حساب من السلة"
-        confirmLabel="استعادة"
+        title={t('accountsTrash.restoreDialog.title')}
+        confirmLabel={t('accountsTrash.restoreBtn')}
         confirmVariant="default"
         loading={restoreMut.isPending}
         error={actionError}
@@ -347,11 +355,11 @@ export function AccountsTrashPage() {
         message={
           restoreTarget && (
             <p>
-              سيُستعاد الحساب{' '}
+              {t('accountsTrash.restoreDialog.messagePre')}{' '}
               <span className="font-bold">
                 <span className="num-display">{restoreTarget.code}</span> · {restoreTarget.nameAr}
               </span>{' '}
-              إلى شجرة الحسابات تحت أبيه الأصلي.
+              {t('accountsTrash.restoreDialog.messagePost')}
             </p>
           )
         }
@@ -360,8 +368,8 @@ export function AccountsTrashPage() {
       {/* تأكيد الحذف النهائي */}
       <ConfirmDialog
         open={!!permanentTarget}
-        title="حذف نهائي — لا يمكن التراجع"
-        confirmLabel="حذف نهائياً"
+        title={t('accountsTrash.permanentDeleteTitle')}
+        confirmLabel={t('accountsTrash.permanentDeleteBtn')}
         confirmVariant="destructive"
         loading={permanentMut.isPending}
         error={actionError}
@@ -378,17 +386,18 @@ export function AccountsTrashPage() {
               <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
                 <div>
-                  هذه العملية <span className="font-bold">لا يمكن التراجع عنها</span>. سيُمحى الحساب
-                  نهائياً من قاعدة البيانات، ويُفرَّغ كوده ليصبح متاحاً لإنشاء حساب جديد.
+                  {t('accountsTrash.permanentDeleteDialog.warningPre')}{' '}
+                  <span className="font-bold">{t('accountsTrash.permanentDeleteDialog.irreversible')}</span>.{' '}
+                  {t('accountsTrash.permanentDeleteDialog.warningPost')}
                 </div>
               </div>
               <p className="text-sm">
-                هل أنت متأكد من حذف الحساب{' '}
+                {t('accountsTrash.permanentDeleteDialog.confirmPre')}{' '}
                 <span className="font-bold">
                   <span className="num-display">{permanentTarget.code}</span> ·{' '}
                   {permanentTarget.nameAr}
                 </span>{' '}
-                نهائياً؟
+                {t('accountsTrash.permanentDeleteDialog.confirmPost')}
               </p>
             </div>
           )

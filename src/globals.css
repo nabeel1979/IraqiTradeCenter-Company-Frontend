@@ -3,173 +3,166 @@
 @tailwind utilities;
 
 /* ════════════════════════════════════════════════════════════
-   Design System: Refined Mesopotamian Dark
-   - Warm dark backgrounds (not cold black)
-   - Antique gold accent (Iraqi heritage, refined)
-   - High contrast for financial data clarity
+   Design System: Iraqi Trade Center — Premium Dark Slate
+   • خلفيات أغمق وأكثر عمقاً (ليلي + نهاري)
+   • ذهب عراقي غني مع تباين أوضح للبيانات المالية
+   • ظلال وحدود أوضح — بطاقات تبرز عن الخلفية
 ═══════════════════════════════════════════════════════════════ */
 
 @layer base {
   :root {
-    /* ════════════════════════════════════════════════════════════
-       Light mode — متطابق مع تصميم نسخة طباعة السندات الرسمية
-       فلسفة:
-         • خلفية رمادية باردة (#e9ecef) — توازن ورق المستندات الفاخر
-         • بطاقات أبيض نقي بظل خفيف وحدود ناعمة كحواف الورق
-         • أساسي: ذهبي عنبري دافئ (#d4a017) — لون شعار الذهب الرسمي
-         • Accent كريمي (#fff8e1) — مطابق لخلفية حقول المبالغ في السندات
-         • أخضر إيرادات عميق (#155724) وأحمر مصاريف فاخر (#721c24)
-         • نصوص "Slate"  داكنة (#1a242f) لقراءة مالية واضحة
-    ═══════════════════════════════════════════════════════════════ */
-    --background: 210 14% 95%;           /* ‎رمادي بارد لطيف (ورق وثائق) */
-    --foreground: 210 30% 14%;           /* ‎Slate غامق #1a242f */
-    --card: 0 0% 100%;                   /* ‎أبيض نقي */
-    --card-foreground: 210 30% 14%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 210 30% 14%;
-    --primary: 42 78% 45%;               /* ‎ذهبي عنبري #d4a017 (دافئ، رسمي) */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 216 16% 96%;            /* ‎رمادي بارد ناعم #f5f7fa */
-    --secondary-foreground: 210 28% 20%;
-    --muted: 216 16% 96%;
-    --muted-foreground: 215 12% 42%;     /* ‎رمادي قراءة #555-#666 */
-    --accent: 48 95% 94%;                /* ‎كريم #fff8e1 — مطابق لحقل المبلغ في السند */
-    --accent-foreground: 38 92% 25%;     /* ‎عنبري داكن #8a6d00 */
-    --destructive: 355 60% 28%;          /* ‎أحمر فاخر #721c24 */
+    /* ── الوضع النهاري: رمادي-أردوازي دافئ (ليس أبيض باهت) ── */
+    --background: 220 16% 86%;
+    --foreground: 222 38% 11%;
+    --card: 42 28% 97%;
+    --card-foreground: 222 38% 11%;
+    --popover: 42 28% 98%;
+    --popover-foreground: 222 38% 11%;
+    --primary: 38 92% 42%;
+    --primary-foreground: 42 30% 98%;
+    --secondary: 220 14% 90%;
+    --secondary-foreground: 222 30% 18%;
+    --muted: 220 14% 90%;
+    --muted-foreground: 220 10% 38%;
+    --accent: 42 70% 90%;
+    --accent-foreground: 38 85% 22%;
+    --destructive: 355 58% 32%;
     --destructive-foreground: 0 0% 100%;
-    --success: 145 65% 22%;              /* ‎أخضر إيرادات #155724 */
+    --success: 145 65% 28%;
     --success-foreground: 0 0% 100%;
-    --warning: 42 78% 45%;               /* ‎عنبري متناغم مع الأساسي */
-    --warning-foreground: 0 0% 100%;
-    --border: 215 14% 89%;               /* ‎حدود رمادية ناعمة كحدود السند */
-    --input: 215 14% 89%;
-    --ring: 42 78% 45%;
-    --radius: 0.5rem;
+    --warning: 30 92% 36%;
+    --warning-foreground: 42 30% 98%;
+    --border: 220 14% 78%;
+    --input: 220 14% 80%;
+    --ring: 38 92% 42%;
+    --radius: 0.625rem;
+    --sidebar: 220 18% 92%;
   }
 
   .dark {
-    /* The Iraqi-Mesopotamian dark theme */
-    --background: 240 6% 7%;          /* deep warm-tinted black */
-    --foreground: 36 15% 90%;          /* warm off-white */
-    --card: 240 5% 10%;
-    --card-foreground: 36 15% 90%;
-    --popover: 240 7% 9%;
-    --popover-foreground: 36 15% 90%;
-    --primary: 35 50% 65%;             /* antique gold */
-    --primary-foreground: 240 8% 8%;
-    --secondary: 240 5% 14%;
-    --secondary-foreground: 36 15% 88%;
-    --muted: 240 5% 14%;
-    --muted-foreground: 30 5% 58%;
-    --accent: 35 35% 18%;              /* deep amber for hovers */
-    --accent-foreground: 35 60% 85%;
-    --destructive: 0 55% 55%;
+    /* ── الوضع الليلي: أردوازي عميق + ذهب لامع ── */
+    --background: 228 14% 7%;
+    --foreground: 40 18% 92%;
+    --card: 228 12% 11%;
+    --card-foreground: 40 18% 92%;
+    --popover: 228 13% 9%;
+    --popover-foreground: 40 18% 92%;
+    --primary: 38 72% 58%;
+    --primary-foreground: 228 14% 7%;
+    --secondary: 228 10% 15%;
+    --secondary-foreground: 40 15% 88%;
+    --muted: 228 10% 15%;
+    --muted-foreground: 35 8% 55%;
+    --accent: 38 40% 16%;
+    --accent-foreground: 38 65% 82%;
+    --destructive: 0 62% 52%;
     --destructive-foreground: 0 0% 98%;
-    --success: 145 30% 55%;
-    --success-foreground: 240 8% 8%;
-    --warning: 38 75% 60%;
-    --warning-foreground: 240 8% 8%;
-    --border: 240 5% 17%;
-    --input: 240 5% 16%;
-    --ring: 35 50% 65%;
+    --success: 145 55% 52%;
+    --success-foreground: 228 14% 7%;
+    --warning: 35 95% 58%;
+    --warning-foreground: 228 14% 7%;
+    --border: 228 10% 18%;
+    --input: 228 10% 17%;
+    --ring: 38 72% 58%;
+    --sidebar: 228 14% 9%;
   }
 
   * { @apply border-border; }
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* احترام الـ safe-area على iPhone (notch/home indicator) */
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     background: hsl(var(--background));
   }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: 'rlig' 1, 'calt' 1, 'ss01' 1, 'cv11' 1, 'tnum' 1;
-    /* امنع تمرير الـ overflow والاهتزاز على iOS */
     overscroll-behavior-y: none;
+    background-image:
+      radial-gradient(ellipse 120% 80% at 100% 0%, hsl(var(--primary) / 0.06), transparent 55%),
+      radial-gradient(ellipse 80% 60% at 0% 100%, hsl(var(--primary) / 0.04), transparent 50%),
+      linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
   }
-  /* امنع iOS من تكبير الإدخال تلقائياً (يحدث عندما يكون font-size < 16px) */
+  /* ‎اللغة العربية (RTL): IBM Plex Sans Arabic.
+     اللغة الإنجليزية (LTR): تتبع تكوين Tailwind الافتراضي + خطوط نظام عصرية. */
+  html[lang="ar"] body {
+    font-family: 'IBM Plex Sans Arabic', sans-serif;
+  }
+  html[lang="en"] body {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: -0.005em;
+  }
   @media (max-width: 640px) {
     input, select, textarea { font-size: 16px !important; }
   }
 
-  /* Refined scrollbar */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: hsl(var(--background)); }
-  ::-webkit-scrollbar-thumb { background: hsl(var(--muted)); border-radius: 999px; border: 2px solid hsl(var(--background)); }
-  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.35);
+    border-radius: 999px;
+    border: 2px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--primary) / 0.45); }
 
-  /* Tabular nums for financial data */
   .tnum { font-feature-settings: 'tnum' 1; font-variant-numeric: tabular-nums; }
-
-  /* Selection */
-  ::selection { background: hsl(var(--primary) / 0.3); color: hsl(var(--foreground)); }
+  ::selection { background: hsl(var(--primary) / 0.35); color: hsl(var(--foreground)); }
 }
 
 @layer components {
-  /* ‎ارتفاع البطاقات في الوضع النهاري: ظل بمستويين كنسخة الطباعة الرسمية.
-     الأول حافة دقيقة 1px لرسم حدود البطاقة، الثاني أوسع لإيحاء عمق
-     ورق المستند. الوضع الليلي يلغي الظلال (الحدود تكفي). */
   :root .bg-card {
     box-shadow:
-      0 0 0 1px rgb(26 36 47 / 0.05),
-      0 1px 2px 0 rgb(26 36 47 / 0.04),
-      0 4px 16px -2px rgb(26 36 47 / 0.06);
+      0 0 0 1px hsl(222 38% 11% / 0.06),
+      0 2px 4px hsl(222 38% 11% / 0.05),
+      0 8px 24px -4px hsl(222 38% 11% / 0.1);
   }
   .dark .bg-card {
-    box-shadow: none;
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.08),
+      0 4px 20px -4px hsl(0 0% 0% / 0.45),
+      0 0 32px -8px hsl(var(--primary) / 0.06);
   }
 
-  /* Subtle ambient gradient for hero sections */
   .gradient-hero {
     background:
-      radial-gradient(ellipse 80% 50% at 50% -20%, hsl(var(--primary) / 0.12), transparent 60%),
-      radial-gradient(ellipse 60% 50% at 100% 50%, hsl(var(--primary) / 0.05), transparent 70%),
-      hsl(var(--background));
+      radial-gradient(ellipse 90% 60% at 50% -10%, hsl(var(--primary) / 0.18), transparent 55%),
+      radial-gradient(ellipse 50% 40% at 100% 80%, hsl(var(--primary) / 0.08), transparent 60%),
+      linear-gradient(145deg, hsl(var(--card)), hsl(var(--card) / 0.85));
   }
 
-  /* Card hover state */
   .card-interactive {
-    @apply transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5;
+    @apply transition-all duration-200;
+  }
+  .card-interactive:hover {
+    border-color: hsl(var(--primary) / 0.35);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.12),
+      0 8px 28px -6px hsl(var(--primary) / 0.15);
+    transform: translateY(-1px);
   }
 
-  /* Decorative gold underline */
   .gold-underline {
-    background: linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.4) 50%, transparent 100%);
-    height: 1px;
+    background: linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.35) 60%, transparent 100%);
+    height: 2px;
   }
 
-  /* Data table refinement */
-  .data-table {
-    @apply w-full text-sm;
-  }
-  .data-table thead {
-    @apply text-xs uppercase tracking-wider text-muted-foreground;
-  }
-  .data-table th {
-    @apply px-4 py-3 text-right font-medium border-b border-border/50;
-  }
-  .data-table td {
-    @apply px-4 py-3.5 border-b border-border/30;
-  }
-  .data-table tbody tr {
-    @apply transition-colors hover:bg-accent/30;
-  }
+  .data-table { @apply w-full text-sm; }
+  .data-table thead { @apply text-xs uppercase tracking-wider text-muted-foreground; }
+  .data-table th { @apply px-4 py-3 text-right font-medium border-b border-border; }
+  .data-table td { @apply px-4 py-3.5 border-b border-border/50; }
+  .data-table tbody tr { @apply transition-colors hover:bg-accent/40; }
 
-  /* الجداول على الجوال: نص أصغر و padding أقل لتفادي القصّ */
   @media (max-width: 640px) {
     .data-table { font-size: 0.78rem; }
     .data-table th { @apply px-2 py-2; }
     .data-table td { @apply px-2 py-2; }
   }
 
-  /* تمرير أفقي للجدول في الجوال — يلفّ <table> داخل <div class="table-scroll"> */
   .table-scroll {
     @apply -mx-2 overflow-x-auto sm:mx-0;
     -webkit-overflow-scrolling: touch;
   }
 
-  /* تقرير كشف الحساب: تجاوز تجريد الجدول حتى لا تُقصّ أيادٍ ضبط الأعمدة */
   .account-statement-report.data-table thead {
     text-transform: none;
     letter-spacing: normal;
@@ -185,43 +178,98 @@
     padding-inline: 0.5rem !important;
   }
 
-  /* Number display - elegant tabular */
-  .num-display {
-    @apply font-mono tabular-nums tracking-tight;
-  }
+  .num-display { @apply font-mono tabular-nums tracking-tight; }
 
-  /* KPI value - مرن مع شاشات الموبايل + يمنع كسر "د.ع" بين الحرفين.
-     overflow-wrap: anywhere كان يكسر "د.ع" عند نقطة العطف فيظهر "ع." لوحده.
-     normal + keep-all يحافظ على الـ token كاملاً مع السماح بكسره عند المسافة. */
   .kpi-value {
     @apply font-display text-2xl font-semibold tracking-tight tnum sm:text-3xl;
     word-break: keep-all;
     overflow-wrap: normal;
     line-height: 1.2;
   }
-  /* ‎في الشاشات الضيقة جداً نُصغّر الخط ليتسع الرقم في سطر واحد بدل كسره. */
   @media (max-width: 480px) {
     .kpi-value { font-size: 1.25rem; }
+  }
+
+  /* شريط جانبي بسطح أغمق */
+  .surface-sidebar {
+    background: linear-gradient(
+      180deg,
+      hsl(var(--sidebar)) 0%,
+      hsl(var(--card) / 0.95) 100%
+    );
+    border-color: hsl(var(--border));
+  }
+
+  /* بلاطة مختصر — سطح مرتفع */
+  .surface-tile {
+    @apply border border-border bg-card transition-all;
+    box-shadow: 0 1px 3px hsl(222 38% 11% / 0.06);
+  }
+  .dark .surface-tile {
+    box-shadow: 0 2px 8px hsl(0 0% 0% / 0.25);
+  }
+  .surface-tile:hover {
+    border-color: hsl(var(--primary) / 0.4);
+    background: hsl(var(--primary) / 0.06);
+    box-shadow: 0 4px 16px hsl(var(--primary) / 0.12);
+    transform: translateY(-2px);
   }
 }
 
 @layer utilities {
-  /* Mesopotamian geometric pattern background (very subtle) */
   .pattern-meso {
     background-image:
-      radial-gradient(circle at 1px 1px, hsl(var(--primary) / 0.05) 1px, transparent 0);
-    background-size: 24px 24px;
+      radial-gradient(circle at 1px 1px, hsl(var(--primary) / 0.07) 1px, transparent 0);
+    background-size: 20px 20px;
   }
 
-  /* Glow utility for primary accents */
   .glow-primary {
-    box-shadow: 0 0 40px -8px hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 48px -6px hsl(var(--primary) / 0.45);
   }
 
-  /* Status pills */
-  .pill-success { @apply bg-success/15 text-success border border-success/30; }
-  .pill-warning { @apply bg-warning/15 text-warning border border-warning/30; }
-  .pill-danger  { @apply bg-destructive/15 text-destructive border border-destructive/30; }
-  .pill-info    { @apply bg-primary/15 text-primary border border-primary/30; }
+  .pill-success { @apply bg-success/20 text-success border border-success/40; }
+  .pill-warning { @apply bg-warning/20 text-warning border border-warning/40; }
+  .pill-danger  { @apply bg-destructive/20 text-destructive border border-destructive/40; }
+  .pill-info    { @apply bg-primary/20 text-primary border border-primary/40; }
   .pill-muted   { @apply bg-muted text-muted-foreground border border-border; }
+}
+
+/*
+ * تصحيح الألوان المشفَّرة مباشرة في المكوّنات:
+ * emerald-300 / amber-300 / 400 مصمَّمة للخلفية الداكنة فقط.
+ * في الوضع النهاري نُغيّرها إلى درجات أغمق وأكثر وضوحاً.
+ */
+html:not(.dark) .text-emerald-300,
+html:not(.dark) .text-emerald-400 {
+  color: hsl(145 58% 26%) !important;   /* أخضر عميق قابل للقراءة على خلفية فاتحة */
+}
+html:not(.dark) .text-amber-300,
+html:not(.dark) .text-amber-400 {
+  color: hsl(30 88% 34%) !important;    /* برتقالي غني وقابل للقراءة على خلفية فاتحة */
+}
+
+/* خلفيات emerald/amber في الوضع النهاري — زيادة التشبّع */
+html:not(.dark) .bg-emerald-500\/10 {
+  background-color: hsl(145 58% 26% / 0.12) !important;
+}
+html:not(.dark) .bg-amber-500\/10,
+html:not(.dark) .bg-amber-400\/5 {
+  background-color: hsl(30 88% 34% / 0.10) !important;
+}
+html:not(.dark) .bg-emerald-500\/5 {
+  background-color: hsl(145 58% 26% / 0.08) !important;
+}
+html:not(.dark) .bg-amber-500\/5 {
+  background-color: hsl(30 88% 34% / 0.08) !important;
+}
+
+/* حدود emerald/amber في الوضع النهاري */
+html:not(.dark) .border-emerald-500\/40,
+html:not(.dark) .border-emerald-500\/30 {
+  border-color: hsl(145 58% 26% / 0.40) !important;
+}
+html:not(.dark) .border-amber-500\/40,
+html:not(.dark) .border-amber-500\/30,
+html:not(.dark) .border-amber-400\/40 {
+  border-color: hsl(30 88% 34% / 0.40) !important;
 }

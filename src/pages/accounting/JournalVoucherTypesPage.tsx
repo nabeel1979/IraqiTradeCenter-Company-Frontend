@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import {
   FileText,
   Plus,
@@ -45,6 +46,7 @@ function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
 }
 
 export function JournalVoucherTypesPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [showOnly, setShowOnly] = useState<'all' | 'enabled'>('all');
@@ -83,26 +85,26 @@ export function JournalVoucherTypesPage() {
     mutationFn: ({ id, isEnabled }: { id: number; isEnabled: boolean }) =>
       journalVoucherTypesApi.toggle(id, isEnabled),
     onSuccess: (_d, vars) => {
-      toast.success(vars.isEnabled ? 'تم التفعيل' : 'تم التعطيل');
+      toast.success(vars.isEnabled ? t('voucherTypes.toast.enabled') : t('voucherTypes.toast.disabled'));
       qc.invalidateQueries({ queryKey: ['voucher-types'] });
     },
-    onError: (e: any) => toast.error(extractApiError(e, 'تعذّر تحديث الحالة')),
+    onError: (e: any) => toast.error(extractApiError(e, t('voucherTypes.toast.toggleFailed'))),
   });
 
   const moveM = useMutation({
     mutationFn: ({ id, direction }: { id: number; direction: 'up' | 'down' }) =>
       journalVoucherTypesApi.move(id, direction),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['voucher-types'] }),
-    onError: (e: any) => toast.error(extractApiError(e, 'تعذّر تحريك النوع')),
+    onError: (e: any) => toast.error(extractApiError(e, t('voucherTypes.toast.moveFailed'))),
   });
 
   const deleteM = useMutation({
     mutationFn: (id: number) => journalVoucherTypesApi.delete(id),
     onSuccess: () => {
-      toast.success('تم حذف النوع');
+      toast.success(t('voucherTypes.toast.deleted'));
       qc.invalidateQueries({ queryKey: ['voucher-types'] });
     },
-    onError: (e: any) => toast.error(extractApiError(e, 'تعذّر حذف النوع')),
+    onError: (e: any) => toast.error(extractApiError(e, t('voucherTypes.toast.deleteFailed'))),
   });
 
   const enabledCount = types.filter(t => t.isEnabled).length;
@@ -113,15 +115,15 @@ export function JournalVoucherTypesPage() {
         <div>
           <h1 className="flex items-center gap-2 text-lg font-semibold">
             <FileText className="h-5 w-5 text-primary" />
-            أنواع السندات / القيود
+            {t('voucherTypes.title')}
           </h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            إنشاء أنواع قيود قابلة للتخصيص (سند قبض، سند دفع، سند تسوية، …) مع ربطها بحسابات افتراضية من الدليل المحاسبي.
+            {t('voucherTypes.subtitle')}
           </p>
         </div>
         <Button onClick={() => setCreatingNew(true)} size="sm" className="gap-1.5">
           <Plus className="h-4 w-4" />
-          نوع جديد
+          {t('voucherTypes.addNew')}
         </Button>
       </div>
 
@@ -131,7 +133,7 @@ export function JournalVoucherTypesPage() {
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="بحث بالكود أو الاسم..."
+                placeholder={t('voucherTypes.searchPlaceholder')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="h-8 pr-7 text-xs"
@@ -146,7 +148,7 @@ export function JournalVoucherTypesPage() {
                   showOnly === 'all' ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
                 )}
               >
-                الكل ({types.length})
+                {t('common.all')} ({types.length})
               </button>
               <button
                 type="button"
@@ -156,11 +158,11 @@ export function JournalVoucherTypesPage() {
                   showOnly === 'enabled' ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
                 )}
               >
-                المفعّلة ({enabledCount})
+                {t('voucherTypes.enabledFilter')} ({enabledCount})
               </button>
             </div>
             <CardTitle className="ms-auto text-xs text-muted-foreground">
-              عرض {filtered.length} من {types.length}
+              {t('voucherTypes.showingCount', { shown: filtered.length, total: types.length })}
             </CardTitle>
           </div>
         </CardHeader>
@@ -171,7 +173,7 @@ export function JournalVoucherTypesPage() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              لا توجد أنواع مطابقة
+              {t('voucherTypes.noResults')}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -179,75 +181,75 @@ export function JournalVoucherTypesPage() {
                 <thead className="bg-secondary/50 text-xs text-muted-foreground">
                   <tr>
                     <th className="w-12 p-2 text-center">#</th>
-                    <th className="w-24 p-2 text-right">الكود</th>
-                    <th className="p-2 text-right">الاسم</th>
-                    <th className="p-2 text-right">المدين الافتراضي</th>
-                    <th className="p-2 text-right">الدائن الافتراضي</th>
-                    <th className="w-24 p-2 text-center">الحالة</th>
-                    <th className="w-32 p-2 text-center">الإجراءات</th>
+                    <th className="w-24 p-2 text-right">{t('voucherTypes.col.code')}</th>
+                    <th className="p-2 text-right">{t('voucherTypes.col.name')}</th>
+                    <th className="p-2 text-right">{t('voucherTypes.col.defaultDebit')}</th>
+                    <th className="p-2 text-right">{t('voucherTypes.col.defaultCredit')}</th>
+                    <th className="w-24 p-2 text-center">{t('common.status')}</th>
+                    <th className="w-32 p-2 text-center">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((t, idx) => (
+                  {filtered.map((vt, idx) => (
                     <tr
-                      key={t.id}
+                      key={vt.id}
                       className={cn(
                         'border-t border-border/40 transition-colors hover:bg-secondary/20',
-                        !t.isEnabled && 'opacity-60'
+                        !vt.isEnabled && 'opacity-60'
                       )}
                     >
                       <td className="p-2 text-center text-xs text-muted-foreground">{idx + 1}</td>
                       <td className="p-2 text-right">
                         <code className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-bold text-primary">
-                          {t.code}
+                          {vt.code}
                         </code>
                       </td>
                       <td className="p-2 text-right">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-sm font-medium">{t.nameAr}</span>
-                          {t.isSystem && (
-                            <span className="inline-flex items-center gap-0.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-300" title="نوع مدمج بالنظام">
+                          <span className="text-sm font-medium">{vt.nameAr}</span>
+                          {vt.isSystem && (
+                            <span className="inline-flex items-center gap-0.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-300" title={t('voucherTypes.systemType')}>
                               <Lock className="h-2.5 w-2.5" />
-                              نظام
+                              {t('common.system')}
                             </span>
                           )}
-                          {t.nature === 'Debit' && (
-                            <span className="inline-flex items-center gap-0.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300" title="طبيعة السند: مدين">
-                              مدين
+                          {vt.nature === 'Debit' && (
+                            <span className="inline-flex items-center gap-0.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300" title={t('voucherTypes.natureDebitTip')}>
+                              {t('voucherTypes.natureDebit')}
                             </span>
                           )}
-                          {t.nature === 'Credit' && (
-                            <span className="inline-flex items-center gap-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300" title="طبيعة السند: دائن">
-                              دائن
+                          {vt.nature === 'Credit' && (
+                            <span className="inline-flex items-center gap-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300" title={t('voucherTypes.natureCreditTip')}>
+                              {t('voucherTypes.natureCredit')}
                             </span>
                           )}
-                          {t.showInSidebar && (
-                            <span className="inline-flex items-center gap-0.5 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary" title="يظهر كصفحة مستقلة">
-                              في القائمة
+                          {vt.showInSidebar && (
+                            <span className="inline-flex items-center gap-0.5 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary" title={t('voucherTypes.inSidebarTip')}>
+                              {t('voucherTypes.inSidebar')}
                             </span>
                           )}
                         </div>
-                        {t.description && (
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">{t.description}</p>
+                        {vt.description && (
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">{vt.description}</p>
                         )}
                       </td>
                       <td className="p-2 text-right text-xs">
-                        {t.defaultDebitAccountId ? (
+                        {vt.defaultDebitAccountId ? (
                           <span className="inline-flex items-center gap-1 text-emerald-300">
                             <ArrowDownLeft className="h-3 w-3" />
-                            <span className="num-display">{t.defaultDebitAccountCode}</span>
-                            <span className="text-muted-foreground">- {t.defaultDebitAccountName}</span>
+                            <span className="num-display">{vt.defaultDebitAccountCode}</span>
+                            <span className="text-muted-foreground">- {vt.defaultDebitAccountName}</span>
                           </span>
                         ) : (
                           <span className="text-muted-foreground/50">—</span>
                         )}
                       </td>
                       <td className="p-2 text-right text-xs">
-                        {t.defaultCreditAccountId ? (
+                        {vt.defaultCreditAccountId ? (
                           <span className="inline-flex items-center gap-1 text-amber-300">
                             <ArrowUpRight className="h-3 w-3" />
-                            <span className="num-display">{t.defaultCreditAccountCode}</span>
-                            <span className="text-muted-foreground">- {t.defaultCreditAccountName}</span>
+                            <span className="num-display">{vt.defaultCreditAccountCode}</span>
+                            <span className="text-muted-foreground">- {vt.defaultCreditAccountName}</span>
                           </span>
                         ) : (
                           <span className="text-muted-foreground/50">—</span>
@@ -256,43 +258,43 @@ export function JournalVoucherTypesPage() {
                       <td className="p-2 text-center">
                         <button
                           type="button"
-                          onClick={() => toggleM.mutate({ id: t.id, isEnabled: !t.isEnabled })}
+                          onClick={() => toggleM.mutate({ id: vt.id, isEnabled: !vt.isEnabled })}
                           disabled={toggleM.isPending}
                           className={cn(
                             'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors',
-                            t.isEnabled
+                            vt.isEnabled
                               ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
                               : 'border border-muted-foreground/20 bg-muted-foreground/5 text-muted-foreground hover:bg-muted-foreground/10'
                           )}
                         >
-                          {t.isEnabled ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
-                          {t.isEnabled ? 'مفعّل' : 'معطّل'}
+                          {vt.isEnabled ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+                          {vt.isEnabled ? t('voucherTypes.enabled') : t('voucherTypes.disabled')}
                         </button>
                       </td>
                       <td className="p-2 text-center">
                         <div className="inline-flex items-center gap-0.5">
                           <button
                             type="button"
-                            onClick={() => moveM.mutate({ id: t.id, direction: 'up' })}
+                            onClick={() => moveM.mutate({ id: vt.id, direction: 'up' })}
                             disabled={moveM.isPending || idx === 0}
-                            title="نقل لأعلى"
+                            title={t('voucherTypes.moveUp')}
                             className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-30"
                           >
                             <ChevronUp className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
-                            onClick={() => moveM.mutate({ id: t.id, direction: 'down' })}
+                            onClick={() => moveM.mutate({ id: vt.id, direction: 'down' })}
                             disabled={moveM.isPending || idx === filtered.length - 1}
-                            title="نقل لأسفل"
+                            title={t('voucherTypes.moveDown')}
                             className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-30"
                           >
                             <ChevronDown className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
-                            onClick={() => setEditing(t)}
-                            title="تعديل"
+                            onClick={() => setEditing(vt)}
+                            title={t('common.edit')}
                             className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -300,19 +302,19 @@ export function JournalVoucherTypesPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (t.isSystem) {
-                                toast.error('لا يمكن حذف نوع مدمج بالنظام');
+                              if (vt.isSystem) {
+                                toast.error(t('voucherTypes.cannotDeleteSystem'));
                                 return;
                               }
-                              if (window.confirm(`هل أنت متأكد من حذف "${t.nameAr}" ؟`)) {
-                                deleteM.mutate(t.id);
+                              if (window.confirm(t('voucherTypes.confirmDelete', { name: vt.nameAr }))) {
+                                deleteM.mutate(vt.id);
                               }
                             }}
-                            disabled={t.isSystem}
-                            title={t.isSystem ? 'نوع نظام (لا يحذف)' : 'حذف'}
+                            disabled={vt.isSystem}
+                            title={vt.isSystem ? t('voucherTypes.systemCannotDelete') : t('common.delete')}
                             className={cn(
                               'inline-flex h-6 w-6 items-center justify-center rounded',
-                              t.isSystem
+                              vt.isSystem
                                 ? 'cursor-not-allowed text-muted-foreground/30'
                                 : 'text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
                             )}
@@ -333,7 +335,7 @@ export function JournalVoucherTypesPage() {
       {(creatingNew || editing) && (
         <VoucherTypeDialog
           existing={editing}
-          existingCodes={types.map(t => t.code)}
+          existingCodes={types.map(vt => vt.code)}
           accounts={leafAccounts}
           onClose={() => {
             setEditing(null);
@@ -366,6 +368,7 @@ function VoucherTypeDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const isNew = existing == null;
   const isSystemRow = existing != null && existing.isSystem;
   const [code, setCode] = useState(existing?.code ?? '');
@@ -388,15 +391,15 @@ function VoucherTypeDialog({
   const codeError = (() => {
     if (!isNew) return null;
     const c = code.trim().toUpperCase();
-    if (!c) return 'الكود مطلوب';
-    if (c.length > 20) return 'الكود طويل (1–20 حرف)';
-    if (existingCodes.map(x => x.toUpperCase()).includes(c)) return 'هذا الكود مستخدم';
+    if (!c) return t('voucherTypes.dialog.codeRequired');
+    if (c.length > 20) return t('voucherTypes.dialog.codeTooLong');
+    if (existingCodes.map(x => x.toUpperCase()).includes(c)) return t('voucherTypes.dialog.codeDuplicate');
     return null;
   })();
 
   const sameAccountError =
     debitAccountId && creditAccountId && debitAccountId === creditAccountId
-      ? 'لا يجوز أن يكون حساب المدين والدائن متطابقين'
+      ? t('voucherTypes.dialog.sameAccountError')
       : null;
 
   const saveM = useMutation({
@@ -418,10 +421,10 @@ function VoucherTypeDialog({
         : journalVoucherTypesApi.update(existing!.id, payload).then(() => ({ id: existing!.id }));
     },
     onSuccess: () => {
-      toast.success(isNew ? 'تم إنشاء النوع' : 'تم تحديث النوع');
+      toast.success(isNew ? t('voucherTypes.toast.created') : t('voucherTypes.toast.updated'));
       onSaved();
     },
-    onError: (e: any) => toast.error(extractApiError(e, 'تعذّر حفظ النوع')),
+    onError: (e: any) => toast.error(extractApiError(e, t('voucherTypes.toast.saveFailed'))),
   });
 
   const canSave = !saveM.isPending && !codeError && !sameAccountError && nameAr.trim().length > 0;
@@ -438,7 +441,7 @@ function VoucherTypeDialog({
         <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-4 py-2">
           <h2 className="flex items-center gap-2 text-sm font-bold">
             {isNew ? <Plus className="h-4 w-4 text-primary" /> : <Pencil className="h-4 w-4 text-primary" />}
-            {isNew ? 'إضافة نوع سند' : `تعديل: ${existing?.nameAr}`}
+            {isNew ? t('voucherTypes.dialog.titleAdd') : t('voucherTypes.dialog.titleEdit', { name: existing?.nameAr })}
           </h2>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
@@ -449,7 +452,7 @@ function VoucherTypeDialog({
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                الكود *
+                {t('voucherTypes.dialog.code')}
               </label>
               <Input
                 value={code}
@@ -459,16 +462,16 @@ function VoucherTypeDialog({
                 className={cn('h-9 text-sm', codeError && 'border-destructive')}
               />
               {codeError && <p className="mt-0.5 text-[10px] text-destructive">{codeError}</p>}
-              {!isNew && <p className="mt-0.5 text-[10px] text-muted-foreground">لا يمكن تغيير الكود بعد الإنشاء</p>}
+              {!isNew && <p className="mt-0.5 text-[10px] text-muted-foreground">{t('voucherTypes.dialog.codeReadOnly')}</p>}
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                الاسم العربي *
+                {t('voucherTypes.dialog.nameAr')}
               </label>
               <Input
                 value={nameAr}
                 onChange={e => setNameAr(e.target.value.slice(0, 150))}
-                placeholder="سند قبض"
+                placeholder={t('voucherTypes.dialog.nameArPlaceholder')}
                 className="h-9 text-sm"
               />
             </div>
@@ -477,7 +480,7 @@ function VoucherTypeDialog({
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="sm:col-span-2">
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                الاسم الإنجليزي
+                {t('voucherTypes.dialog.nameEn')}
               </label>
               <Input
                 value={nameEn ?? ''}
@@ -489,7 +492,7 @@ function VoucherTypeDialog({
             </div>
             <div>
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                ترتيب العرض
+                {t('voucherTypes.dialog.displayOrder')}
               </label>
               <Input
                 type="number"
@@ -501,28 +504,28 @@ function VoucherTypeDialog({
           </div>
 
           <div>
-            <label className="mb-1 block text-[11px] text-muted-foreground">
-              الوصف
-            </label>
-            <Input
-              value={description ?? ''}
-              onChange={e => setDescription(e.target.value.slice(0, 500))}
-              placeholder="استلام نقدي من العملاء أو الإيرادات"
+              <label className="mb-1 block text-[11px] text-muted-foreground">
+                {t('voucherTypes.dialog.description')}
+              </label>
+              <Input
+                value={description ?? ''}
+                onChange={e => setDescription(e.target.value.slice(0, 500))}
+                placeholder={t('voucherTypes.dialog.descriptionPlaceholder')}
               className="h-9 text-sm"
             />
           </div>
 
           <div className="space-y-1.5 rounded-md border border-border bg-secondary/20 p-3">
-            <div className="text-[11px] font-semibold text-primary">الحسابات الافتراضية (اختياري)</div>
+            <div className="text-[11px] font-semibold text-primary">{t('voucherTypes.dialog.defaultAccounts')}</div>
             <p className="text-[10px] text-muted-foreground">
-              عند إنشاء قيد بهذا النوع، تُملأ الحسابات تلقائياً من هذه الإعدادات.
+              {t('voucherTypes.dialog.defaultAccountsHint')}
             </p>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1 flex items-center gap-1 text-[11px] text-emerald-300">
                   <ArrowDownLeft className="h-3 w-3" />
-                  حساب المدين الافتراضي
+                  {t('voucherTypes.dialog.defaultDebitAccount')}
                 </label>
                 <AccountPicker
                   accounts={accounts}
@@ -532,7 +535,7 @@ function VoucherTypeDialog({
                   }
                   onChange={id => setDebitAccountId(id)}
                   allowClear
-                  placeholder="اختر حساباً..."
+                  placeholder={t('voucherTypes.dialog.accountPlaceholder')}
                   inputHeight={9}
                 />
               </div>
@@ -540,7 +543,7 @@ function VoucherTypeDialog({
               <div>
                 <label className="mb-1 flex items-center gap-1 text-[11px] text-amber-300">
                   <ArrowUpRight className="h-3 w-3" />
-                  حساب الدائن الافتراضي
+                  {t('voucherTypes.dialog.defaultCreditAccount')}
                 </label>
                 <AccountPicker
                   accounts={accounts}
@@ -550,7 +553,7 @@ function VoucherTypeDialog({
                   }
                   onChange={id => setCreditAccountId(id)}
                   allowClear
-                  placeholder="اختر حساباً..."
+                  placeholder={t('voucherTypes.dialog.accountPlaceholder')}
                   inputHeight={9}
                 />
               </div>
@@ -562,22 +565,22 @@ function VoucherTypeDialog({
           </div>
 
           <div className="space-y-1.5 rounded-md border border-border bg-secondary/20 p-3">
-            <div className="text-[11px] font-semibold text-primary">طبيعة وعرض السند</div>
+            <div className="text-[11px] font-semibold text-primary">{t('voucherTypes.dialog.natureSection')}</div>
             <p className="text-[10px] text-muted-foreground">
-              طبيعة السند تحدّد سلوك صفحة "السند المستقل": أيّ طرف يكون مديناً وأيّ يكون دائناً.
+              {t('voucherTypes.dialog.natureSectionHint')}
             </p>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-[11px] text-muted-foreground">طبيعة السند</label>
+                <label className="mb-1 block text-[11px] text-muted-foreground">{t('voucherTypes.dialog.nature')}</label>
                 <select
                   value={nature}
                   onChange={e => setNature(e.target.value as VoucherNature)}
                   className="h-9 w-full rounded-md border border-input bg-secondary/40 px-2 text-sm"
                 >
-                  <option value="Mixed">مختلط (يدوي بالكامل)</option>
-                  <option value="Debit">مدين (مثل سند قبض)</option>
-                  <option value="Credit">دائن (مثل سند دفع)</option>
+                  <option value="Mixed">{t('voucherTypes.nature.mixed')}</option>
+                  <option value="Debit">{t('voucherTypes.nature.debit')}</option>
+                  <option value="Credit">{t('voucherTypes.nature.credit')}</option>
                 </select>
               </div>
               <div className="flex items-end">
@@ -589,10 +592,10 @@ function VoucherTypeDialog({
                     className="h-4 w-4 accent-primary"
                   />
                   <span className="flex-1">
-                    إظهار كصفحة مستقلة في القائمة الجانبية
+                    {t('voucherTypes.dialog.showInSidebar')}
                     {nature === 'Mixed' && (
                       <span className="block text-[10px] text-muted-foreground">
-                        نوع مختلط: ستفتح بتصميم القيود اليومية (متعدد البنود)
+                        {t('voucherTypes.dialog.showInSidebarMixedNote')}
                       </span>
                     )}
                   </span>
@@ -608,12 +611,12 @@ function VoucherTypeDialog({
               onChange={e => setIsEnabled(e.target.checked)}
               className="h-4 w-4 accent-primary"
             />
-            <span>متاح للاستخدام في القيود الجديدة</span>
+            <span>{t('voucherTypes.dialog.isEnabled')}</span>
           </label>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/20 px-4 py-2">
-          <Button variant="ghost" size="sm" type="button" onClick={onClose}>إلغاء</Button>
+          <Button variant="ghost" size="sm" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             size="sm"
             onClick={() => saveM.mutate()}
@@ -621,7 +624,7 @@ function VoucherTypeDialog({
             className="gap-1.5"
           >
             <Save className="h-3.5 w-3.5" />
-            {saveM.isPending ? 'جارٍ الحفظ...' : 'حفظ'}
+            {saveM.isPending ? t('common.saving') : t('common.save')}
           </Button>
         </div>
       </div>

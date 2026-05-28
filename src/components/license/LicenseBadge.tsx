@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { ShieldCheck, ShieldAlert, ShieldOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { licenseApi } from '@/lib/api/license';
@@ -20,6 +21,7 @@ import { LicenseDialog } from './LicenseDialog';
 export function LicenseBadge() {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
+  const { t } = useTranslation();
 
   // ‎جلب الحالة — staleTime منخفض حتى يتجاوب مع تطبيق شفرة جديدة بسرعة.
   const statusQuery = useQuery({
@@ -49,15 +51,15 @@ export function LicenseBadge() {
       return {
         label: '...',
         tone: 'neutral' as const,
-        title: 'جارٍ التحقق من الترخيص',
+        title: t('license.badge.checking'),
         Icon: ShieldCheck,
       };
     }
     if (s.isExpired && !s.isInGrace) {
       return {
-        label: 'منتهٍ',
+        label: t('license.badge.expired'),
         tone: 'critical' as const,
-        title: 'الترخيص منتهٍ — اضغط للتجديد',
+        title: t('license.badge.expiredTitle'),
         Icon: ShieldOff,
       };
     }
@@ -68,14 +70,14 @@ export function LicenseBadge() {
                                 'healthy';
     const Icon = tone === 'healthy' ? ShieldCheck : tone === 'warning' ? ShieldAlert : ShieldOff;
     return {
-      label: s.isInGrace ? 'فترة سماح' : `${days} يوم`,
+      label: s.isInGrace ? t('license.badge.grace') : t('license.badge.days', { days }),
       tone,
       title: s.isInGrace
-        ? `الترخيص في فترة السماح — جدِّد قريباً`
-        : `الترخيص نشط — ${days} يوماً متبقياً`,
+        ? t('license.badge.graceTitle')
+        : t('license.badge.activeTitle', { days }),
       Icon,
     };
-  }, [statusQuery.data]);
+  }, [statusQuery.data, t]);
 
   const toneClasses: Record<string, string> = {
     healthy:  'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15',

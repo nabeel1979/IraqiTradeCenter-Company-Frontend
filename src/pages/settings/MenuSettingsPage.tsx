@@ -1,21 +1,23 @@
 import { useMemo } from 'react';
-import { ListChecks, Lock, ArrowRight, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
+import { ListChecks, Lock, ArrowRight, ArrowLeft, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation, Trans } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { NAV_GROUPS, type NavGroup } from '@/components/layout/Sidebar';
 import { useSidebarPrefs } from '@/lib/sidebarPreferences';
 import { usePermissions } from '@/lib/auth/usePermissions';
+import { useLocale } from '@/lib/i18n';
 
 export function MenuSettingsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { isRtl } = useLocale();
   const { isHidden, isCollapsed, setHidden, setAllCollapsed } = useSidebarPrefs();
   const { can } = usePermissions();
 
   // ‎نُسقط من قائمة الإعدادات أي قسم لا يملك المستخدم صلاحية القراءة على
-  // ‎أي عنصر فرعي بداخله — هذا يطابق سلوك الـ Sidebar الفعلي ويُخفي مثلاً
-  // ‎"الفواتير" و"المستودعات" عن المستخدم الذي لا يملك أي صلاحية فيها.
-  // ‎الأقسام المباشرة (direct: true مثل الرئيسية) تبقى مرئية.
+  // ‎أي عنصر فرعي بداخله.
   const groups: NavGroup[] = useMemo(() => {
     return NAV_GROUPS
       .map(g => ({
@@ -26,11 +28,9 @@ export function MenuSettingsPage() {
   }, [can]);
 
   const visibleCount = groups.filter(g => g.mandatory || !isHidden(g.key)).length;
-  // الأقسام القابلة للطي فقط (الأقسام direct لا تُطوى)
   const allKeys = groups.filter(g => !g.direct).map(g => g.key);
 
   const resetAll = () => {
-    // أظهر الكل وافتح الكل
     groups.forEach(g => {
       if (!g.mandatory) setHidden(g.key, false);
     });
@@ -48,12 +48,12 @@ export function MenuSettingsPage() {
             onClick={() => navigate('/settings')}
             className="h-8 gap-1 px-2"
           >
-            <ArrowRight className="h-3.5 w-3.5" />
-            <span>إعدادات الشركة</span>
+            {isRtl ? <ArrowRight className="h-3.5 w-3.5" /> : <ArrowLeft className="h-3.5 w-3.5" />}
+            <span>{t('menuSettings.backToSettings')}</span>
           </Button>
           <h1 className="flex items-center gap-2 text-lg font-semibold">
             <ListChecks className="h-5 w-5 text-primary" />
-            إعدادات القائمة الجانبية
+            {t('menuSettings.title')}
           </h1>
         </div>
         <Button
@@ -61,20 +61,21 @@ export function MenuSettingsPage() {
           size="sm"
           onClick={resetAll}
           className="h-8 gap-1.5"
-          title="إعادة كل الإعدادات إلى الافتراضي"
+          title={t('menuSettings.resetTooltip')}
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          إعادة تعيين
+          {t('common.reset')}
         </Button>
       </div>
 
       {/* بطاقة إظهار/إخفاء الأقسام */}
       <Card>
         <CardHeader>
-          <CardTitle>إظهار / إخفاء الأقسام</CardTitle>
+          <CardTitle>{t('menuSettings.showHide.title')}</CardTitle>
           <CardDescription>
-            اختر الأقسام التي تريد إظهارها في القائمة الجانبية
-            ({visibleCount} من {groups.length} ظاهر)
+            {t('menuSettings.showHide.description')}
+            {' '}
+            {t('menuSettings.showHide.visibleCount', { visible: visibleCount, total: groups.length })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -91,9 +92,9 @@ export function MenuSettingsPage() {
                 <div className="flex items-center gap-3">
                   <Icon className="h-5 w-5 text-primary" />
                   <div>
-                    <div className="text-sm font-medium">{group.title}</div>
+                    <div className="text-sm font-medium">{t(group.titleKey)}</div>
                     <div className="text-[10px] text-muted-foreground">
-                      {group.items.length} عنصر فرعي
+                      {t('menuSettings.showHide.subItemsCount', { count: group.items.length })}
                     </div>
                   </div>
                 </div>
@@ -101,12 +102,12 @@ export function MenuSettingsPage() {
                   {group.mandatory ? (
                     <span className="flex items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-[10px] font-bold text-primary">
                       <Lock className="h-3 w-3" />
-                      أساسي - دائماً مرئي
+                      {t('menuSettings.showHide.alwaysVisible')}
                     </span>
                   ) : (
                     <>
                       <span className={`text-[10px] ${hidden ? 'text-muted-foreground' : 'text-emerald-400'}`}>
-                        {hidden ? 'مخفي' : 'ظاهر'}
+                        {hidden ? t('menuSettings.showHide.hidden') : t('menuSettings.showHide.shown')}
                       </span>
                       <input
                         type="checkbox"
@@ -126,8 +127,8 @@ export function MenuSettingsPage() {
       {/* بطاقة طي/فتح الأقسام */}
       <Card>
         <CardHeader>
-          <CardTitle>طي / فتح الأقسام</CardTitle>
-          <CardDescription>تحكّم بأي الأقسام مفتوحة افتراضياً عند فتح التطبيق</CardDescription>
+          <CardTitle>{t('menuSettings.collapse.title')}</CardTitle>
+          <CardDescription>{t('menuSettings.collapse.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex flex-wrap gap-2">
@@ -137,7 +138,7 @@ export function MenuSettingsPage() {
               onClick={() => setAllCollapsed(allKeys, false)}
               className="h-8"
             >
-              فتح كل الأقسام
+              {t('menuSettings.collapse.expandAll')}
             </Button>
             <Button
               size="sm"
@@ -145,7 +146,7 @@ export function MenuSettingsPage() {
               onClick={() => setAllCollapsed(allKeys, true)}
               className="h-8"
             >
-              طي كل الأقسام
+              {t('menuSettings.collapse.collapseAll')}
             </Button>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -161,11 +162,11 @@ export function MenuSettingsPage() {
                 >
                   <div className="flex items-center gap-2">
                     <Icon className="h-4 w-4 text-primary" />
-                    <span className="text-sm">{group.title}</span>
+                    <span className="text-sm">{t(group.titleKey)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] text-muted-foreground">
-                      {collapsed ? 'مطوي' : 'مفتوح'}
+                      {collapsed ? t('menuSettings.collapse.collapsed') : t('menuSettings.collapse.expanded')}
                     </span>
                     <input
                       type="checkbox"
@@ -179,7 +180,6 @@ export function MenuSettingsPage() {
                           Object.keys(map).filter(k => map[k]),
                           true
                         );
-                        // open the rest
                         const openKeys = Object.keys(map).filter(k => !map[k]);
                         if (openKeys.length > 0) setAllCollapsed(openKeys, false);
                       }}
@@ -197,13 +197,12 @@ export function MenuSettingsPage() {
           <SettingsIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div className="space-y-1">
             <p>
-              <strong className="text-foreground">المحاسبة</strong> و
-              <strong className="text-foreground"> النظام</strong> أساسيان ولا يمكن إخفاؤهما.
+              <Trans
+                i18nKey="menuSettings.info.line1"
+                components={{ bold: <strong className="text-foreground" /> }}
+              />
             </p>
-            <p>
-              التفضيلات محفوظة على حسابك في الخادم — تظهر نفسها على أي جهاز تسجّل دخوله.
-              كل مستخدم له تفضيلاته الخاصة المستقلّة.
-            </p>
+            <p>{t('menuSettings.info.line2')}</p>
           </div>
         </CardContent>
       </Card>

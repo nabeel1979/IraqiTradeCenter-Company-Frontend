@@ -2,10 +2,14 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
-import { Toaster, toast } from 'sonner';
 import App from './App';
 import './globals.css';
 import { registerSW } from 'virtual:pwa-register';
+// ‎تهيئة i18next قبل أي مكوّن يستخدم الترجمة (side-effect import).
+import './lib/i18n/config';
+import { LocalizedToaster } from './components/layout/LocalizedToaster';
+import { toast } from 'sonner';
+import i18n from './lib/i18n/config';
 
 // ════════════════════════════════════════════════════════════════════
 // PWA Service Worker registration + Aggressive update strategy
@@ -20,14 +24,14 @@ import { registerSW } from 'virtual:pwa-register';
 if (typeof window !== 'undefined') {
   const updateSW = registerSW({
     onNeedRefresh() {
-      toast.info('يتوفّر تحديث جديد', {
-        description: 'سيتم تحميل النسخة الأحدث الآن…',
+      toast.info(i18n.t('topbar.newRefresh'), {
+        description: i18n.t('topbar.refreshLoading'),
         duration: 4000,
       });
       setTimeout(() => updateSW(true), 1500);
     },
     onOfflineReady() {
-      toast.success('التطبيق جاهز للعمل بدون اتصال', { duration: 3000 });
+      toast.success(i18n.t('topbar.offlineReady'), { duration: 3000 });
     },
     onRegisteredSW(_url, registration) {
       if (!registration) return;
@@ -84,18 +88,7 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <App />
-        <Toaster
-          position="top-left"
-          theme="dark"
-          richColors
-          closeButton
-          toastOptions={{
-            style: {
-              fontFamily: '"IBM Plex Sans Arabic", sans-serif',
-              direction: 'rtl',
-            },
-          }}
-        />
+        <LocalizedToaster />
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>

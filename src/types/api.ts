@@ -222,10 +222,17 @@ export interface JournalEntryDto {
   voucherTypeId?: number | null;
   voucherTypeCode?: string | null;
   voucherTypeName?: string | null;
+  /** اسم نوع السند بالإنجليزية (إن وُجد) — للعرض في وضع اللغة الإنجليزية */
+  voucherTypeNameEn?: string | null;
   /** تسلسل خاص بنوع السند (يبدأ من 1 لكل نوع) */
   voucherSequence?: number | null;
   /** رقم السند المُهيّأ للعرض: "{Code}-{Sequence}" مثل "PV-1" */
   voucherNumber?: string | null;
+  /**
+   * رقم يدوي اختياري يدخله المستخدم (شيك، إيصال خارجي، …).
+   * مستقل عن رقم القيد الداخلي ورقم السند التلقائي، وقابل للبحث.
+   */
+  manualNumber?: string | null;
   /** مصدر القيد — يحدد إن كان مولّداً من نافذة أخرى */
   source?: JournalEntrySource;
   referenceType?: string | null;
@@ -237,7 +244,12 @@ export interface JournalEntryDto {
 export interface JournalLineDto {
   id: number;
   accountId: number;
+  /** اسم الحساب الموحَّد (للتوافق العكسي — عادةً = NameAr أو "Code - NameAr") */
   accountName?: string;
+  /** اسم الحساب بالعربية كما هو في القاعدة */
+  accountNameAr?: string | null;
+  /** اسم الحساب بالإنجليزية إن وُجد — للعرض في وضع اللغة الإنجليزية */
+  accountNameEn?: string | null;
   isDebit: boolean;
   amount: number;
   description?: string;
@@ -342,6 +354,7 @@ export interface AccountDto {
   id: number;
   code: string;
   nameAr: string;
+  nameEn?: string | null;
   type: number;
   nature: number;
   parentId?: number;
@@ -426,6 +439,42 @@ export interface TrialBalanceDto {
   netIncome: number;
 }
 
+// ── Account Balances (أرصدة الحسابات)
+export interface AccountBalanceRowDto {
+  accountId: number;
+  accountCode: string;
+  accountName: string;
+  accountType: string;
+  accountNature: string;
+  level: number;
+  isLeaf: boolean;
+  parentId?: number | null;
+  currency: string;
+  debitBalance: number;
+  creditBalance: number;
+  valuatedDebit: number;
+  valuatedCredit: number;
+}
+
+export interface AccountBalancesDto {
+  fromDate: string;
+  toDate: string;
+  filterCurrency?: string | null;
+  filterAccountId?: number | null;
+  valuated: boolean;
+  baseCurrency: string;
+  fxBulletinName?: string | null;
+  fxBulletinEffectiveAt?: string | null;
+  fxUsedFallback: boolean;
+  maxLevel?: number | null;
+  leavesOnly: boolean;
+  rows: AccountBalanceRowDto[];
+  totalDebit: number;
+  totalCredit: number;
+  totalValuatedDebit: number;
+  totalValuatedCredit: number;
+}
+
 // ── Account Statement (كشف الحساب)
 export interface AccountStatementRowDto {
   date: string;
@@ -457,6 +506,8 @@ export interface AccountStatementRowDto {
   voucherTypeCode?: string | null;
   /** التسلسل ضمن نوع السند */
   voucherSequence?: number | null;
+  /** الرقم اليدوي الذي يدخله المستخدم */
+  manualNumber?: string | null;
 }
 
 export interface AccountStatementDto {
@@ -520,6 +571,8 @@ export interface AccountingPeriodDto {
 export interface FiscalYearDto {
   id: number;
   name: string;
+  /** الاسم الإنجليزي الاختياري — يُعرض في واجهة اللغة الإنجليزية. */
+  nameEn?: string | null;
   startDate: string;
   endDate: string;
   isClosed: boolean;
@@ -532,6 +585,7 @@ export interface FiscalYearDto {
 export interface FiscalYearStatusDto {
   fiscalYearId: number;
   fiscalYearName: string;
+  fiscalYearNameEn?: string | null;
   startDate: string;
   endDate: string;
   isClosed: boolean;

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Search, Package, AlertTriangle, Filter } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -12,6 +13,7 @@ import { inventoryApi } from '@/lib/api/inventory';
 import { formatIQD } from '@/lib/utils';
 
 export function ItemsListPage() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [lowStockOnly, setLowStockOnly] = useState(false);
 
@@ -28,7 +30,7 @@ export function ItemsListPage() {
           <div className="relative flex-1 min-w-[260px]">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="ابحث برمز المادة، الباركود، أو الاسم..."
+              placeholder={t('items.searchPlaceholder')}
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="pr-10"
@@ -39,16 +41,16 @@ export function ItemsListPage() {
             onClick={() => setLowStockOnly(!lowStockOnly)}
           >
             <AlertTriangle className="h-4 w-4" />
-            مخزون منخفض فقط
+            {t('items.lowStockOnly')}
           </Button>
           <Button variant="outline">
             <Filter className="h-4 w-4" />
-            المزيد من الفلاتر
+            {t('common.filters')}
           </Button>
           <Link to="/inventory/new" className="mr-auto">
             <Button>
               <Plus className="h-4 w-4" />
-              مادة جديدة
+              {t('items.newItem')}
             </Button>
           </Link>
         </CardContent>
@@ -56,23 +58,23 @@ export function ItemsListPage() {
 
       {/* Results */}
       {isLoading ? (
-        <LoadingSpinner text="جاري تحميل المواد..." />
+        <LoadingSpinner text={t('items.loading')} />
       ) : error ? (
         <EmptyState
           icon={Package}
-          title="تعذّر تحميل المواد"
-          description="تأكد من اتصال الـ API على المنفذ 6000"
+          title={t('items.loadError')}
+          description={t('common.serverConnectionError')}
         />
       ) : !data?.items.length ? (
         <EmptyState
           icon={Package}
-          title="لا توجد مواد"
-          description="ابدأ بإضافة أول مادة لمخزون شركتك"
+          title={t('items.emptyTitle')}
+          description={t('items.emptyDescription')}
           action={
             <Link to="/inventory/new">
               <Button>
                 <Plus className="h-4 w-4" />
-                إضافة مادة
+                {t('items.addItem')}
               </Button>
             </Link>
           }
@@ -83,12 +85,12 @@ export function ItemsListPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th className="w-24">الرمز</th>
-                  <th>الاسم</th>
-                  <th className="text-left">سعر الشراء</th>
-                  <th className="text-left">سعر البيع</th>
-                  <th className="text-left">المخزون</th>
-                  <th>الحالة</th>
+                  <th className="w-24">{t('items.colCode')}</th>
+                  <th>{t('items.colName')}</th>
+                  <th className="text-left">{t('items.colPurchasePrice')}</th>
+                  <th className="text-left">{t('items.colSalesPrice')}</th>
+                  <th className="text-left">{t('items.colStock')}</th>
+                  <th>{t('common.status')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,11 +122,11 @@ export function ItemsListPage() {
                     </td>
                     <td>
                       {!item.isAvailableForSale ? (
-                        <Badge variant="muted">معطّل</Badge>
+                        <Badge variant="muted">{t('items.statusDisabled')}</Badge>
                       ) : item.isLowStock ? (
-                        <Badge variant="warning">منخفض</Badge>
+                        <Badge variant="warning">{t('items.statusLow')}</Badge>
                       ) : (
-                        <Badge variant="success">متوفر</Badge>
+                        <Badge variant="success">{t('items.statusAvailable')}</Badge>
                       )}
                     </td>
                   </tr>
@@ -135,8 +137,8 @@ export function ItemsListPage() {
 
           {/* Footer */}
           <div className="flex items-center justify-between border-t border-border/40 px-6 py-3 text-xs text-muted-foreground">
-            <span>عرض {data.items.length} من {data.totalCount}</span>
-            <span>صفحة {data.pageNumber} من {data.totalPages}</span>
+            <span>{t('items.showing', { count: data.items.length, total: data.totalCount })}</span>
+            <span>{t('items.page', { page: data.pageNumber, total: data.totalPages })}</span>
           </div>
         </Card>
       )}

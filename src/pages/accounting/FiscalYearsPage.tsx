@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -32,10 +33,53 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { accountingApi } from '@/lib/api/accounting';
+import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { formatDate, formatIQD, cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { FiscalYearDto, AccountingPeriodStatus, FiscalYearValidationDto, AccountDto } from '@/types/api';
+import { useLocale, localizedName, localizedEntryDescription } from '@/lib/i18n';
+
+/**
+ * يترجم رسائل التحقق المُرجَعة من الخادم (إنّها بالعربية حالياً) إلى الإنجليزية
+ * بالاعتماد على مطابقة الأنماط — حتى لا نضطر لتعديل عقود الـ API.
+ *
+ * المطابقة:
+ *   - "السنة المالية غير موجودة"                  → Fiscal year not found
+ *   - "السنة المالية مغلقة بالفعل"                 → Fiscal year is already closed
+ *   - "يوجد N قيد غير مرحَّل (مسودة)"              → There are N unposted (draft) entries
+ *   - "القيود المرحَّلة غير متوازنة (فرق: X.XX)"   → Posted entries are not balanced (difference: X.XX)
+ *
+ * إذا لم يتطابق أي نمط، يُعاد النص كما هو.
+ */
+function translateValidationIssue(
+  locale: 'ar' | 'en',
+  raw: string,
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
+  if (locale !== 'en') return raw;
+  const s = (raw ?? '').trim();
+  if (!s) return raw;
+
+  if (s.includes('السنة المالية غير موجودة')) return t('fiscalYears.issues.notFound');
+  if (s.includes('السنة المالية مغلقة بالفعل')) return t('fiscalYears.issues.alreadyClosed');
+
+  // ‎"يوجد N قيد غير مرحَّل (مسودة)" — استخراج العدد
+  const draftMatch = /^\s*يوجد\s+(\d+)\s+قيد\s+غير\s+مرحَّل/.exec(s)
+    ?? /^\s*يوجد\s+(\d+)\s+قيد\s+غير\s+مرحل/.exec(s);
+  if (draftMatch) {
+    const count = Number(draftMatch[1]) || 0;
+    return t('fiscalYears.issues.unpostedDrafts', { count });
+  }
+
+  // ‎"القيود المرحَّلة غير متوازنة (فرق: 1,234.56)"
+  const unbalancedMatch = /غير\s+متوازنة[^()]*\(\s*فرق[^:]*:\s*([\d.,\-]+)\s*\)/.exec(s);
+  if (unbalancedMatch) {
+    return t('fiscalYears.issues.unbalanced', { diff: unbalancedMatch[1] });
+  }
+
+  return raw;
+}
 
 /** يحول شجرة الحسابات إلى قائمة مسطحة بالحسابات التفصيلية فقط */
 function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
@@ -50,11 +94,7 @@ function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
   return out;
 }
 
-const PERIOD_STATUS_LABEL: Record<AccountingPeriodStatus, string> = {
-  1: 'مفتوحة',
-  2: 'مغلقة',
-  3: 'مقفلة',
-};
+// Labels resolved via t() at render time — see usePeriodStatusLabel below
 
 const PERIOD_STATUS_CLASS: Record<AccountingPeriodStatus, string> = {
   1: 'bg-success/10 text-success',
@@ -63,6 +103,8 @@ const PERIOD_STATUS_CLASS: Record<AccountingPeriodStatus, string> = {
 };
 
 export function FiscalYearsPage() {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -153,13 +195,13 @@ export function FiscalYearsPage() {
     mutationFn: (id: number) => fiscalYearsApi.activate(id),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم اعتماد السنة المالية كنشطة');
+        toast.success(t('fiscalYears.card.activeBadge'));
         qc.invalidateQueries({ queryKey: ['fiscal-years'] });
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشل التفعيل');
+        toast.error(res.errors?.[0] ?? res.message ?? t('common.saveFailed', { defaultValue: 'Failed' }));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشل التفعيل'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('common.saveFailed', { defaultValue: 'Failed' })),
   });
 
   return (
@@ -167,29 +209,29 @@ export function FiscalYearsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">
-            الفترات المحاسبية
+            {t('fiscalYears.title')}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            إدارة السنوات المالية وإغلاقها وتدوير الأرصدة
+            {t('fiscalYears.subtitle')}
           </p>
         </div>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="h-4 w-4" />
-          سنة مالية جديدة
+          {t('fiscalYears.newFY')}
         </Button>
       </div>
 
       {isLoading ? (
-        <LoadingSpinner text="جاري تحميل السنوات المالية..." />
+        <LoadingSpinner text={t('fiscalYears.loading')} />
       ) : (years?.length ?? 0) === 0 ? (
         <EmptyState
           icon={CalendarRange}
-          title="لا توجد سنوات مالية"
-          description="ابدأ بإنشاء سنة مالية جديدة"
+          title={t('fiscalYears.empty.title')}
+          description={t('fiscalYears.empty.description')}
           action={
             <Button onClick={() => setShowCreate(true)}>
               <Plus className="h-4 w-4" />
-              إنشاء سنة مالية
+              {t('fiscalYears.createModal.title')}
             </Button>
           }
         />
@@ -198,7 +240,7 @@ export function FiscalYearsPage() {
           {/* قائمة السنوات */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">السنوات المالية</CardTitle>
+              <CardTitle className="text-sm">{t('fiscalYears.card.title')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1.5 p-2">
               {years!.map(y => (
@@ -218,20 +260,20 @@ export function FiscalYearsPage() {
                       {y.isActive && (
                         <Star
                           className="h-3.5 w-3.5 shrink-0 fill-primary text-primary"
-                          aria-label="نشطة"
+                          aria-label={t('fiscalYears.card.activeBadge')}
                         />
                       )}
-                      {y.name}
+                      {localizedName(locale, y.name, y.nameEn)}
                     </span>
                     {y.isClosed ? (
                       <Badge variant="outline" className="gap-1 border-destructive/30 bg-destructive/10 text-destructive">
                         <Lock className="h-3 w-3" />
-                        مغلقة
+                        {t('periodStatus.locked', { defaultValue: 'Locked' })}
                       </Badge>
                     ) : (
                       <Badge variant="outline" className="gap-1 border-success/30 bg-success/10 text-success">
                         <CheckCircle2 className="h-3 w-3" />
-                        مفتوحة
+                        {t('periodStatus.open', { defaultValue: 'Open' })}
                       </Badge>
                     )}
                   </div>
@@ -241,7 +283,7 @@ export function FiscalYearsPage() {
                     </span>
                     {y.isActive && (
                       <span className="rounded-full border border-primary/40 bg-primary/10 px-1.5 py-px text-[9px] font-medium text-primary">
-                        نشطة
+                        {t('fiscalYears.card.activeBadge')}
                       </span>
                     )}
                   </div>
@@ -255,21 +297,21 @@ export function FiscalYearsPage() {
             <div className="space-y-4">
               {/* بطاقات الحالة */}
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <StatBox label="الفترات المفتوحة" value={status?.openPeriods ?? 0} tone="success" />
-                <StatBox label="الفترات المغلقة" value={status?.closedPeriods ?? 0} tone="warning" />
-                <StatBox label="الفترات المقفلة" value={status?.lockedPeriods ?? 0} tone="destructive" />
-                <StatBox label="القيود غير المرحَّلة" value={status?.draftEntries ?? 0} tone="muted" />
+                <StatBox label={t('fiscalYears.card.stats.openPeriods')} value={status?.openPeriods ?? 0} tone="success" />
+                <StatBox label={t('fiscalYears.card.stats.closedPeriods')} value={status?.closedPeriods ?? 0} tone="warning" />
+                <StatBox label={t('fiscalYears.card.stats.lockedPeriods')} value={status?.lockedPeriods ?? 0} tone="destructive" />
+                <StatBox label={t('fiscalYears.card.stats.draftEntries')} value={status?.draftEntries ?? 0} tone="muted" />
               </div>
 
               {/* ملخص + أزرار العمليات */}
               <Card>
                 <CardHeader>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <CardTitle className="text-base">{selected.name}</CardTitle>
+                    <CardTitle className="text-base">{localizedName(locale, selected.name, selected.nameEn)}</CardTitle>
                     <div className="flex flex-wrap gap-2">
                       <Button variant="outline" size="sm" onClick={() => refetchValidation()}>
                         <Eye className="h-4 w-4" />
-                        فحص
+                        {t('fiscalYears.detail.check')}
                       </Button>
                       <Button
                         size="sm"
@@ -283,26 +325,26 @@ export function FiscalYearsPage() {
                         )}
                         title={
                           selected.isClosed
-                            ? 'لا يمكن تفعيل سنة مغلقة'
+                            ? t('fiscalYears.detail.cannotActivateClosed')
                             : selected.isActive
-                            ? 'هذه السنة هي السنة المالية النشطة حالياً'
-                            : 'اعتمد هذه السنة في التقارير الافتراضية'
+                            ? t('fiscalYears.detail.alreadyActive')
+                            : t('fiscalYears.detail.activateTip')
                         }
                       >
                         <Star
                           className={cn('h-4 w-4', selected.isActive && 'fill-current')}
                         />
-                        {selected.isActive ? 'نشطة' : 'تفعيل'}
+                        {selected.isActive ? t('fiscalYears.card.activeBadge') : t('fiscalYears.detail.activate')}
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={selected.isClosed}
                         onClick={() => setShowEdit(true)}
-                        title={selected.isClosed ? 'لا يمكن تعديل سنة مغلقة' : 'تعديل الاسم والتواريخ'}
+                        title={selected.isClosed ? t('fiscalYears.detail.cannotEditClosed') : t('fiscalYears.detail.editTip')}
                       >
                         <Pencil className="h-4 w-4" />
-                        تعديل
+                        {t('common.edit')}
                       </Button>
                       <Button
                         size="sm"
@@ -310,11 +352,11 @@ export function FiscalYearsPage() {
                         disabled={selected.isClosed}
                         onClick={() => setShowResync(true)}
                         title={selected.isClosed
-                          ? 'لا يمكن إعادة المزامنة لسنة مغلقة'
-                          : 'إعادة مزامنة الفترات الشهرية لتطابق تواريخ السنة (تحذف الفترات الخارجة عن النطاق)'}
+                          ? t('fiscalYears.detail.cannotResyncClosed')
+                          : t('fiscalYears.detail.resyncTip')}
                       >
                         <RefreshCw className="h-4 w-4" />
-                        مزامنة الفترات
+                        {t('fiscalYears.detail.resync')}
                       </Button>
                       <Button
                         size="sm"
@@ -322,10 +364,10 @@ export function FiscalYearsPage() {
                         disabled={selected.isClosed}
                         onClick={() => setShowDelete(true)}
                         className="border-destructive/40 text-destructive hover:bg-destructive/10"
-                        title={selected.isClosed ? 'لا يمكن حذف سنة مغلقة' : 'حذف السنة المالية'}
+                        title={selected.isClosed ? t('fiscalYears.detail.cannotDeleteClosed') : t('fiscalYears.detail.deleteTip')}
                       >
                         <Trash2 className="h-4 w-4" />
-                        حذف
+                        {t('common.delete')}
                       </Button>
                       {selected.isClosed ? (
                         <Button
@@ -333,10 +375,10 @@ export function FiscalYearsPage() {
                           variant="outline"
                           onClick={() => setShowReopen(true)}
                           className="border-warning/40 text-warning hover:bg-warning/10"
-                          title="فك إغلاق السنة المالية وإعادة فتح فتراتها للتعديل"
+                          title={t('fiscalYears.detail.reopenTip')}
                         >
                           <LockOpen className="h-4 w-4" />
-                          فك الإغلاق
+                          {t('fiscalYears.detail.reopen')}
                         </Button>
                       ) : (
                         <Button
@@ -345,7 +387,7 @@ export function FiscalYearsPage() {
                           onClick={() => setShowClose(true)}
                         >
                           <Lock className="h-4 w-4" />
-                          إغلاق السنة
+                          {t('fiscalYears.detail.close')}
                         </Button>
                       )}
                       <Button
@@ -354,28 +396,28 @@ export function FiscalYearsPage() {
                         onClick={() => setShowRollover(true)}
                         disabled={!selected.isClosed}
                         title={selected.isClosed
-                          ? 'تدوير أرصدة الميزانية إلى السنة التالية'
-                          : 'يجب إغلاق السنة المالية أولاً قبل التدوير'}
+                          ? t('fiscalYears.detail.rolloverTip')
+                          : t('fiscalYears.detail.rolloverRequiresClosed')}
                       >
                         <Repeat className="h-4 w-4" />
-                        تدوير الأرصدة
+                        {t('fiscalYears.detail.rollover')}
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-3 md:grid-cols-4 text-sm">
-                    <KV k="من" v={formatDate(selected.startDate)} />
-                    <KV k="إلى" v={formatDate(selected.endDate)} />
-                    <KV k="إجمالي المدين" v={formatIQD(status?.totalDebits)} />
-                    <KV k="إجمالي الدائن" v={formatIQD(status?.totalCredits)} />
+                    <KV k={t('common.from')} v={formatDate(selected.startDate)} />
+                    <KV k={t('common.to')} v={formatDate(selected.endDate)} />
+                    <KV k={t('fiscalYears.detail.totalDebits')} v={formatIQD(status?.totalDebits)} />
+                    <KV k={t('fiscalYears.detail.totalCredits')} v={formatIQD(status?.totalCredits)} />
                   </div>
 
                   <Separator />
 
                   {/* نتيجة الفحص */}
                   {validating ? (
-                    <div className="text-xs text-muted-foreground">جاري الفحص...</div>
+                    <div className="text-xs text-muted-foreground">{t('fiscalYears.detail.checking')}</div>
                   ) : validation && (
                     <div
                       className={cn(
@@ -392,12 +434,14 @@ export function FiscalYearsPage() {
                           <AlertTriangle className="h-4 w-4" />
                         )}
                         {validation.canClose
-                          ? 'السنة جاهزة للإغلاق'
-                          : 'لا يمكن الإغلاق - راجع المشاكل التالية:'}
+                          ? t('fiscalYears.detail.readyToClose')
+                          : t('fiscalYears.detail.cannotClose')}
                       </div>
                       {validation.issues.length > 0 && (
                         <ul className="mt-2 list-inside list-disc text-xs">
-                          {validation.issues.map((iss, i) => <li key={i}>{iss}</li>)}
+                          {validation.issues.map((iss, i) => (
+                            <li key={i}>{translateValidationIssue(locale, iss, t)}</li>
+                          ))}
                         </ul>
                       )}
                       {validation.draftEntriesList && validation.draftEntriesList.length > 0 && (
@@ -412,7 +456,7 @@ export function FiscalYearsPage() {
               <Card>
                 <CardHeader>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <CardTitle className="text-base">الفترات الشهرية ({selected.periods.length})</CardTitle>
+                    <CardTitle className="text-base">{t('fiscalYears.detail.periodsTitle', { count: selected.periods.length })}</CardTitle>
                     <div className="flex items-center gap-2">
                       {!selected.isClosed && (
                         <Button
@@ -420,15 +464,15 @@ export function FiscalYearsPage() {
                           variant="outline"
                           onClick={() => setShowBulk(true)}
                           className="gap-1.5"
-                          title="إغلاق/فتح كل الفترات حتى/من تاريخ معيّن بضغطة واحدة"
+                          title={t('fiscalYears.detail.bulkTip')}
                         >
                           <CalendarRange className="h-3.5 w-3.5" />
-                          إغلاق/فتح بالجملة
+                          {t('fiscalYears.detail.bulk')}
                         </Button>
                       )}
                       {selected.isClosed && (
                         <span className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-0.5 text-[11px] text-warning">
-                          السنة مغلقة — فك الإغلاق أولاً للتعديل
+                          {t('fiscalYears.detail.closedNote')}
                         </span>
                       )}
                     </div>
@@ -438,11 +482,11 @@ export function FiscalYearsPage() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th className="w-16">رقم</th>
-                        <th>من</th>
-                        <th>إلى</th>
-                        <th>الحالة</th>
-                        <th className="w-44 text-center">عمليات</th>
+                        <th className="w-16">{t('fiscalYears.detail.colNum')}</th>
+                        <th>{t('common.from')}</th>
+                        <th>{t('common.to')}</th>
+                        <th>{t('common.status')}</th>
+                        <th className="w-44 text-center">{t('common.actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -616,6 +660,7 @@ function PeriodRow({
   onDelete: () => void;
   onStatusChanged: () => void;
 }) {
+  const { t } = useTranslation();
   // ‎التعديل والحذف يتطلبان السنة مفتوحة + الفترة مفتوحة. تغيير الحالة
   // ‎يتطلب فقط السنة مفتوحة (الفترات تستطيع التحوّل بين Open/Closed/Locked
   // ‎حتى لو وُجدت فيها قيود — هذا فقط يتحكم بإمكانية إضافة/تعديل قيود لاحقة).
@@ -627,13 +672,13 @@ function PeriodRow({
     mutationFn: (status: 1 | 2 | 3) => fiscalYearsApi.setPeriodStatus(period.id, status),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم تحديث حالة الفترة');
+        toast.success(t('fiscalYears.period.statusUpdated'));
         onStatusChanged();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشلت العملية');
+        toast.error(res.errors?.[0] ?? res.message ?? t('common.error'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشلت العملية'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('common.error')),
   });
 
   return (
@@ -646,7 +691,7 @@ function PeriodRow({
           'rounded-full px-2.5 py-0.5 text-xs',
           PERIOD_STATUS_CLASS[period.status]
         )}>
-          {PERIOD_STATUS_LABEL[period.status] ?? period.statusText}
+          {period.status === 1 ? t('periodStatus.open', { defaultValue: 'Open' }) : period.status === 2 ? t('periodStatus.closed', { defaultValue: 'Closed' }) : t('periodStatus.locked', { defaultValue: 'Locked' })}
         </span>
       </td>
       <td>
@@ -658,7 +703,7 @@ function PeriodRow({
               onClick={() => setStatus.mutate(1)}
               disabled={!canModify || setStatus.isPending}
               className="rounded p-1 text-success hover:bg-success/15 disabled:cursor-not-allowed disabled:opacity-30"
-              title={canModify ? 'فتح الفترة' : 'فك إغلاق السنة أولاً'}
+              title={canModify ? t('fiscalYears.period.open') : t('fiscalYears.period.unlockFirst')}
             >
               <LockOpen className="h-3.5 w-3.5" />
             </button>
@@ -670,7 +715,7 @@ function PeriodRow({
               onClick={() => setStatus.mutate(2)}
               disabled={!canModify || setStatus.isPending}
               className="rounded p-1 text-warning hover:bg-warning/15 disabled:cursor-not-allowed disabled:opacity-30"
-              title={canModify ? 'إغلاق الفترة (يمنع إنشاء/تعديل قيود فيها)' : 'السنة مغلقة'}
+              title={canModify ? t('fiscalYears.period.close') : t('fiscalYears.period.fyClosed')}
             >
               <Lock className="h-3.5 w-3.5" />
             </button>
@@ -682,9 +727,9 @@ function PeriodRow({
             disabled={!canModify || isLocked}
             className="rounded p-1 text-blue-400 hover:bg-blue-500/15 disabled:cursor-not-allowed disabled:opacity-30"
             title={
-              !canModify ? 'فك إغلاق السنة أولاً'
-                : isLocked ? 'الفترة مقفلة — افتحها أولاً'
-                : 'تعديل تواريخ الفترة (إذا لم تحوي قيوداً تتجاوز النطاق الجديد)'
+              !canModify ? t('fiscalYears.period.unlockFirst')
+                : isLocked ? t('fiscalYears.period.lockedUnlockFirst')
+                : t('fiscalYears.period.editTip')
             }
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -696,9 +741,9 @@ function PeriodRow({
             disabled={!canModify || isLocked}
             className="rounded p-1 text-destructive hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-30"
             title={
-              !canModify ? 'فك إغلاق السنة أولاً'
-                : isLocked ? 'الفترة مقفلة — افتحها أولاً'
-                : 'حذف الفترة (يُرفض إذا حوت قيوداً)'
+              !canModify ? t('fiscalYears.period.unlockFirst')
+                : isLocked ? t('fiscalYears.period.lockedUnlockFirst')
+                : t('fiscalYears.period.deleteTip')
             }
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -711,12 +756,27 @@ function PeriodRow({
 
 /** قائمة القيود غير المرحَّلة مع روابط لفتح كل قيد ومعالجته (ترحيل/حذف). */
 function DraftEntriesList({ entries }: { entries: NonNullable<FiscalYearValidationDto['draftEntriesList']> }) {
-  // يفتح القيد في صفحة التعديل — حيث يمكن للمستخدم ترحيله أو حذفه.
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const linkFor = (id: number) => `/accounting/journal/${id}/edit`;
+
+  // ‎الصناديق — كي نقدر نترجم وصف القيد المُنشأ تلقائياً (سند قبض — صندوق X).
+  const cashBoxesQuery = useQuery({
+    queryKey: ['cash-boxes', 'all-for-translation'],
+    queryFn: () => cashBoxesApi.getAll(false),
+    staleTime: 5 * 60 * 1000,
+    enabled: locale === 'en',
+  });
+  const descCtx: Record<string, string> = {};
+  for (const cb of cashBoxesQuery.data ?? []) {
+    const ar = (cb.nameAr ?? '').trim();
+    const en = (cb.nameEn ?? '').trim();
+    if (ar && en) descCtx[ar] = en;
+  }
   return (
     <div className="mt-3 rounded-md border border-destructive/20 bg-background/60 p-2.5">
       <div className="mb-1.5 text-xs font-semibold text-foreground/90">
-        القيود غير المرحَّلة (افتح كل قيد لترحيله أو حذفه):
+        {t('fiscalYears.detail.draftEntriesTitle')}
       </div>
       <ul className="space-y-1.5">
         {entries.map(e => {
@@ -733,16 +793,16 @@ function DraftEntriesList({ entries }: { entries: NonNullable<FiscalYearValidati
                 <span className="text-muted-foreground">·</span>
                 <span className="text-muted-foreground">{formatDate(e.entryDate)}</span>
                 <span className="truncate text-muted-foreground/80" title={e.description}>
-                  {e.description}
+                  {localizedEntryDescription(locale, e.description, descCtx)}
                 </span>
               </div>
               <Link
                 to={linkFor(e.id)}
                 className="shrink-0 inline-flex items-center gap-1 rounded border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent/40"
-                title="فتح القيد"
+                title={t('fiscalYears.detail.openEntry')}
               >
                 <ExternalLink className="h-3 w-3" />
-                فتح
+                {t('fiscalYears.detail.open')}
               </Link>
             </li>
           );
@@ -784,9 +844,9 @@ function Modal({
   title: string;
   onClose: () => void;
   children: React.ReactNode;
-  /** حجم الـ modal: 'md' (افتراضي) | 'lg' للنوافذ الأوسع | 'xl' للأكبر. */
   size?: 'md' | 'lg' | 'xl';
 }) {
+  const { t } = useTranslation();
   const sizeCls =
     size === 'xl' ? 'max-w-2xl' :
     size === 'lg' ? 'max-w-xl' :
@@ -799,7 +859,7 @@ function Modal({
           <button
             onClick={onClose}
             className="rounded-md p-1 text-muted-foreground hover:bg-accent/40"
-            aria-label="إغلاق"
+            aria-label={t('common.close')}
           >
             <X className="h-4 w-4" />
           </button>
@@ -811,52 +871,60 @@ function Modal({
 }
 
 function CreateFiscalYearModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const { t } = useTranslation();
   const now = new Date();
   const year = now.getFullYear() + 1;
-  const [name, setName] = useState(`السنة المالية ${year}`);
+  const [name, setName] = useState(`${t('fiscalYears.createModal.defaultName')} ${year}`);
+  const [nameEn, setNameEn] = useState(`Fiscal Year ${year}`);
   const [startDate, setStartDate] = useState(`${year}-01-01`);
   const [endDate, setEndDate] = useState(`${year}-12-31`);
 
   const m = useMutation({
-    mutationFn: () => fiscalYearsApi.create({ name, startDate, endDate }),
+    mutationFn: () => fiscalYearsApi.create({ name, nameEn: nameEn || null, startDate, endDate }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم إنشاء السنة المالية');
+        toast.success(t('fiscalYears.createModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? 'فشل الإنشاء');
+        toast.error(res.errors?.[0] ?? t('fiscalYears.createModal.failed'));
       }
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message ?? 'فشل الإنشاء');
+      toast.error(e?.response?.data?.message ?? t('fiscalYears.createModal.failed'));
     },
   });
 
   return (
-    <Modal title="إنشاء سنة مالية جديدة" onClose={onClose}>
+    <Modal title={t('fiscalYears.createModal.title')} onClose={onClose}>
       <div className="space-y-3">
-        <div>
-          <Label className="mb-1.5 block text-xs">الاسم</Label>
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="السنة المالية 2027" />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="mb-1.5 block text-xs">{t('fiscalYears.createModal.name')}</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder={t('fiscalYears.createModal.namePlaceholder')} dir="rtl" />
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-xs">{t('fiscalYears.createModal.nameEn')}</Label>
+            <Input value={nameEn} onChange={e => setNameEn(e.target.value)} placeholder={t('fiscalYears.createModal.nameEnPlaceholder')} dir="ltr" />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="mb-1.5 flex items-center gap-1 text-xs">
-              <Calendar className="h-3 w-3" /> من
+              <Calendar className="h-3 w-3" /> {t('common.from')}
             </Label>
             <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
           </div>
           <div>
             <Label className="mb-1.5 flex items-center gap-1 text-xs">
-              <Calendar className="h-3 w-3" /> إلى
+              <Calendar className="h-3 w-3" /> {t('common.to')}
             </Label>
             <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-3">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button onClick={() => m.mutate()} disabled={m.isPending}>
-            {m.isPending ? 'جاري الإنشاء...' : 'إنشاء'}
+            {m.isPending ? t('fiscalYears.createModal.creating') : t('common.create')}
           </Button>
         </div>
       </div>
@@ -873,40 +941,44 @@ function CloseFiscalYearModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const [forceClose, setForceClose] = useState(false);
   const m = useMutation({
     mutationFn: () => fiscalYearsApi.close(fy.id, { forceClose }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم إغلاق السنة المالية');
+        toast.success(t('fiscalYears.closeModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? 'فشل الإغلاق');
+        toast.error(res.errors?.[0] ?? t('fiscalYears.closeModal.failed'));
       }
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message ?? 'فشل الإغلاق');
+      toast.error(e?.response?.data?.message ?? t('fiscalYears.closeModal.failed'));
     },
   });
 
   return (
-    <Modal title={`إغلاق ${fy.name}`} onClose={onClose}>
+    <Modal title={t('fiscalYears.closeModal.title', { year: (fy.startDate ?? '').slice(0, 4) || fy.name })} onClose={onClose}>
       <div className="space-y-4">
         <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">
           <div className="flex items-center gap-2 font-medium text-warning">
             <AlertTriangle className="h-4 w-4" />
-            تحذير
+            {t('common.warning')}
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
-            إغلاق السنة المالية يحوّل جميع فتراتها إلى حالة "مقفلة" ولا يمكن تعديل القيود فيها بعد ذلك.
+            {t('fiscalYears.closeModal.warning')}
           </p>
         </div>
 
         {!canClose && issues.length > 0 && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
-            <div className="font-medium text-destructive">المشاكل المكتشفة:</div>
+            <div className="font-medium text-destructive">{t('fiscalYears.closeModal.issues')}</div>
             <ul className="mt-1.5 list-inside list-disc text-xs text-destructive/80">
-              {issues.map((i, idx) => <li key={idx}>{i}</li>)}
+              {issues.map((i, idx) => (
+                <li key={idx}>{translateValidationIssue(locale, i, t)}</li>
+              ))}
             </ul>
             <label className="mt-3 flex items-center gap-2 text-xs">
               <input
@@ -915,19 +987,19 @@ function CloseFiscalYearModal({
                 onChange={e => setForceClose(e.target.checked)}
                 className="rounded"
               />
-              <span>إغلاق قسري (لا يُنصح به)</span>
+              <span>{t('fiscalYears.closeModal.forceClose')}</span>
             </label>
           </div>
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             variant="default"
             onClick={() => m.mutate()}
             disabled={m.isPending || (!canClose && !forceClose)}
           >
-            {m.isPending ? 'جاري الإغلاق...' : 'تأكيد الإغلاق'}
+            {m.isPending ? t('fiscalYears.closeModal.closing') : t('fiscalYears.closeModal.confirm')}
           </Button>
         </div>
       </div>
@@ -943,6 +1015,8 @@ function RolloverModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const qc = useQueryClient();
   const candidates = years.filter(y => y.id !== source.id && new Date(y.startDate) > new Date(source.endDate));
   const [targetId, setTargetId] = useState<number | null>(candidates[0]?.id ?? null);
@@ -981,13 +1055,13 @@ function RolloverModal({
     }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success(res.data?.message ?? 'تم التدوير');
+        toast.success(res.data?.message ?? t('fiscalYears.rolloverModal.success'));
         if (!previewOnly) onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشل التدوير');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.rolloverModal.failed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشل التدوير'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.rolloverModal.failed')),
   });
 
   const undoM = useMutation({
@@ -997,41 +1071,41 @@ function RolloverModal({
     }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success(res.data?.message ?? 'تم التراجع عن التدوير');
+        toast.success(res.data?.message ?? t('fiscalYears.rolloverModal.undoSuccess'));
         qc.invalidateQueries({ queryKey: ['fiscal-years'] });
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشل التراجع');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.rolloverModal.undoFailed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشل التراجع'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.rolloverModal.undoFailed')),
   });
 
   return (
-    <Modal title="تدوير الأرصدة" onClose={onClose} size="lg">
+    <Modal title={t('fiscalYears.rolloverModal.title')} onClose={onClose} size="lg">
       <div className="space-y-4 text-sm">
         {!source.isClosed && (
           <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
             <div className="flex items-center gap-1.5 font-medium">
               <AlertTriangle className="h-4 w-4" />
-              السنة المصدر مفتوحة — يجب إغلاقها أولاً
+              {t('fiscalYears.rolloverModal.sourceOpen')}
             </div>
             <p className="mt-1">
-              لضمان ثبات الأرصدة، يجب إغلاق السنة المالية المصدر قبل تدوير أرصدتها.
+              {t('fiscalYears.rolloverModal.sourceOpenNote')}
             </p>
           </div>
         )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label className="mb-1.5 block text-xs">من السنة</Label>
+            <Label className="mb-1.5 block text-xs">{t('fiscalYears.rolloverModal.fromFY')}</Label>
             <Input value={source.name} disabled />
           </div>
           <div>
-            <Label className="mb-1.5 block text-xs">إلى السنة</Label>
+            <Label className="mb-1.5 block text-xs">{t('fiscalYears.rolloverModal.toFY')}</Label>
             {candidates.length === 0 ? (
               <div className="rounded-md border border-warning/30 bg-warning/5 px-2 py-1.5 text-[11px] text-warning">
-                لا توجد سنة مالية لاحقة. أنشئ سنة جديدة أولاً.
+                {t('fiscalYears.rolloverModal.noNextFY')}
               </div>
             ) : (
               <select
@@ -1040,16 +1114,15 @@ function RolloverModal({
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
               >
                 {candidates.map(y => (
-                  <option key={y.id} value={y.id}>{y.name}</option>
+                  <option key={y.id} value={y.id}>{localizedName(locale, y.name, y.nameEn)}</option>
                 ))}
               </select>
             )}
           </div>
         </div>
 
-        {/* اختيار نمط التدوير - 3 بطاقات */}
         <div className="space-y-2">
-          <Label className="text-xs">نمط التدوير</Label>
+          <Label className="text-xs">{t('fiscalYears.rolloverModal.mode')}</Label>
           <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
@@ -1061,11 +1134,9 @@ function RolloverModal({
             >
               <Lock className="mt-0.5 h-4 w-4 shrink-0" />
               <div className="flex-1">
-                <div className="font-medium">1) إقفال مع الربح/الخسارة</div>
+                <div className="font-medium">{t('fiscalYears.rolloverModal.mode1Title')}</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  يدوّر حسابات الميزانية (أصول + خصوم + حقوق الملكية) ويحسب صافي
-                  الربح/الخسارة من الإيرادات والمصاريف، ثم يرحّله إلى حساب الربح
-                  أو الخسارة بحسب الإشارة.
+                  {t('fiscalYears.rolloverModal.mode1Desc')}
                 </div>
               </div>
             </button>
@@ -1079,10 +1150,9 @@ function RolloverModal({
             >
               <Repeat className="mt-0.5 h-4 w-4 shrink-0" />
               <div className="flex-1">
-                <div className="font-medium">2) ميزانية فقط بدون تغيير</div>
+                <div className="font-medium">{t('fiscalYears.rolloverModal.mode2Title')}</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  ينقل أرصدة الميزانية فقط (أصول + خصوم + حقوق الملكية) كما هي،
-                  دون احتساب الربح/الخسارة ودون مساس بالإيرادات والمصاريف.
+                  {t('fiscalYears.rolloverModal.mode2Desc')}
                 </div>
               </div>
             </button>
@@ -1096,71 +1166,67 @@ function RolloverModal({
             >
               <Repeat className="mt-0.5 h-4 w-4 shrink-0" />
               <div className="flex-1">
-                <div className="font-medium">3) ترحيل كامل (شامل الإيرادات والمصاريف)</div>
+                <div className="font-medium">{t('fiscalYears.rolloverModal.mode3Title')}</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  يدوّر <span className="font-medium">كل</span> الحسابات الأربعة (أصول/خصوم/حقوق
-                  ملكية/إيرادات/مصاريف) كأرصدة افتتاحية في السنة الجديدة.
-                  يحفظ الأرصدة كما هي بدون إقفال نتيجة.
+                  {t('fiscalYears.rolloverModal.mode3Desc')}
                 </div>
               </div>
             </button>
           </div>
         </div>
 
-        {/* حسابات الأرباح والخسائر — تظهر فقط في mode=1 */}
         {mode === 1 && (
           <div className="space-y-3 rounded-md border bg-muted/30 p-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <Label className="mb-1.5 flex items-center gap-1 text-xs">
                   <TrendingUp className="h-3 w-3 text-success" />
-                  حساب الأرباح
-                  <span className="text-[10px] text-muted-foreground">(يُسجَّل دائناً)</span>
+                  {t('fiscalYears.rolloverModal.profitAccount')}
+                  <span className="text-[10px] text-muted-foreground">({t('fiscalYears.rolloverModal.credit')})</span>
                 </Label>
                 <AccountPicker
                   accounts={leafAccounts}
                   value={profitAccountId}
                   onChange={(id) => setProfitAccountId(id)}
-                  placeholder="ابحث برقم أو اسم الحساب..."
+                  placeholder={t('fiscalYears.rolloverModal.accountSearchPlaceholder')}
                   allowClear
                 />
                 {profitCode && (
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    الكود: <span className="num-display">{profitCode}</span>
+                    {t('common.code')}: <span className="num-display">{profitCode}</span>
                   </div>
                 )}
               </div>
               <div>
                 <Label className="mb-1.5 flex items-center gap-1 text-xs">
                   <TrendingDown className="h-3 w-3 text-destructive" />
-                  حساب الخسائر
-                  <span className="text-[10px] text-muted-foreground">(يُسجَّل مديناً)</span>
+                  {t('fiscalYears.rolloverModal.lossAccount')}
+                  <span className="text-[10px] text-muted-foreground">({t('fiscalYears.rolloverModal.debit')})</span>
                 </Label>
                 <AccountPicker
                   accounts={leafAccounts}
                   value={lossAccountId}
                   onChange={(id) => setLossAccountId(id)}
-                  placeholder="ابحث برقم أو اسم الحساب..."
+                  placeholder={t('fiscalYears.rolloverModal.accountSearchPlaceholder')}
                   allowClear
                 />
                 {lossCode && (
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    الكود: <span className="num-display">{lossCode}</span>
+                    {t('common.code')}: <span className="num-display">{lossCode}</span>
                   </div>
                 )}
               </div>
             </div>
             {treeQuery.isLoading && (
-              <div className="text-[11px] text-muted-foreground">جارٍ تحميل الحسابات...</div>
+              <div className="text-[11px] text-muted-foreground">{t('fiscalYears.rolloverModal.loadingAccounts')}</div>
             )}
             {!treeQuery.isLoading && leafAccounts.length === 0 && (
               <div className="rounded-md border border-warning/30 bg-warning/5 px-2 py-1.5 text-[11px] text-warning">
-                لا توجد حسابات تفصيلية — أنشئ شجرة الحسابات أولاً.
+                {t('fiscalYears.rolloverModal.noAccounts')}
               </div>
             )}
             <div className="text-[10px] leading-relaxed text-muted-foreground">
-              يمكنك اختيار أي حساب تفصيلي كحساب أرباح/خسائر (مثل حسابات حقوق
-              الملكية أو الاحتياطيات) — لا يوجد قيد على نوع الحساب.
+              {t('fiscalYears.rolloverModal.accountNote')}
             </div>
           </div>
         )}
@@ -1172,32 +1238,27 @@ function RolloverModal({
             onChange={e => setPreviewOnly(e.target.checked)}
             className="rounded"
           />
-          <span>معاينة فقط (بدون تنفيذ — لرؤية النتيجة المتوقعة)</span>
+          <span>{t('fiscalYears.rolloverModal.previewOnly')}</span>
         </label>
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-          {/* زر التراجع — يحذف القيد الافتتاحي ويفك إغلاق السنة المصدر */}
           <Button
             type="button"
             variant="outline"
             className="border-warning/40 text-warning hover:bg-warning/10"
             disabled={undoM.isPending || !targetId}
             onClick={() => {
-              if (!confirm(
-                'سيتم حذف القيد الافتتاحي المُدوَّر في السنة الهدف، وتصفير ' +
-                'الأرصدة الافتتاحية للحسابات، وفك إغلاق السنة المصدر تلقائياً. ' +
-                'هل تريد المتابعة؟'
-              )) return;
+              if (!confirm(t('fiscalYears.rolloverModal.undoConfirm'))) return;
               undoM.mutate();
             }}
-            title="حذف القيد الافتتاحي وإعادة فتح السنة السابقة"
+            title={t('fiscalYears.rolloverModal.undoTip')}
           >
             <Undo2 className="h-4 w-4" />
-            {undoM.isPending ? 'جاري التراجع...' : 'تراجع عن التدوير'}
+            {undoM.isPending ? t('fiscalYears.rolloverModal.undoing') : t('fiscalYears.rolloverModal.undo')}
           </Button>
 
           <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>إلغاء</Button>
+            <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
             <Button
               onClick={() => rollM.mutate()}
               disabled={
@@ -1205,7 +1266,7 @@ function RolloverModal({
                 (mode === 1 && (!profitCode || !lossCode))
               }
             >
-              {rollM.isPending ? 'جاري التنفيذ...' : (previewOnly ? 'معاينة' : 'تنفيذ التدوير')}
+              {rollM.isPending ? t('fiscalYears.rolloverModal.executing') : (previewOnly ? t('fiscalYears.rolloverModal.preview') : t('fiscalYears.rolloverModal.execute'))}
             </Button>
           </div>
         </div>
@@ -1229,70 +1290,79 @@ function EditFiscalYearModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(fy.name);
+  const [nameEn, setNameEn] = useState(fy.nameEn ?? '');
   const [startDate, setStartDate] = useState(toDateInput(fy.startDate));
   const [endDate, setEndDate] = useState(toDateInput(fy.endDate));
 
-  // ‎فحص شامل: اسم/تواريخ/تداخل. نُرجع نصاً يشرح السبب الدقيق ليُعرض
-  // ‎للمستخدم بدلاً من تعطيل الزر بصمت (تجربة مستخدم محسّنة).
   const validation = (() => {
-    if (!name.trim()) return 'الاسم مطلوب';
-    if (!startDate) return 'تاريخ البداية مطلوب';
-    if (!endDate) {
-      return 'تاريخ النهاية مطلوب — تأكّد من إدخال يوم صالح (مثلاً نوفمبر فيه 30 يوماً فقط، فبراير 28/29).';
-    }
+    if (!name.trim()) return t('fiscalYears.editModal.nameRequired');
+    if (!startDate) return t('fiscalYears.editModal.startRequired');
+    if (!endDate) return t('fiscalYears.editModal.endRequired');
     const s = new Date(startDate);
     const e = new Date(endDate);
-    if (isNaN(s.getTime())) return 'تاريخ البداية غير صالح';
-    if (isNaN(e.getTime())) return 'تاريخ النهاية غير صالح';
-    if (e <= s) return 'تاريخ النهاية يجب أن يكون بعد البداية';
+    if (isNaN(s.getTime())) return t('fiscalYears.editModal.startInvalid');
+    if (isNaN(e.getTime())) return t('fiscalYears.editModal.endInvalid');
+    if (e <= s) return t('fiscalYears.editModal.endBeforeStart');
     for (const o of others) {
       const os = new Date(o.startDate);
       const oe = new Date(o.endDate);
       const intersects = (s >= os && s <= oe) || (e >= os && e <= oe) || (s <= os && e >= oe);
-      if (intersects) return `الفترة تتداخل مع "${o.name}" (${toDateInput(o.startDate)} → ${toDateInput(o.endDate)})`;
+      if (intersects) return t('fiscalYears.editModal.overlap', { name: o.name, start: toDateInput(o.startDate), end: toDateInput(o.endDate) });
     }
     return null;
   })();
 
   const m = useMutation({
-    mutationFn: () => fiscalYearsApi.update(fy.id, { name: name.trim(), startDate, endDate }),
+    mutationFn: () => fiscalYearsApi.update(fy.id, {
+      name: name.trim(),
+      nameEn: nameEn.trim() || null,
+      startDate,
+      endDate,
+    }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم تحديث السنة المالية');
+        toast.success(t('fiscalYears.editModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشل التحديث');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.editModal.failed'));
       }
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message ?? 'فشل التحديث');
+      toast.error(e?.response?.data?.message ?? t('fiscalYears.editModal.failed'));
     },
   });
 
-  // ‎تغيّر شيء؟ (تجنّب إرسال طلب بلا تغييرات)
   const hasChanges =
     name.trim() !== fy.name ||
+    (nameEn.trim() || null) !== (fy.nameEn ?? null) ||
     startDate !== toDateInput(fy.startDate) ||
     endDate !== toDateInput(fy.endDate);
 
   return (
-    <Modal title={`تعديل ${fy.name}`} onClose={onClose}>
+    <Modal title={t('fiscalYears.editModal.title', { year: (fy.startDate ?? '').slice(0, 4) || fy.name })} onClose={onClose}>
       <div className="space-y-3">
-        <div>
-          <Label className="mb-1.5 block text-xs">الاسم</Label>
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="السنة المالية 2027" />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="mb-1.5 block text-xs">{t('fiscalYears.createModal.name')}</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder={t('fiscalYears.createModal.namePlaceholder')} dir="rtl" />
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-xs">{t('fiscalYears.createModal.nameEn')}</Label>
+            <Input value={nameEn} onChange={e => setNameEn(e.target.value)} placeholder={t('fiscalYears.createModal.nameEnPlaceholder')} dir="ltr" />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="mb-1.5 flex items-center gap-1 text-xs">
-              <Calendar className="h-3 w-3" /> من
+              <Calendar className="h-3 w-3" /> {t('common.from')}
             </Label>
             <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
           </div>
           <div>
             <Label className="mb-1.5 flex items-center gap-1 text-xs">
-              <Calendar className="h-3 w-3" /> إلى
+              <Calendar className="h-3 w-3" /> {t('common.to')}
             </Label>
             <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
           </div>
@@ -1307,22 +1377,21 @@ function EditFiscalYearModal({
 
         {!validation && !hasChanges && (
           <div className="rounded-md border border-muted/40 bg-muted/10 px-3 py-2 text-[11px] text-muted-foreground">
-            لا توجد تغييرات للحفظ.
+            {t('fiscalYears.editModal.noChanges')}
           </div>
         )}
 
         <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-muted-foreground">
-          ملاحظة: إذا كانت السنة تحتوي على قيود محاسبية، فلا يمكن تقليص نطاقها لما هو أضيق من تواريخ تلك القيود.
-          الفترات الشهرية ستُحدَّث تلقائياً.
+          {t('fiscalYears.editModal.note')}
         </div>
 
         <div className="flex justify-end gap-2 pt-3">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             onClick={() => m.mutate()}
             disabled={m.isPending || !!validation || !hasChanges}
           >
-            {m.isPending ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+            {m.isPending ? t('common.saving') : t('common.saveChanges')}
           </Button>
         </div>
       </div>
@@ -1337,41 +1406,41 @@ function DeleteFiscalYearModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { t } = useTranslation();
   const [confirmText, setConfirmText] = useState('');
   const m = useMutation({
     mutationFn: () => fiscalYearsApi.delete(fy.id),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم حذف السنة المالية');
+        toast.success(t('fiscalYears.deleteModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? 'فشل الحذف');
+        toast.error(res.errors?.[0] ?? t('fiscalYears.deleteModal.failed'));
       }
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message ?? 'فشل الحذف');
+      toast.error(e?.response?.data?.message ?? t('fiscalYears.deleteModal.failed'));
     },
   });
 
   const canConfirm = confirmText.trim() === fy.name.trim();
 
   return (
-    <Modal title="حذف سنة مالية" onClose={onClose}>
+    <Modal title={t('fiscalYears.deleteModal.title')} onClose={onClose}>
       <div className="space-y-4">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
           <div className="flex items-center gap-2 font-medium text-destructive">
             <AlertTriangle className="h-4 w-4" />
-            هل أنت متأكد من حذف "{fy.name}"؟
+            {t('fiscalYears.deleteModal.confirm', { name: fy.name })}
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
-            سيُرفض الحذف إذا كانت السنة تحوي قيوداً محاسبية أو كانت مغلقة.
-            إذا تم الحذف، تُحذف جميع فتراتها الشهرية معها.
+            {t('fiscalYears.deleteModal.warning')}
           </p>
         </div>
 
         <div>
           <Label className="mb-1.5 block text-xs">
-            للتأكيد، اكتب اسم السنة:
+            {t('fiscalYears.deleteModal.typeToConfirm')}
             <span className="mx-1 font-mono text-foreground">{fy.name}</span>
           </Label>
           <Input
@@ -1383,14 +1452,14 @@ function DeleteFiscalYearModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             variant="default"
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={() => m.mutate()}
             disabled={m.isPending || !canConfirm}
           >
-            {m.isPending ? 'جاري الحذف...' : 'تأكيد الحذف'}
+            {m.isPending ? t('common.deleting') : t('fiscalYears.deleteModal.confirmBtn')}
           </Button>
         </div>
       </div>
@@ -1408,41 +1477,40 @@ function ReopenFiscalYearModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { t } = useTranslation();
   const m = useMutation({
     mutationFn: () => fiscalYearsApi.reopen(fy.id),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم فك إغلاق السنة المالية');
+        toast.success(t('fiscalYears.reopenModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشل فك الإغلاق');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.reopenModal.failed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشل فك الإغلاق'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.reopenModal.failed')),
   });
 
   return (
-    <Modal title={`فك إغلاق ${fy.name}`} onClose={onClose}>
+    <Modal title={t('fiscalYears.reopenModal.title', { year: (fy.startDate ?? '').slice(0, 4) || fy.name })} onClose={onClose}>
       <div className="space-y-4">
         <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm">
           <div className="flex items-center gap-2 font-medium text-warning">
             <Unlock className="h-4 w-4" />
-            تأكيد فك الإغلاق
+            {t('fiscalYears.reopenModal.heading')}
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
-            ستُعاد جميع فترات السنة إلى حالة "مفتوحة"، وسيُسمح بإنشاء/تعديل/حذف القيود فيها مجدداً.
-            استخدم هذه العملية بحذر — إذا كنت قد دوّرت الأرصدة إلى سنة لاحقة سيُرفض الطلب
-            حتى تحذف القيد الافتتاحي في السنة اللاحقة أولاً.
+            {t('fiscalYears.reopenModal.warning')}
           </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             onClick={() => m.mutate()}
             disabled={m.isPending}
             className="border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
           >
-            {m.isPending ? 'جاري فك الإغلاق...' : 'تأكيد فك الإغلاق'}
+            {m.isPending ? t('fiscalYears.reopenModal.reopening') : t('fiscalYears.reopenModal.confirm')}
           </Button>
         </div>
       </div>
@@ -1462,24 +1530,24 @@ function EditPeriodModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { t } = useTranslation();
   const [startDate, setStartDate] = useState(toDateInput(period.startDate));
   const [endDate, setEndDate] = useState(toDateInput(period.endDate));
 
-  // ‎فحوصات سريعة على المتصفح قبل الإرسال (تجنّب round-trip للسيرفر)
   const validation = (() => {
     if (!startDate || !endDate) return null;
     const s = new Date(startDate);
     const e = new Date(endDate);
-    if (e <= s) return 'تاريخ النهاية يجب أن يكون بعد البداية';
+    if (e <= s) return t('fiscalYears.editModal.endBeforeStart');
     const fyStart = new Date(toDateInput(fy.startDate));
     const fyEnd = new Date(toDateInput(fy.endDate));
     if (s < fyStart || e > fyEnd)
-      return `الفترة يجب أن تقع ضمن نطاق السنة (${toDateInput(fy.startDate)} → ${toDateInput(fy.endDate)})`;
+      return t('fiscalYears.editPeriodModal.outOfRange', { start: toDateInput(fy.startDate), end: toDateInput(fy.endDate) });
     for (const o of siblings) {
       const os = new Date(toDateInput(o.startDate));
       const oe = new Date(toDateInput(o.endDate));
       const intersects = (s >= os && s <= oe) || (e >= os && e <= oe) || (s <= os && e >= oe);
-      if (intersects) return `تتداخل مع الفترة رقم ${o.periodNumber}`;
+      if (intersects) return t('fiscalYears.editPeriodModal.overlap', { num: o.periodNumber });
     }
     return null;
   })();
@@ -1488,28 +1556,28 @@ function EditPeriodModal({
     mutationFn: () => fiscalYearsApi.updatePeriod(period.id, { startDate, endDate }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم تحديث الفترة');
+        toast.success(t('fiscalYears.editPeriodModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشل التحديث');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.editPeriodModal.failed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشل التحديث'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.editPeriodModal.failed')),
   });
 
   return (
-    <Modal title={`تعديل الفترة ${period.periodNumber}`} onClose={onClose}>
+    <Modal title={t('fiscalYears.editPeriodModal.title', { num: period.periodNumber })} onClose={onClose}>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="mb-1.5 flex items-center gap-1 text-xs">
-              <Calendar className="h-3 w-3" /> من
+              <Calendar className="h-3 w-3" /> {t('common.from')}
             </Label>
             <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
           </div>
           <div>
             <Label className="mb-1.5 flex items-center gap-1 text-xs">
-              <Calendar className="h-3 w-3" /> إلى
+              <Calendar className="h-3 w-3" /> {t('common.to')}
             </Label>
             <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
           </div>
@@ -1521,15 +1589,15 @@ function EditPeriodModal({
           </div>
         )}
         <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-muted-foreground">
-          ملاحظة: إذا كانت الفترة تحتوي على قيود محاسبية، فلا يمكن تقليص نطاقها لما هو أضيق من تواريخ تلك القيود.
+          {t('fiscalYears.editPeriodModal.note')}
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             onClick={() => m.mutate()}
             disabled={m.isPending || !!validation || !startDate || !endDate}
           >
-            {m.isPending ? 'جاري الحفظ...' : 'حفظ التعديلات'}
+            {m.isPending ? t('common.saving') : t('common.saveChanges')}
           </Button>
         </div>
       </div>
@@ -1547,41 +1615,42 @@ function DeletePeriodModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const { t } = useTranslation();
   const m = useMutation({
     mutationFn: () => fiscalYearsApi.deletePeriod(period.id),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success('تم حذف الفترة');
+        toast.success(t('fiscalYears.deletePeriodModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشل الحذف');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.deletePeriodModal.failed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشل الحذف'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.deletePeriodModal.failed')),
   });
 
   return (
-    <Modal title={`حذف الفترة ${period.periodNumber}`} onClose={onClose}>
+    <Modal title={t('fiscalYears.deletePeriodModal.title', { num: period.periodNumber })} onClose={onClose}>
       <div className="space-y-4">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
           <div className="flex items-center gap-2 font-medium text-destructive">
             <AlertTriangle className="h-4 w-4" />
-            هل أنت متأكد من حذف الفترة رقم {period.periodNumber}؟
+            {t('fiscalYears.deletePeriodModal.confirm', { num: period.periodNumber })}
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
             ({formatDate(period.startDate)} → {formatDate(period.endDate)})
             <br />
-            سيُرفض الحذف إذا كانت الفترة تحوي قيوداً محاسبية. هذه العملية لا يمكن التراجع عنها.
+            {t('fiscalYears.deletePeriodModal.warning')}
           </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={() => m.mutate()}
             disabled={m.isPending}
           >
-            {m.isPending ? 'جاري الحذف...' : 'تأكيد الحذف'}
+            {m.isPending ? t('common.deleting') : t('common.confirm')}
           </Button>
         </div>
       </div>
@@ -1600,7 +1669,7 @@ function ResyncPeriodsModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  // ‎معاينة محلية: عدد الفترات الفارغة الخارجة عن النطاق.
+  const { t } = useTranslation();
   const fyStart = new Date(fy.startDate.slice(0, 10)).getTime();
   const fyEnd = new Date(fy.endDate.slice(0, 10)).getTime();
   const outOfRange = fy.periods.filter(p => {
@@ -1613,32 +1682,29 @@ function ResyncPeriodsModal({
     mutationFn: () => fiscalYearsApi.resyncPeriods(fy.id),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success(res.data?.message ?? 'تمت إعادة المزامنة');
+        toast.success(res.data?.message ?? t('fiscalYears.resyncModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشلت إعادة المزامنة');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.resyncModal.failed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشلت إعادة المزامنة'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.resyncModal.failed')),
   });
 
   return (
-    <Modal title="إعادة مزامنة الفترات الشهرية" onClose={onClose}>
+    <Modal title={t('fiscalYears.resyncModal.title')} onClose={onClose}>
       <div className="space-y-3 text-sm">
         <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-          ستُحذَف الفترات الفارغة الخارجة عن نطاق السنة المالية، وتُعدَّل
-          حدود الفترات المتبقّية لتطابق <span className="font-medium text-foreground">
-            {formatDate(fy.startDate)} → {formatDate(fy.endDate)}
-          </span>. لن تُمَس الفترات التي تحتوي قيوداً.
+          {t('fiscalYears.resyncModal.desc', { start: formatDate(fy.startDate), end: formatDate(fy.endDate) })}
         </div>
 
         <div className="rounded-md border bg-background p-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">الفترات الحالية:</span>
+            <span className="text-muted-foreground">{t('fiscalYears.resyncModal.currentPeriods')}:</span>
             <span className="font-bold">{fy.periods.length}</span>
           </div>
           <div className="mt-1 flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">فترات خارج النطاق (ستُحذَف إن كانت فارغة):</span>
+            <span className="text-muted-foreground">{t('fiscalYears.resyncModal.outOfRange')}:</span>
             <span className={cn(
               'font-bold',
               outOfRange.length > 0 ? 'text-warning' : 'text-muted-foreground'
@@ -1667,10 +1733,10 @@ function ResyncPeriodsModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button onClick={() => m.mutate()} disabled={m.isPending}>
             <RefreshCw className="h-4 w-4" />
-            {m.isPending ? 'جاري المزامنة...' : 'إعادة المزامنة'}
+            {m.isPending ? t('fiscalYears.resyncModal.syncing') : t('fiscalYears.resyncModal.confirm')}
           </Button>
         </div>
       </div>
@@ -1689,7 +1755,7 @@ function BulkPeriodsModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  // ‎الافتراضي: إغلاق حتى نهاية الشهر الحالي.
+  const { t } = useTranslation();
   const today = new Date();
   const lastDayOfThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
   const defaultDate = lastDayOfThisMonth.toISOString().slice(0, 10);
@@ -1721,33 +1787,31 @@ function BulkPeriodsModal({
     }),
     onSuccess: (res) => {
       if (res.success) {
-        toast.success(res.data?.message ?? res.message ?? 'تمّت العملية');
+        toast.success(res.data?.message ?? res.message ?? t('fiscalYears.bulkModal.success'));
         onSuccess();
       } else {
-        toast.error(res.errors?.[0] ?? res.message ?? 'فشلت العملية');
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.bulkModal.failed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'فشلت العملية'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.bulkModal.failed')),
   });
 
   const statusLabel = (s: 1 | 2 | 3) =>
-    s === 1 ? 'مفتوحة' : s === 2 ? 'مغلقة' : 'مقفلة نهائياً';
+    s === 1 ? t('periodStatus.open') : s === 2 ? t('periodStatus.closed') : t('periodStatus.locked');
 
-  // ‎تنبيهات الإدخال غير المنطقي.
   const dateOutOfRange =
     !!date && (date < fyStart || date > fyEnd);
 
   return (
-    <Modal title="إغلاق/فتح الفترات الشهرية بالجملة" onClose={onClose}>
+    <Modal title={t('fiscalYears.bulkModal.title')} onClose={onClose}>
       <div className="space-y-4 text-sm">
         <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-          السنة المالية: <span className="font-medium text-foreground">{fy.name}</span>
+          {t('fiscalYears.bulkModal.fyLabel')}: <span className="font-medium text-foreground">{fy.name}</span>
           {' '}({formatDate(fy.startDate)} → {formatDate(fy.endDate)})
         </div>
 
-        {/* اختيار العملية */}
         <div className="space-y-2">
-          <Label>نوع العملية</Label>
+          <Label>{t('fiscalYears.bulkModal.operationType')}</Label>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
@@ -1761,9 +1825,9 @@ function BulkPeriodsModal({
             >
               <Lock className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                <div className="font-medium">إغلاق حتى تاريخ</div>
+                <div className="font-medium">{t('fiscalYears.bulkModal.closeUpto')}</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  يطبَّق على كل الفترات التي تنتهي في تاريخ ≤ التاريخ المحدّد
+                  {t('fiscalYears.bulkModal.closeUptoDesc')}
                 </div>
               </div>
             </button>
@@ -1779,18 +1843,17 @@ function BulkPeriodsModal({
             >
               <LockOpen className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                <div className="font-medium">فتح من تاريخ</div>
+                <div className="font-medium">{t('fiscalYears.bulkModal.openFrom')}</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  يطبَّق على كل الفترات التي تبدأ في تاريخ ≥ التاريخ المحدّد
+                  {t('fiscalYears.bulkModal.openFromDesc')}
                 </div>
               </div>
             </button>
           </div>
         </div>
 
-        {/* الحالة المرغوبة */}
         <div className="space-y-2">
-          <Label>الحالة المرغوبة</Label>
+          <Label>{t('fiscalYears.bulkModal.targetStatus')}</Label>
           <div className="grid grid-cols-3 gap-2">
             {([1, 2, 3] as const).map(s => (
               <button
@@ -1810,9 +1873,8 @@ function BulkPeriodsModal({
           </div>
         </div>
 
-        {/* التاريخ */}
         <div className="space-y-2">
-          <Label htmlFor="bulk-date">التاريخ المرجعي</Label>
+          <Label htmlFor="bulk-date">{t('fiscalYears.bulkModal.referenceDate')}</Label>
           <Input
             id="bulk-date"
             type="date"
@@ -1823,15 +1885,14 @@ function BulkPeriodsModal({
           />
           {dateOutOfRange && (
             <p className="text-[11px] text-destructive">
-              التاريخ يجب أن يقع داخل حدود السنة المالية.
+              {t('fiscalYears.bulkModal.dateOutOfRange')}
             </p>
           )}
         </div>
 
-        {/* المعاينة */}
         <div className="rounded-md border bg-muted/30 p-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">عدد الفترات التي ستتأثّر:</span>
+            <span className="text-muted-foreground">{t('fiscalYears.bulkModal.affectedCount')}:</span>
             <span className="font-bold text-foreground">{preview.count}</span>
           </div>
           {preview.count > 0 && (
@@ -1854,18 +1915,18 @@ function BulkPeriodsModal({
           )}
           {preview.count === 0 && date && !dateOutOfRange && (
             <p className="mt-1 text-[11px] text-muted-foreground">
-              لا توجد فترات مطابقة للمعايير الحالية، أو جميعها بالحالة المطلوبة بالفعل.
+              {t('fiscalYears.bulkModal.noPeriods')}
             </p>
           )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             onClick={() => m.mutate()}
             disabled={m.isPending || !date || dateOutOfRange || preview.count === 0}
           >
-            {m.isPending ? 'جاري التطبيق...' : `تطبيق على ${preview.count} فترة`}
+            {m.isPending ? t('fiscalYears.bulkModal.applying') : t('fiscalYears.bulkModal.apply', { count: preview.count })}
           </Button>
         </div>
       </div>

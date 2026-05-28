@@ -27,7 +27,7 @@ function applyTheme(theme: Theme) {
 
   // ‎تحديث ميتا الألوان لشريط الحالة على الجوال (PWA / Safari iOS)
   const themeColor = document.getElementById('itc-theme-color');
-  if (themeColor) themeColor.setAttribute('content', theme === 'dark' ? '#0F0F11' : '#F7F2EA');
+  if (themeColor) themeColor.setAttribute('content', theme === 'dark' ? '#0E0F14' : '#D4D8DE');
   const colorScheme = document.getElementById('itc-color-scheme');
   if (colorScheme) colorScheme.setAttribute('content', theme);
 }

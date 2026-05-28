@@ -5,12 +5,12 @@
     <link rel="icon" type="image/png" href="/logo.png?v=3" />
     <link rel="apple-touch-icon" href="/logo.png?v=3" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" id="itc-theme-color" content="#0F0F11" />
+    <meta name="theme-color" id="itc-theme-color" content="#0E0F14" />
     <meta name="color-scheme" id="itc-color-scheme" content="dark" />
 
     <!--
-      تطبيق وضع الألوان قبل الـ render لتجنّب وميض (FOUC).
-      الترتيب: تفضيل المستخدم (localStorage) → الوضع الليلي افتراضياً.
+      تطبيق وضع الألوان واللغة قبل الـ render لتجنّب وميض (FOUC).
+      الترتيب: تفضيل المستخدم (localStorage) → افتراضي.
     -->
     <script>
       (function () {
@@ -21,11 +21,22 @@
           if (theme === 'dark') root.classList.add('dark');
           else root.classList.remove('dark');
           var meta = document.getElementById('itc-theme-color');
-          if (meta) meta.setAttribute('content', theme === 'dark' ? '#0F0F11' : '#F7F2EA');
+          if (meta) meta.setAttribute('content', theme === 'dark' ? '#0E0F14' : '#D4D8DE');
           var scheme = document.getElementById('itc-color-scheme');
           if (scheme) scheme.setAttribute('content', theme);
         } catch (e) {
           document.documentElement.classList.add('dark');
+        }
+        try {
+          var savedLocale = localStorage.getItem('itc-locale');
+          var locale = savedLocale === 'en' || savedLocale === 'ar'
+            ? savedLocale
+            : ((navigator.language || '').toLowerCase().indexOf('en') === 0 ? 'en' : 'ar');
+          document.documentElement.setAttribute('lang', locale);
+          document.documentElement.setAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
+        } catch (e) {
+          document.documentElement.setAttribute('lang', 'ar');
+          document.documentElement.setAttribute('dir', 'rtl');
         }
       })();
     </script>
@@ -44,7 +55,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Cormorant+Garamond:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
   </head>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Save, Search, Trash2, X, AlertTriangle } from 'lucide-react';
@@ -23,6 +24,7 @@ interface InvoiceLine {
 }
 
 export function CreateInvoicePage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [customer, setCustomer] = useState<CustomerDto | null>(null);
@@ -94,7 +96,7 @@ export function CreateInvoicePage() {
     mutationFn: (payload: CreateInvoicePayload) => invoicesApi.create(payload),
     onSuccess: res => {
       if (res.success) {
-        toast.success(`تم إصدار الفاتورة ${res.data?.invoiceNumber}`);
+        toast.success(t('invoices.create.issued', { number: res.data?.invoiceNumber }));
         navigate('/invoices');
       } else {
         res.errors?.forEach(e => toast.error(e));
@@ -103,11 +105,11 @@ export function CreateInvoicePage() {
   });
 
   const handleSave = () => {
-    if (!customer) return toast.error('اختر العميل');
-    if (lines.length === 0) return toast.error('أضف بنوداً للفاتورة');
+    if (!customer) return toast.error(t('invoices.create.selectCustomer'));
+    if (lines.length === 0) return toast.error(t('invoices.create.addLines'));
     if (lines.some(l => l.unitOfMeasureId === 0))
-      return toast.error('اختر وحدة قياس لكل بند (استخدم baseUnitId من المادة)');
-    if (overCredit) return toast.error('الفاتورة تتجاوز الحد الائتماني للعميل');
+      return toast.error(t('invoices.create.selectUom'));
+    if (overCredit) return toast.error(t('invoices.create.overCreditLimit'));
 
     createMutation.mutate({
       customerId: customer.id,
@@ -130,7 +132,7 @@ export function CreateInvoicePage() {
       {/* العميل */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">العميل</CardTitle>
+          <CardTitle className="text-base">{t('invoices.create.customer')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {customer ? (
@@ -138,10 +140,10 @@ export function CreateInvoicePage() {
               <div>
                 <div className="font-medium">{customer.businessName}</div>
                 <div className="text-xs text-muted-foreground">
-                  {customer.ownerName} · {customer.phone} · رصيد:{' '}
+                  {customer.ownerName} · {customer.phone} · {t('invoices.create.balance')}:{' '}
                   <span className="num-display">{formatIQD(customer.currentBalance)}</span>
                   {customer.creditLimit > 0 && (
-                    <> · حد ائتماني: <span className="num-display">{formatIQD(customer.creditLimit)}</span></>
+                    <> · {t('invoices.create.creditLimit')}: <span className="num-display">{formatIQD(customer.creditLimit)}</span></>
                   )}
                 </div>
               </div>
@@ -153,7 +155,7 @@ export function CreateInvoicePage() {
             <div className="relative">
               <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="بحث باسم، هاتف، أو كود العميل..."
+                placeholder={t('invoices.create.customerSearch')}
                 className="pr-10"
                 value={customerSearch}
                 onChange={e => setCustomerSearch(e.target.value)}
@@ -162,9 +164,9 @@ export function CreateInvoicePage() {
               {showCustomerDrop && (
                 <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-card shadow-lg">
                   {customersQuery.isLoading ? (
-                    <div className="p-3 text-sm text-muted-foreground">جاري التحميل...</div>
+                    <div className="p-3 text-sm text-muted-foreground">{t('common.loading')}</div>
                   ) : (customersQuery.data?.items.length ?? 0) === 0 ? (
-                    <div className="p-3 text-sm text-muted-foreground">لا نتائج</div>
+                    <div className="p-3 text-sm text-muted-foreground">{t('common.noResults')}</div>
                   ) : (
                     customersQuery.data!.items.map(c => (
                       <button
@@ -194,13 +196,13 @@ export function CreateInvoicePage() {
       {/* البنود */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">البنود</CardTitle>
+          <CardTitle className="text-base">{t('invoices.create.lines')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="relative">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="ابحث عن مادة لإضافتها..."
+              placeholder={t('invoices.create.itemSearch')}
               className="pr-10"
               value={itemSearch}
               onChange={e => setItemSearch(e.target.value)}
@@ -209,9 +211,9 @@ export function CreateInvoicePage() {
             {showItemDrop && (
               <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-card shadow-lg">
                 {itemsQuery.isLoading ? (
-                  <div className="p-3 text-sm text-muted-foreground">جاري التحميل...</div>
+                  <div className="p-3 text-sm text-muted-foreground">{t('common.loading')}</div>
                 ) : (itemsQuery.data?.items.length ?? 0) === 0 ? (
-                  <div className="p-3 text-sm text-muted-foreground">لا نتائج</div>
+                  <div className="p-3 text-sm text-muted-foreground">{t('common.noResults')}</div>
                 ) : (
                   itemsQuery.data!.items.map(i => (
                     <button
@@ -223,7 +225,7 @@ export function CreateInvoicePage() {
                       <div>
                         <div className="font-medium">{i.nameAr}</div>
                         <div className="text-xs text-muted-foreground">
-                          {i.code} · مخزون: {i.stockBaseQuantity}
+                          {i.code} · {t('invoices.create.stock')}: {i.stockBaseQuantity}
                         </div>
                       </div>
                       <span className="num-display text-sm">{formatIQD(i.baseSalesPrice)}</span>
@@ -236,18 +238,18 @@ export function CreateInvoicePage() {
 
           {lines.length === 0 ? (
             <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-              لم تُضف بنود بعد — ابحث عن مادة أعلاه
+              {t('invoices.create.noLines')}
             </div>
           ) : (
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>المادة</th>
-                  <th>وحدة القياس</th>
-                  <th className="text-left">الكمية</th>
-                  <th className="text-left">السعر</th>
-                  <th className="text-left">الخصم</th>
-                  <th className="text-left">الإجمالي</th>
+                  <th>{t('invoices.create.colItem')}</th>
+                  <th>{t('invoices.create.colUom')}</th>
+                  <th className="text-left">{t('invoices.create.colQty')}</th>
+                  <th className="text-left">{t('invoices.create.colPrice')}</th>
+                  <th className="text-left">{t('invoices.create.colDiscount')}</th>
+                  <th className="text-left">{t('invoices.create.colTotal')}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -313,12 +315,12 @@ export function CreateInvoicePage() {
       <div className="grid gap-5 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">الخصم والضريبة</CardTitle>
+            <CardTitle className="text-base">{t('invoices.create.discountAndTax')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>الخصم %</Label>
+                <Label>{t('invoices.create.discountPct')}</Label>
                 <Input
                   type="number"
                   className="num-display"
@@ -330,7 +332,7 @@ export function CreateInvoicePage() {
                 />
               </div>
               <div>
-                <Label>الخصم مبلغ</Label>
+                <Label>{t('invoices.create.discountAmt')}</Label>
                 <Input
                   type="number"
                   className="num-display"
@@ -341,7 +343,7 @@ export function CreateInvoicePage() {
               </div>
             </div>
             <div>
-              <Label>الضريبة %</Label>
+              <Label>{t('invoices.create.taxPct')}</Label>
               <Input
                 type="number"
                 className="num-display"
@@ -350,7 +352,7 @@ export function CreateInvoicePage() {
               />
             </div>
             <div>
-              <Label>ملاحظات</Label>
+              <Label>{t('common.notes')}</Label>
               <Input value={notes} onChange={e => setNotes(e.target.value)} />
             </div>
           </CardContent>
@@ -358,24 +360,24 @@ export function CreateInvoicePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">الإجماليات</CardTitle>
+            <CardTitle className="text-base">{t('invoices.create.totals')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">المجموع الفرعي</span>
+              <span className="text-muted-foreground">{t('common.subtotal')}</span>
               <span className="num-display">{formatIQD(subTotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">الخصم</span>
+              <span className="text-muted-foreground">{t('invoices.create.discount')}</span>
               <span className="num-display text-destructive">- {formatIQD(effectiveDiscount)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">الضريبة</span>
+              <span className="text-muted-foreground">{t('invoices.create.tax')}</span>
               <span className="num-display">{formatIQD(taxAmount)}</span>
             </div>
             <div className="my-2 border-t" />
             <div className="flex items-center justify-between text-base font-semibold">
-              <span>الإجمالي</span>
+              <span>{t('common.total')}</span>
               <span className="num-display">{formatIQD(total)}</span>
             </div>
 
@@ -383,7 +385,7 @@ export function CreateInvoicePage() {
               <div className="mt-3 flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-xs text-destructive">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
-                  هذه الفاتورة تتجاوز الحد الائتماني للعميل ({formatIQD(customer!.creditLimit)})
+                  {t('invoices.create.overCreditLimitWarning', { limit: formatIQD(customer!.creditLimit) })}
                 </span>
               </div>
             )}
@@ -395,15 +397,15 @@ export function CreateInvoicePage() {
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={() => navigate('/invoices')}>
           <X className="h-4 w-4" />
-          إلغاء
+          {t('common.cancel')}
         </Button>
         <Button onClick={handleSave} disabled={createMutation.isPending || lines.length === 0 || !customer}>
           {createMutation.isPending ? (
-            <>جاري الإصدار...</>
+            <>{t('invoices.create.issuing')}</>
           ) : (
             <>
               <Save className="h-4 w-4" />
-              إصدار الفاتورة
+              {t('invoices.create.issue')}
             </>
           )}
         </Button>

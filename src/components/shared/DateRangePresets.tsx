@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { cn } from '@/lib/utils';
+import { useLocale, localizedName } from '@/lib/i18n';
 
 export interface DateRangePreset {
   id: string;
-  label: string;
+  labelKey: string;
   from: string;
   to: string;
 }
@@ -47,6 +49,8 @@ export function DateRangePresets({
   showLabel = true,
   className,
 }: Props) {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const fiscalYearsQuery = useQuery({
     queryKey: ['fiscal-years'],
     queryFn: fiscalYearsApi.getAll,
@@ -95,71 +99,65 @@ export function DateRangePresets({
       const fyStart = (currentFiscalYear.startDate ?? '').slice(0, 10);
       const fyEnd = (currentFiscalYear.endDate ?? '').slice(0, 10);
       if (fyStart && fyEnd) {
-        list.push({ id: 'fy-full', label: 'السنة المالية', from: fyStart, to: fyEnd });
+        list.push({ id: 'fy-full', labelKey: 'dateRange.presets.fyFull', from: fyStart, to: fyEnd });
       }
       if (fyStart) {
         // ‎"من بداية السنة" = من بداية السنة المالية إلى اليوم دائماً
         list.push({
           id: 'fy-to-today',
-          label: 'من بداية السنة',
+          labelKey: 'dateRange.presets.fyToToday',
           from: fyStart,
           to: today,
         });
       }
     }
 
-    // ‎اليوم
-    list.push({ id: 'today', label: 'اليوم', from: today, to: today });
+    list.push({ id: 'today', labelKey: 'dateRange.presets.today', from: today, to: today });
 
-    // ‎أمس
     const yest = new Date(now);
     yest.setDate(yest.getDate() - 1);
     const yestIso = toISODate(yest);
-    list.push({ id: 'yesterday', label: 'أمس', from: yestIso, to: yestIso });
+    list.push({ id: 'yesterday', labelKey: 'dateRange.presets.yesterday', from: yestIso, to: yestIso });
 
     // ‎هذا الأسبوع (بداية السبت — التقويم العربي/العراقي)
     const dow = now.getDay(); // 0=Sunday, 6=Saturday
     const daysSinceSat = (dow + 1) % 7; // Sat→0, Sun→1, ..., Fri→6
     const weekStart = new Date(now);
     weekStart.setDate(weekStart.getDate() - daysSinceSat);
-    list.push({ id: 'this-week', label: 'هذا الأسبوع', from: toISODate(weekStart), to: today });
+    list.push({ id: 'this-week', labelKey: 'dateRange.presets.thisWeek', from: toISODate(weekStart), to: today });
 
-    // ‎الأسبوع الماضي
     const lastWeekEnd = new Date(weekStart);
     lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
     const lastWeekStart = new Date(lastWeekEnd);
     lastWeekStart.setDate(lastWeekStart.getDate() - 6);
     list.push({
       id: 'last-week',
-      label: 'الأسبوع الماضي',
+      labelKey: 'dateRange.presets.lastWeek',
       from: toISODate(lastWeekStart),
       to: toISODate(lastWeekEnd),
     });
 
-    // ‎هذا الشهر
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    list.push({ id: 'this-month', label: 'هذا الشهر', from: toISODate(monthStart), to: today });
+    list.push({ id: 'this-month', labelKey: 'dateRange.presets.thisMonth', from: toISODate(monthStart), to: today });
 
-    // ‎الشهر الماضي
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
     list.push({
       id: 'last-month',
-      label: 'الشهر الماضي',
+      labelKey: 'dateRange.presets.lastMonth',
       from: toISODate(lastMonthStart),
       to: toISODate(lastMonthEnd),
     });
 
-    // ‎هذا الربع
     const q = Math.floor(now.getMonth() / 3);
     const qStart = new Date(now.getFullYear(), q * 3, 1);
-    list.push({ id: 'this-quarter', label: 'هذا الربع', from: toISODate(qStart), to: today });
+    list.push({ id: 'this-quarter', labelKey: 'dateRange.presets.thisQuarter', from: toISODate(qStart), to: today });
 
     // ‎هذا العام (تقويمي) — يُعرض فقط حين لا تتوفر سنة مالية،
     // ‎لأنّ "بداية السنة" في سياقنا المحاسبي = بداية السنة المالية، لا الميلادية.
     if (!currentFiscalYear) {
       const yearStart = new Date(now.getFullYear(), 0, 1);
-      list.push({ id: 'this-year', label: 'هذا العام', from: toISODate(yearStart), to: today });
+      list.push({ id: 'this-year', labelKey: 'dateRange.presets.thisYear', from: toISODate(yearStart), to: today });
     }
 
     return list;
@@ -170,7 +168,7 @@ export function DateRangePresets({
   return (
     <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
       {showLabel && (
-        <span className="text-[10.5px] font-medium text-muted-foreground">فترات سريعة:</span>
+        <span className="text-[10.5px] font-medium text-muted-foreground">{t('dateRange.quickRanges')}</span>
       )}
       {presets.map(p => {
         const active = isActive(p);
@@ -185,9 +183,9 @@ export function DateRangePresets({
                 ? 'border-primary bg-primary/15 text-primary'
                 : 'border-border bg-secondary/40 text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-foreground'
             )}
-            title={`${p.from} → ${p.to}`}
+            title={t('dateRange.tooltipRange', { from: p.from, to: p.to })}
           >
-            {p.label}
+            {t(p.labelKey)}
           </button>
         );
       })}
@@ -196,14 +194,14 @@ export function DateRangePresets({
           type="button"
           onClick={() => onChange('', '')}
           className="h-6 rounded-full border border-border bg-secondary/40 px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
-          title="مسح فلتر التاريخ"
+          title={t('dateRange.clear')}
         >
-          الكل
+          {t('dateRange.all')}
         </button>
       )}
       {showFiscalYearBadge && currentFiscalYear && (
         <span className="ms-auto rounded-md bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-          السنة المالية: <span className="font-semibold text-foreground">{currentFiscalYear.name}</span>
+          {t('dateRange.fiscalYear')} <span className="font-semibold text-foreground">{localizedName(locale, currentFiscalYear.name, currentFiscalYear.nameEn)}</span>
         </span>
       )}
     </div>

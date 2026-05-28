@@ -10,12 +10,16 @@ import type {
 
 export interface CreateFiscalYearPayload {
   name: string;
+  /** الاسم الإنجليزي الاختياري للسنة المالية. */
+  nameEn?: string | null;
   startDate: string;
   endDate: string;
 }
 
 export interface UpdateFiscalYearPayload {
   name: string;
+  /** الاسم الإنجليزي الاختياري للسنة المالية. */
+  nameEn?: string | null;
   startDate: string;
   endDate: string;
 }

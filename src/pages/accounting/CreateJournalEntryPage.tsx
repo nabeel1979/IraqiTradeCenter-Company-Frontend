@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Save, Search, Trash2, ArrowRight,
-  AlertTriangle, BookOpen, X, CheckCircle2, Printer, FilePlus2, Lock,
+  AlertTriangle, BookOpen, X, CheckCircle2, Printer, FilePlus2, Lock, History, Archive,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -23,8 +24,12 @@ import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { printSingleJournalEntry } from '@/lib/printUtils';
+import { auditApi } from '@/lib/api/audit';
+import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
+import { VoucherAttachmentsDialog } from '@/components/accounting/VoucherAttachmentsDialog';
 import { formatAmount, cn, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
 import type { AccountDto } from '@/types/api';
+import { useLocale, localizedAccountName, localizedVoucherTypeName } from '@/lib/i18n';
 
 interface FormLine {
   uid: string;
@@ -45,9 +50,9 @@ const FALLBACK_CURRENCIES = [
   { code: 'AED', label: 'درهم إماراتي' },
 ];
 
-const ENTRY_TYPES: Array<{ value: JournalEntryType; label: string; hint: string }> = [
-  { value: 1, label: 'طبيعي', hint: 'قيد محاسبي عادي' },
-  { value: 2, label: 'افتتاحي', hint: 'قيد افتتاح الفترة' },
+const ENTRY_TYPE_KEYS: Array<{ value: JournalEntryType; labelKey: string }> = [
+  { value: 1, labelKey: 'createJournalEntry.entryTypes.normal' },
+  { value: 2, labelKey: 'createJournalEntry.entryTypes.opening' },
 ];
 
 function newLine(isDebit = true): FormLine {
@@ -79,6 +84,8 @@ interface CreateJournalEntryPageProps {
 }
 
 export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryPageProps = {}) {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -105,12 +112,13 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const backHref = returnState?.returnTo
     || (lockedVoucherCode ? `/accounting/vouchers/${lockedVoucherCode}` : '/accounting/journal');
   const backLabel = returnState?.returnLabel
-    ? `رجوع إلى ${returnState.returnLabel}`
-    : 'رجوع';
-  const backShort = returnState?.returnLabel || 'رجوع';
+    ? t('createJournalEntry.backTo', { label: returnState.returnLabel })
+    : t('createJournalEntry.back');
+  const backShort = returnState?.returnLabel || t('createJournalEntry.back');
 
   const [entryDate, setEntryDate] = useState(() => toIsoLocalDate(new Date()));
   const [description, setDescription] = useState('');
+  const [manualNumber, setManualNumber] = useState('');
   const [currency, setCurrency] = useState('IQD');
   const [entryType, setEntryType] = useState<JournalEntryType>(1);
   const [voucherTypeId, setVoucherTypeId] = useState<number | null>(null);
@@ -118,6 +126,9 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const [lines, setLines] = useState<FormLine[]>([newLine(true), newLine(false)]);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // ‎فتح نافذة "مراقبة" لهذا القيد (سجل عملياته فقط).
+  const [showAudit, setShowAudit] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const voucherTypeAppliedRef = useRef<number | null>(null);
 
   // ‎حالة الفترة المحاسبية لتاريخ القيد: تتبدّل مع كل تعديل لـ entryDate.
@@ -137,9 +148,9 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const isPeriodLocked = !!periodStatus && !periodStatus.isEditable;
   const periodLockReason = (() => {
     if (!periodStatus) return null;
-    if (periodStatus.fiscalYearIsClosed) return `السنة المالية "${periodStatus.fiscalYearName}" مغلقة`;
-    if (periodStatus.periodStatus === 2) return `الفترة ${periodStatus.periodNumber} مغلقة`;
-    if (periodStatus.periodStatus === 3) return `الفترة ${periodStatus.periodNumber} مقفلة`;
+    if (periodStatus.fiscalYearIsClosed) return t('createJournalEntry.fyClosedReason', { name: periodStatus.fiscalYearName });
+    if (periodStatus.periodStatus === 2) return t('createJournalEntry.periodClosedReason', { num: periodStatus.periodNumber });
+    if (periodStatus.periodStatus === 3) return t('createJournalEntry.periodLockedReason', { num: periodStatus.periodNumber });
     return null;
   })();
 
@@ -225,7 +236,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     !!originalEntryDate &&
     !isDateInFiscalYear(originalEntryDate, activeFiscalYear);
   const outsideFYReason = isOriginalOutsideActiveFY && activeFiscalYear
-    ? `هذا القيد بتاريخ ${toIsoLocalDate(new Date(originalEntryDate as string))} خارج السنة المالية النشطة "${activeFiscalYear.name}". لا يمكن تعديله أو حذفه.`
+    ? t('createJournalEntry.outsideFYReason', { date: toIsoLocalDate(new Date(originalEntryDate as string)), name: activeFiscalYear.name })
     : null;
 
   // ── إعدادات الشركة (للطباعة)
@@ -248,6 +259,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     const e = editQuery.data;
     setEntryDate(toIsoLocalDate(e.entryDate));
     setDescription(e.description);
+    setManualNumber(e.manualNumber ?? '');
     setCurrency(e.currency || 'IQD');
     setEntryType(e.entryType === 'Opening' ? 2 : 1);
     setVoucherTypeId(e.voucherTypeId ?? null);
@@ -350,6 +362,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         currency,
         postImmediately,
         voucherTypeId: voucherTypeId ?? null,
+        manualNumber: manualNumber.trim() || null,
         lines: lines.map(l => ({
           accountId: l.accountId!,
           isDebit: l.isDebit,
@@ -364,17 +377,17 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     },
     onSuccess: res => {
       if (!res.success) {
-        const msg = extractApiError(res, 'تعذّر حفظ القيد');
+        const msg = extractApiError(res, t('createJournalEntry.saveFailed'));
         setError(msg);
         toast.error(msg);
         return;
       }
-      toast.success(isEdit ? 'تم تعديل القيد' : 'تم حفظ القيد');
+      toast.success(isEdit ? t('createJournalEntry.saveSuccessEdit') : t('createJournalEntry.saveSuccessCreate'));
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
       navigate(backHref);
     },
     onError: (err: any) => {
-      const msg = extractApiError(err, 'فشل حفظ القيد');
+      const msg = extractApiError(err, t('createJournalEntry.saveFailed'));
       setError(msg);
       toast.error(msg);
     },
@@ -385,17 +398,17 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     mutationFn: () => accountingApi.deleteJournalEntry(editId!),
     onSuccess: res => {
       if (!res.success) {
-        const msg = extractApiError(res, 'تعذّر حذف القيد');
+        const msg = extractApiError(res, t('createJournalEntry.deleteFailed'));
         toast.error(msg);
         return;
       }
-      toast.success('تم حذف القيد');
+      toast.success(t('createJournalEntry.deleteSuccess'));
       setShowDeleteConfirm(false);
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
       navigate(backHref);
     },
     onError: (err: any) => {
-      toast.error(extractApiError(err, 'فشل حذف القيد'));
+      toast.error(extractApiError(err, t('createJournalEntry.deleteFailed')));
     },
   });
 
@@ -409,15 +422,14 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   };
 
   const validate = (): string | null => {
-    if (lines.length < 2) return 'القيد لازم سطرين على الأقل';
+    if (lines.length < 2) return t('createJournalEntry.validation.minLines');
     for (const l of lines) {
-      if (!l.accountId) return 'بعض الأسطر بدون حساب';
-      if (!l.amount || l.amount <= 0) return 'كل سطر لازم يحوي مبلغ أكبر من صفر';
+      if (!l.accountId) return t('createJournalEntry.validation.missingAccount');
+      if (!l.amount || l.amount <= 0) return t('createJournalEntry.validation.zeroAmount');
     }
-    if (!isBalanced) return 'القيد غير متوازن، لازم مجموع المدين = مجموع الدائن';
-    // ‎حارس السنة المالية النشطة: حماية إضافية ضد التحايل من الواجهة.
+    if (!isBalanced) return t('createJournalEntry.validation.notBalanced');
     if (isOriginalOutsideActiveFY && activeFiscalYear) {
-      return `لا يمكن تعديل قيد خارج السنة المالية النشطة "${activeFiscalYear.name}". لتعديله، فعِّل السنة المالية المناسبة أولاً.`;
+      return t('createJournalEntry.validation.outsideFY', { name: activeFiscalYear.name });
     }
     return null;
   };
@@ -435,20 +447,38 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
 
   const handlePrint = async () => {
     if (!isEdit || !editId) return;
+    let printed: import('@/types/api').JournalEntryDto | null = null;
     try {
       const fresh = await accountingApi.getJournalEntryById(editId);
       printSingleJournalEntry(fresh, companyQuery.data ?? null);
+      printed = fresh;
     } catch {
       if (editQuery.data) {
         printSingleJournalEntry(editQuery.data, companyQuery.data ?? null);
+        printed = editQuery.data;
       } else {
-        toast.error('تعذّر تحميل القيد للطباعة');
+        toast.error(t('createJournalEntry.printLoadFailed'));
       }
+    }
+    if (printed) {
+      // ‎سجل عملية الطباعة في سجل المراقبة (لا يُفشل الطباعة إن فشل التسجيل).
+      void auditApi.logPrint({
+        entityType: printed.voucherTypeId ? 'Voucher' : 'JournalEntry',
+        entityId: printed.id,
+        summary: printed.voucherNumber
+          ? `طباعة سند ${printed.voucherNumber} — ${printed.description}`
+          : `طباعة قيد ${printed.entryNumber} — ${printed.description}`,
+        details: {
+          entryNumber: printed.entryNumber,
+          voucherNumber: printed.voucherNumber,
+          manualNumber: printed.manualNumber,
+        },
+      });
     }
   };
 
   if (treeQuery.isLoading || (isEdit && editQuery.isLoading) || voucherTypesQuery.isLoading) {
-    return <LoadingSpinner text="تحميل البيانات..." />;
+    return <LoadingSpinner text={t('createJournalEntry.loading')} />;
   }
 
   // ‎عند إنشاء قيد جديد من نافذة "القيود اليومية" مباشرةً، نمنع إنشاء
@@ -470,12 +500,12 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-400/15">
             <AlertTriangle className="h-6 w-6 text-amber-400" />
           </div>
-          <h2 className="mb-2 text-base font-semibold">إنشاء قيد عام غير مسموح من هنا</h2>
+          <h2 className="mb-2 text-base font-semibold">{t('createJournalEntry.restrictedTitle')}</h2>
           <p className="mb-1 text-sm text-muted-foreground">
-            صفحة <span className="font-semibold text-foreground">القيود اليومية</span> مخصّصة للعرض والتقارير فقط.
+            {t('createJournalEntry.restrictedDesc')}
           </p>
           <p className="mb-4 text-xs text-muted-foreground">
-            لإنشاء قيد جديد، اختر نوع السند المناسب من القائمة الجانبية أو من القائمة أدناه.
+            {t('createJournalEntry.restrictedChoose')}
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2">
             {sidebarTypes.slice(0, 6).map(v => (
@@ -488,7 +518,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
                 title={v.description ?? undefined}
               >
                 <Plus className="h-3.5 w-3.5" />
-                {v.nameAr}
+                {localizedVoucherTypeName(locale, v.nameAr, v.nameEn)}
               </Button>
             ))}
             <Button
@@ -498,7 +528,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               className="h-8 gap-1.5 text-muted-foreground"
             >
               <ArrowRight className="h-3.5 w-3.5" />
-              رجوع
+              {t('createJournalEntry.back')}
             </Button>
           </div>
         </div>
@@ -530,30 +560,29 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
       navigate(`/accounting/journal/${loadedEntry.id}/view`);
     };
     const sourceLabel = loadedEntry.voucherTypeName
-      || (loadedEntry.source === 'SalesInvoice' ? 'فاتورة بيع'
-        : loadedEntry.source === 'PurchaseInvoice' ? 'فاتورة شراء'
-        : loadedEntry.source === 'Payment' ? 'سند دفع'
-        : loadedEntry.source === 'Receipt' ? 'سند قبض'
-        : loadedEntry.source === 'StockMovement' ? 'حركة مخزون'
-        : 'المصدر');
+      || (loadedEntry.source === 'SalesInvoice' ? t('createJournalEntry.sourceLabels.SalesInvoice')
+        : loadedEntry.source === 'PurchaseInvoice' ? t('createJournalEntry.sourceLabels.PurchaseInvoice')
+        : loadedEntry.source === 'Payment' ? t('createJournalEntry.sourceLabels.Payment')
+        : loadedEntry.source === 'Receipt' ? t('createJournalEntry.sourceLabels.Receipt')
+        : loadedEntry.source === 'StockMovement' ? t('createJournalEntry.sourceLabels.StockMovement')
+        : t('createJournalEntry.sourceLabels.default'));
     return (
       <div className="flex h-full min-h-0 items-center justify-center p-6">
         <div className="w-full max-w-lg rounded-lg border border-amber-400/40 bg-amber-400/5 p-6 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-400/15">
             <AlertTriangle className="h-6 w-6 text-amber-400" />
           </div>
-          <h2 className="mb-2 text-base font-semibold">لا يمكن تعديل هذا القيد من هنا</h2>
+          <h2 className="mb-2 text-base font-semibold">{t('createJournalEntry.managedTitle')}</h2>
           <p className="mb-1 text-sm text-muted-foreground">
-            القيد رقم <span className="font-mono text-foreground">{loadedEntry.voucherNumber ?? `#${loadedEntry.entryNumber}`}</span> مولَّد من{' '}
-            <span className="font-semibold text-foreground">{sourceLabel}</span>.
+            {t('createJournalEntry.managedDesc', { num: loadedEntry.voucherNumber ?? `#${loadedEntry.entryNumber}`, source: sourceLabel })}
           </p>
           <p className="mb-5 text-xs text-muted-foreground">
-            للحفاظ على ترابط البيانات يجب تعديله من نفس النافذة التي أُنشئ منها.
+            {t('createJournalEntry.managedNote')}
           </p>
           <div className="flex items-center justify-center gap-2">
             <Button size="sm" onClick={goSource} className="gap-1.5">
               <BookOpen className="h-3.5 w-3.5" />
-              فتح في نافذة المصدر
+              {t('createJournalEntry.openSource')}
             </Button>
             <Button
               variant="outline"
@@ -561,7 +590,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               onClick={() => navigate(`/accounting/journal/${loadedEntry.id}/view`)}
               className="gap-1.5"
             >
-              عرض القيد فقط
+              {t('createJournalEntry.viewOnly')}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => navigate('/accounting/journal')}>
               <X className="h-3.5 w-3.5" />
@@ -592,7 +621,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
           </Button>
           <h1 className="flex items-center gap-1.5 text-base font-semibold">
             <BookOpen className="h-4 w-4 text-primary" />
-            {isView ? 'عرض القيد' : (isEdit ? 'تعديل قيد' : 'إنشاء قيد')}
+            {isView ? t('createJournalEntry.view') : (isEdit ? t('createJournalEntry.edit') : t('createJournalEntry.create'))}
             {isEdit && editQuery.data?.entryNumber && (
               <>
                 {editQuery.data.voucherNumber ? (
@@ -602,7 +631,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
                     </span>
                     <span
                       className="num-display rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                      title="رقم القيد الداخلي"
+                      title={t('createJournalEntry.internalNumberTip')}
                     >
                       #{editQuery.data.entryNumber}
                     </span>
@@ -616,7 +645,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             )}
             {isView && (
               <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
-                للقراءة فقط
+                {t('createJournalEntry.readOnlyBadge')}
               </span>
             )}
           </h1>
@@ -628,11 +657,11 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               variant="outline"
               size="sm"
               onClick={handleCreateNew}
-              title="إنشاء قيد جديد بنفس نوع السند"
+              title={t('createJournalEntry.newSameType')}
               className="h-8 gap-1.5"
             >
               <FilePlus2 className="h-3.5 w-3.5" />
-              جديد
+              {t('createJournalEntry.newSameType')}
             </Button>
           )}
           {isEdit && (
@@ -640,11 +669,40 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               variant="outline"
               size="sm"
               onClick={handlePrint}
-              title="طباعة القيد"
+              title={t('createJournalEntry.print')}
               className="h-8 gap-1.5"
             >
               <Printer className="h-3.5 w-3.5" />
-              طباعة
+              {t('createJournalEntry.print')}
+            </Button>
+          )}
+          {/*
+            زرّ "مراقبة": يفتح نافذة سجل عمليات هذا القيد (إضافة/تعديل/حذف/طباعة).
+            متاح في وضعَي التعديل والعرض لأن السجل قراءة فقط ولا يتعارض مع قفل
+            الفترة أو وضع القيد خارج السنة المالية.
+          */}
+          {isEdit && editId != null && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAudit(true)}
+              title={t('audit.openButtonTip')}
+              className="h-8 gap-1.5 border-violet-500/60 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 hover:text-violet-300"
+            >
+              <History className="h-3.5 w-3.5" />
+              {t('audit.openButton')}
+            </Button>
+          )}
+          {isEdit && editId != null && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowArchive(true)}
+              title={t('attachments.openButtonTip')}
+              className="h-8 gap-1.5 border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {t('attachments.openButton')}
             </Button>
           )}
           {/*
@@ -662,10 +720,10 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               size="sm"
               onClick={() => navigate(`/accounting/journal/${editId}/edit`)}
               className="h-8 gap-1.5"
-              title="فتح القيد للتعديل"
+              title={t('createJournalEntry.editEntryTip')}
             >
               <BookOpen className="h-3.5 w-3.5" />
-              تعديل
+              {t('createJournalEntry.editEntry')}
             </Button>
           )}
           {isView
@@ -673,9 +731,9 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               || loadedEntry?.referenceType === 'CashBoxTransferReversal') && (
             <span
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[11px] font-medium text-amber-500"
-              title="مقفول للتعديل — يُعدَّل من صفحة الصناديق ⇒ تبويب المناقلات"
+              title={t('createJournalEntry.cashBoxTransferTip')}
             >
-              مناقلة صناديق · مقفول
+              {t('createJournalEntry.cashBoxTransfer')}
             </span>
           )}
           {/*
@@ -689,11 +747,11 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               variant="outline"
               size="sm"
               onClick={() => setShowDeleteConfirm(true)}
-              title="حذف القيد"
+              title={t('createJournalEntry.deleteTip')}
               className="h-8 gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              حذف
+              {t('createJournalEntry.delete')}
             </Button>
           )}
           {!isView && !isPeriodLocked && !isOriginalOutsideActiveFY && (
@@ -704,7 +762,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
                 onChange={e => setPostImmediately(e.target.checked)}
                 className="h-3.5 w-3.5 accent-primary"
               />
-              <span>ترحيل فوري</span>
+              <span>{t('createJournalEntry.postImmediately')}</span>
             </label>
           )}
           {!isView && !isPeriodLocked && !isOriginalOutsideActiveFY && (
@@ -715,13 +773,13 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               className="h-8 gap-1.5"
             >
               <Save className="h-3.5 w-3.5" />
-              {saveMutation.isPending ? 'جارٍ الحفظ...' : 'حفظ القيد'}
+              {saveMutation.isPending ? t('createJournalEntry.saving') : t('createJournalEntry.save')}
             </Button>
           )}
           {!isView && (isPeriodLocked || isOriginalOutsideActiveFY) && (
             <span className="flex h-8 items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 text-xs text-warning">
               <Lock className="h-3.5 w-3.5" />
-              قراءة فقط
+              {t('createJournalEntry.readOnly')}
             </span>
           )}
         </div>
@@ -732,9 +790,9 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
           <Lock className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="flex-1">
-            <div className="font-medium">{periodLockReason} — لا يمكن إنشاء أو تعديل أو حذف القيود في هذا التاريخ.</div>
+            <div className="font-medium">{periodLockReason} — {t('createJournalEntry.periodLockedNote')}</div>
             <div className="mt-0.5 text-[11px] text-warning/80">
-              لإجراء تعديلات، يجب فك إغلاق الفترة من صفحة "الفترات المحاسبية"، أو اختيار تاريخ ضمن فترة مفتوحة.
+              {t('createJournalEntry.periodLockedHint')}
             </div>
           </div>
         </div>
@@ -747,7 +805,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
           <div className="flex-1">
             <div className="font-medium">{outsideFYReason}</div>
             <div className="mt-0.5 text-[11px] text-rose-300/80">
-              ملاحظة: تغيير حقل التاريخ في النموذج لا يفك هذا القيد — السنة المالية الأصلية للقيد هي ما يُحدِّد قابلية التعديل. لتعديله، فعّل السنة المالية المناسبة من صفحة "السنوات المالية".
+              {t('createJournalEntry.outsideFYHint')}
             </div>
           </div>
         </div>
@@ -759,7 +817,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         isView && 'opacity-95'
       )}>
         <div className="md:col-span-2">
-          <Label className="mb-1 block text-[10px] text-muted-foreground">التاريخ</Label>
+          <Label className="mb-1 block text-[10px] text-muted-foreground">{t('createJournalEntry.form.date')}</Label>
           <Input
             type="date"
             value={entryDate}
@@ -772,7 +830,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
 
         <div className="md:col-span-3">
           <Label className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>نوع السند</span>
+            <span>{t('createJournalEntry.form.voucherType')}</span>
             {selectedVoucherType?.code && (
               <span className="num-display rounded bg-primary/15 px-1 py-0.5 text-[9px] text-primary">
                 {selectedVoucherType.code}
@@ -784,9 +842,11 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             // ‎تسمية للقراءة فقط لمعرفة من أي سند أُنشئ القيد.
             <div
               className="flex h-8 w-full items-center rounded-md border border-input bg-secondary/30 px-2 text-xs text-foreground/85"
-              title="نوع السند مثبَّت من مصدر القيد ولا يمكن تغييره"
+              title={t('createJournalEntry.voucherTypeLocked')}
             >
-              {selectedVoucherType?.nameAr ?? '— بدون نوع سند —'}
+              {selectedVoucherType
+                ? localizedVoucherTypeName(locale, selectedVoucherType.nameAr, selectedVoucherType.nameEn)
+                : t('createJournalEntry.noVoucherType')}
             </div>
           ) : (
             <select
@@ -797,18 +857,18 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               }}
               disabled={!!lockedVoucherType}
               className="h-8 w-full rounded-md border border-input bg-secondary/40 px-2 text-xs disabled:cursor-not-allowed disabled:opacity-90"
-              title={lockedVoucherType ? 'نوع السند مثبَّت من المصدر' : (selectedVoucherType?.description ?? undefined)}
+              title={lockedVoucherType ? t('createJournalEntry.voucherTypeLockedShort') : (selectedVoucherType?.description ?? undefined)}
             >
-              {!lockedVoucherType && <option value="">— بدون نوع سند —</option>}
+              {!lockedVoucherType && <option value="">{t('createJournalEntry.noVoucherType')}</option>}
               {voucherTypes.map(v => (
-                <option key={v.id} value={v.id}>{v.nameAr}</option>
+                <option key={v.id} value={v.id}>{localizedVoucherTypeName(locale, v.nameAr, v.nameEn)}</option>
               ))}
             </select>
           )}
         </div>
 
         <div className="md:col-span-2">
-          <Label className="mb-1 block text-[10px] text-muted-foreground">العملة</Label>
+          <Label className="mb-1 block text-[10px] text-muted-foreground">{t('createJournalEntry.form.currency')}</Label>
           <select
             value={currency}
             onChange={e => setCurrency(e.target.value)}
@@ -822,32 +882,54 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         </div>
 
         <div className="md:col-span-2">
-          <Label className="mb-1 block text-[10px] text-muted-foreground">نوع القيد</Label>
+          <Label className="mb-1 block text-[10px] text-muted-foreground">{t('createJournalEntry.form.entryType')}</Label>
           <select
             value={entryType}
             onChange={e => setEntryType(Number(e.target.value) as JournalEntryType)}
             disabled={isView}
             className="h-8 w-full rounded-md border border-input bg-secondary/40 px-2 text-xs disabled:cursor-not-allowed disabled:opacity-90"
           >
-            {ENTRY_TYPES.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
+            {ENTRY_TYPE_KEYS.map(et => (
+              <option key={et.value} value={et.value}>{t(et.labelKey)}</option>
             ))}
           </select>
         </div>
 
         <div className="md:col-span-3">
           <Label className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
-            <span>البيان (اختياري)</span>
+            <span>{t('createJournalEntry.form.description')}</span>
             <span className="num-display">{description.length}/200</span>
           </Label>
           <Input
             value={description}
             onChange={e => setDescription(e.target.value.slice(0, 200))}
             maxLength={200}
-            placeholder="بيان القيد العام..."
+            placeholder={t('createJournalEntry.form.descriptionPlaceholder')}
             className="h-8 text-xs"
             readOnly={isView}
             disabled={isView}
+          />
+        </div>
+
+        {/*
+          الرقم اليدوي:
+          حقل اختياري يُسجّل فيه المستخدم رقم شيك / إيصال خارجي / مستند ورقي
+          مرتبط بالقيد. مستقل عن EntryNumber (المسلسل الداخلي) و VoucherNumber
+          (المسلسل التلقائي للسند). يدخل في فلتر البحث على صفحة القيود.
+        */}
+        <div className="md:col-span-2">
+          <Label className="mb-1 block text-[10px] text-muted-foreground">
+            {t('createJournalEntry.form.manualNumber', { defaultValue: 'Manual number' })}
+          </Label>
+          <Input
+            value={manualNumber}
+            onChange={e => setManualNumber(e.target.value.slice(0, 50))}
+            maxLength={50}
+            placeholder={t('createJournalEntry.form.manualNumberPlaceholder', { defaultValue: 'Check / external ref…' })}
+            className="h-8 num-display text-xs"
+            readOnly={isView}
+            disabled={isView}
+            dir="ltr"
           />
         </div>
       </div>
@@ -856,16 +938,16 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-card/30">
         <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-3 py-2">
           <div className="flex items-center gap-2 text-xs font-medium">
-            <span>بنود القيد</span>
+            <span>{t('createJournalEntry.lines.title')}</span>
             <span className="rounded bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {lines.length} بند
+              {t('createJournalEntry.lines.count', { count: lines.length })}
             </span>
           </div>
           {!isView && (
             <div className="flex items-center gap-1.5">
               <Button size="sm" variant="outline" onClick={() => addLine(true)} className="h-7 gap-1 px-2 text-xs">
                 <Plus className="h-3 w-3" />
-                إضافة سطر
+                {t('createJournalEntry.lines.addLine')}
               </Button>
             </div>
           )}
@@ -891,11 +973,11 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             </colgroup>
             <thead className="sticky top-0 z-10 bg-secondary/60 text-xs text-muted-foreground backdrop-blur">
               <tr>
-                <th className="p-1.5 text-center">ت</th>
-                <th className="p-1.5 text-center">مدين</th>
-                <th className="p-1.5 text-center">دائن</th>
-                <th className="p-1.5 text-center">الحساب</th>
-                <th className="p-1.5 text-center">البيان</th>
+                <th className="p-1.5 text-center">#</th>
+                <th className="p-1.5 text-center">{t('createJournalEntry.lines.debit')}</th>
+                <th className="p-1.5 text-center">{t('createJournalEntry.lines.credit')}</th>
+                <th className="p-1.5 text-center">{t('createJournalEntry.lines.account')}</th>
+                <th className="p-1.5 text-center">{t('createJournalEntry.lines.description')}</th>
                 <th></th>
               </tr>
             </thead>
@@ -920,14 +1002,14 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-secondary/40 px-3 py-2 text-xs">
           <div className="flex flex-wrap items-center gap-3">
             <span className="flex items-center gap-1">
-              <span className="text-muted-foreground">المدين:</span>
+              <span className="text-muted-foreground">{t('createJournalEntry.totals.debit')}:</span>
               <span className="num-display font-semibold text-emerald-400">
                 {formatAmount(totalDebit)} {currency}
               </span>
             </span>
             <span className="h-3.5 w-px bg-border" />
             <span className="flex items-center gap-1">
-              <span className="text-muted-foreground">الدائن:</span>
+              <span className="text-muted-foreground">{t('createJournalEntry.totals.credit')}:</span>
               <span className="num-display font-semibold text-rose-400">
                 {formatAmount(totalCredit)} {currency}
               </span>
@@ -936,12 +1018,12 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             {isBalanced ? (
               <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-emerald-400">
                 <CheckCircle2 className="h-3 w-3" />
-                متوازن
+                {t('createJournalEntry.totals.balanced')}
               </span>
             ) : (
               <span className="flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-400">
                 <AlertTriangle className="h-3 w-3" />
-                فرق: <span className="num-display">{formatAmount(Math.abs(totalDebit - totalCredit))}</span>
+                {t('createJournalEntry.totals.diff')}: <span className="num-display">{formatAmount(Math.abs(totalDebit - totalCredit))}</span>
               </span>
             )}
           </div>
@@ -958,6 +1040,43 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         </div>
       </div>
 
+      {/*
+        مودال "مراقبة": سجل عمليات هذا القيد فقط (إضافة/تعديل/حذف/طباعة).
+        نوع الكيان يتغيّر بحسب نوع المصدر — إذا كان القيد مرتبطاً بنوع سند مخصّص
+        نعرضه ككيان Voucher، وإلا فهو JournalEntry عادي.
+      */}
+      {showAudit && editId != null && (
+        <EntityAuditDialog
+          open={showAudit}
+          onClose={() => setShowAudit(false)}
+          entityType={loadedEntry?.voucherTypeId ? 'Voucher' : 'JournalEntry'}
+          entityId={editId}
+          subtitle={
+            loadedEntry?.voucherNumber
+              ? `${loadedEntry.voucherNumber}${loadedEntry.entryNumber ? ` · #${loadedEntry.entryNumber}` : ''}`
+              : loadedEntry?.entryNumber
+                ? `#${loadedEntry.entryNumber}`
+                : undefined
+          }
+        />
+      )}
+
+      {/* أرشيف القيد: ملفات/صور مرفقة (شيكات، إيصالات، …). */}
+      {showArchive && editId != null && (
+        <VoucherAttachmentsDialog
+          open={showArchive}
+          onClose={() => setShowArchive(false)}
+          entryId={editId}
+          subtitle={
+            loadedEntry?.voucherNumber
+              ? `${loadedEntry.voucherNumber}${loadedEntry.entryNumber ? ` · #${loadedEntry.entryNumber}` : ''}`
+              : loadedEntry?.entryNumber
+                ? `#${loadedEntry.entryNumber}`
+                : undefined
+          }
+        />
+      )}
+
       {/* مودال تأكيد الحذف */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -965,7 +1084,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             <div className="flex items-start justify-between border-b border-border px-4 py-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-destructive" />
-                <h3 className="font-semibold">تأكيد حذف القيد</h3>
+                <h3 className="font-semibold">{t('createJournalEntry.deleteConfirm.title')}</h3>
               </div>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
@@ -976,24 +1095,21 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             </div>
             <div className="space-y-3 p-4 text-sm">
               <p>
-                هل أنت متأكد من حذف القيد رقم{' '}
-                <span className="font-mono text-primary">
-                  {editQuery.data?.voucherNumber ?? `#${editQuery.data?.entryNumber ?? ''}`}
-                </span>؟
+                {t('createJournalEntry.deleteConfirm.body', { num: editQuery.data?.voucherNumber ?? `#${editQuery.data?.entryNumber ?? ''}` })}
               </p>
               {editQuery.data && (
                 <div className="rounded-md bg-secondary/40 p-3 text-xs text-muted-foreground">
-                  <div>البيان: {editQuery.data.description}</div>
+                  <div>{t('createJournalEntry.deleteConfirm.descLabel')}: {editQuery.data.description}</div>
                   <div>
-                    المبلغ: {formatAmount(editQuery.data.totalDebit)} {editQuery.data.currency || 'IQD'}
+                    {t('createJournalEntry.deleteConfirm.amountLabel')}: {formatAmount(editQuery.data.totalDebit)} {editQuery.data.currency || 'IQD'}
                   </div>
                 </div>
               )}
-              <p className="text-xs text-amber-400">لا يمكن التراجع عن هذه العملية.</p>
+              <p className="text-xs text-amber-400">{t('createJournalEntry.deleteConfirm.irreversible')}</p>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/20 px-4 py-3">
               <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(false)}>
-                إلغاء
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="destructive"
@@ -1003,7 +1119,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
                 className="gap-1.5"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                {deleteMutation.isPending ? 'جارٍ الحذف...' : 'حذف القيد'}
+                {deleteMutation.isPending ? t('createJournalEntry.deleteConfirm.deleting') : t('createJournalEntry.deleteConfirm.confirm')}
               </Button>
             </div>
           </div>
@@ -1027,6 +1143,7 @@ function LineRow({
   canRemove: boolean;
   currency?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <tr className="border-b border-border/40 hover:bg-secondary/20">
       <td className="p-1 text-center text-xs text-muted-foreground">{index}</td>
@@ -1068,7 +1185,7 @@ function LineRow({
           value={line.description}
           onChange={e => onChange({ description: e.target.value.slice(0, 150) })}
           maxLength={150}
-          placeholder="بيان البند (اختياري)"
+          placeholder={t('createJournalEntry.lines.descPlaceholder')}
           className="h-8 text-xs"
           title={line.description}
         />
@@ -1079,7 +1196,7 @@ function LineRow({
           onClick={onRemove}
           disabled={!canRemove}
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive disabled:opacity-30"
-          title="حذف البند"
+          title={t('createJournalEntry.lines.deleteTip')}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -1168,21 +1285,28 @@ function AccountPicker({
   initialLabel?: string;
   onChange: (id: number, label: string) => void;
 }) {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  /** اسم الحساب بحسب اللغة الحالية مع fallback إلى القاموس الافتراضي. */
+  const displayName = (a: AccountDto) =>
+    localizedAccountName(locale, a.nameAr, a.nameEn);
+
   // النص الافتراضي عند عدم التركيز (الحساب المختار حالياً)
   const selectedLabel = useMemo(() => {
     if (initialLabel) return initialLabel;
     if (value) {
       const a = accounts.find(x => x.id === value);
-      return a ? `${a.code} - ${a.nameAr}` : '';
+      return a ? `${a.code} - ${displayName(a)}` : '';
     }
     return '';
-  }, [value, accounts, initialLabel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, accounts, initialLabel, locale]);
 
   // النتائج المرتّبة: تطابق تام → بدء الكود → بدء الاسم → احتواء
   const filtered = useMemo(() => {
@@ -1196,11 +1320,12 @@ function AccountPicker({
 
     for (const a of accounts) {
       const code = (a.code ?? '').toLowerCase();
-      const name = (a.nameAr ?? '').toLowerCase();
+      const nameAr = (a.nameAr ?? '').toLowerCase();
+      const nameEn = (a.nameEn ?? '').toLowerCase();
       if (code === q) exact.push(a);
       else if (code.startsWith(q)) startsCode.push(a);
-      else if (name.startsWith(q)) startsName.push(a);
-      else if (code.includes(q) || name.includes(q)) contains.push(a);
+      else if (nameAr.startsWith(q) || nameEn.startsWith(q)) startsName.push(a);
+      else if (code.includes(q) || nameAr.includes(q) || nameEn.includes(q)) contains.push(a);
     }
     return [...exact, ...startsCode, ...startsName, ...contains].slice(0, 60);
   }, [accounts, query]);
@@ -1227,7 +1352,7 @@ function AccountPicker({
   }, [query, open]);
 
   const select = (a: AccountDto) => {
-    onChange(a.id, `${a.code} - ${a.nameAr}`);
+    onChange(a.id, `${a.code} - ${displayName(a)}`);
     setOpen(false);
     setQuery('');
     inputRef.current?.blur();
@@ -1267,7 +1392,7 @@ function AccountPicker({
             setQuery('');
           }}
           onKeyDown={handleKey}
-          placeholder={selectedLabel || 'ابحث برقم أو اسم الحساب...'}
+          placeholder={selectedLabel || t('createJournalEntry.accountPicker.placeholder', { defaultValue: 'Search by account number or name…' })}
           className={cn('h-8 pr-7 pl-2 text-xs', !value && !open && 'text-muted-foreground')}
         />
       </div>
@@ -1276,7 +1401,7 @@ function AccountPicker({
           <div className="max-h-72 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="p-3 text-center text-xs text-muted-foreground">
-                لا توجد نتائج لـ "{query}"
+                {t('createJournalEntry.accountPicker.noResults', { query, defaultValue: 'No results for "{{query}}"' })}
               </div>
             ) : (
               filtered.map((a, idx) => (
@@ -1289,7 +1414,8 @@ function AccountPicker({
                   }}
                   onMouseEnter={() => setHighlight(idx)}
                   className={cn(
-                    'flex w-full items-center gap-2 border-b border-border/40 px-3 py-2 text-right text-sm transition-colors',
+                    'flex w-full items-center gap-2 border-b border-border/40 px-3 py-2 text-sm transition-colors',
+                    locale === 'ar' ? 'text-right' : 'text-left',
                     idx === highlight ? 'bg-primary/15' : 'hover:bg-secondary/60',
                     a.id === value && 'font-semibold'
                   )}
@@ -1297,7 +1423,7 @@ function AccountPicker({
                   <span className="num-display text-xs text-muted-foreground shrink-0 min-w-[60px]">
                     {a.code}
                   </span>
-                  <span className="flex-1 truncate">{a.nameAr}</span>
+                  <span className="flex-1 truncate">{displayName(a)}</span>
                 </button>
               ))
             )}

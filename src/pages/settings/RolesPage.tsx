@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Shield, Plus, Pencil, Trash2, X, Save, ShieldCheck, Lock } from 'lucide-react';
@@ -16,6 +17,7 @@ import { PERMS } from '@/lib/auth/permissions';
 import type { RoleListItemDto, RoleUpsertPayload } from '@/types/api';
 
 export function RolesPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { can } = usePermissions();
   const [editing, setEditing] = useState<RoleListItemDto | null>(null);
@@ -29,7 +31,7 @@ export function RolesPage() {
   const removeM = useMutation({
     mutationFn: (id: number) => rolesApi.remove(id),
     onSuccess: () => {
-      toast.success('تم حذف الدور');
+      toast.success(t('common.success'));
       qc.invalidateQueries({ queryKey: ['roles'] });
     },
     onError: (e: unknown) => toast.error(extractApiError(e)),
@@ -44,15 +46,15 @@ export function RolesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-semibold">الأدوار والصلاحيات</h1>
+          <h1 className="font-display text-2xl font-semibold">{t('roles.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            أنشئ أدواراً وامنحها مجموعات صلاحيات، ثم اربطها بالمستخدمين من صفحة "المستخدمون".
+            {t('roles.subtitle')}
           </p>
         </div>
         {can(PERMS.System.Roles.Create) && (
           <Button onClick={() => setCreatingNew(true)} className="gap-1.5">
             <Plus className="h-4 w-4" />
-            دور جديد
+            {t('roles.newRole')}
           </Button>
         )}
       </div>
@@ -60,28 +62,28 @@ export function RolesPage() {
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Shield className="h-4 w-4 text-primary" />
-          <CardTitle>قائمة الأدوار</CardTitle>
+          <CardTitle>{t('roles.listTitle')}</CardTitle>
           <span className="ms-auto text-xs text-muted-foreground">
-            {rolesQuery.data?.length ?? 0} دور
+            {rolesQuery.data?.length ?? 0}
           </span>
         </CardHeader>
         <CardContent>
           {rolesQuery.isLoading ? (
             <LoadingSpinner />
           ) : (rolesQuery.data?.length ?? 0) === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">لا توجد أدوار بعد.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">{t('roles.empty')}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/60 text-right text-muted-foreground">
-                    <th className="px-3 py-2 font-medium">الاسم</th>
-                    <th className="px-3 py-2 font-medium">الكود</th>
-                    <th className="px-3 py-2 font-medium">النوع</th>
-                    <th className="px-3 py-2 font-medium text-center">الصلاحيات</th>
-                    <th className="px-3 py-2 font-medium text-center">المستخدمون</th>
-                    <th className="px-3 py-2 font-medium text-center">الحالة</th>
-                    <th className="px-3 py-2 font-medium text-left">إجراءات</th>
+                    <th className="px-3 py-2 font-medium">{t('roles.cols.name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('roles.cols.code')}</th>
+                    <th className="px-3 py-2 font-medium">{t('roles.cols.type')}</th>
+                    <th className="px-3 py-2 font-medium text-center">{t('roles.cols.permissions')}</th>
+                    <th className="px-3 py-2 font-medium text-center">{t('roles.cols.users')}</th>
+                    <th className="px-3 py-2 font-medium text-center">{t('roles.cols.status')}</th>
+                    <th className="px-3 py-2 font-medium text-left">{t('roles.cols.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -105,15 +107,15 @@ export function RolesPage() {
                         {r.isSystemRole ? (
                           <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-2 py-0.5 text-xs text-blue-400">
                             <Lock className="h-3 w-3" />
-                            نظام
+                            {t('common.system', { defaultValue: 'System' })}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">مخصَّص</span>
+                          <span className="text-xs text-muted-foreground">{t('roles.typeCustom')}</span>
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         {r.isSuperAdmin ? (
-                          <span className="text-xs text-amber-500">الكل</span>
+                          <span className="text-xs text-amber-500">{t('roles.typeAll')}</span>
                         ) : (
                           <span className="text-sm">{r.permissionCount}</span>
                         )}
@@ -186,6 +188,7 @@ interface DialogProps {
 }
 
 function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
+  const { t } = useTranslation();
   const [code, setCode] = useState(existing?.code ?? '');
   const [nameAr, setNameAr] = useState(existing?.nameAr ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
@@ -232,10 +235,10 @@ function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
     },
     onSuccess: res => {
       if (res.success) {
-        toast.success(mode === 'create' ? 'تم إنشاء الدور' : 'تم تحديث الدور');
+        toast.success(t('common.success'));
         onSaved();
       } else {
-        toast.error(res.errors?.join('، ') ?? 'حدث خطأ');
+        toast.error(res.errors?.join('، ') ?? t('common.error'));
       }
     },
     onError: (e: unknown) => toast.error(extractApiError(e)),
@@ -249,7 +252,7 @@ function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" />
-            <h2 className="font-medium">{mode === 'create' ? 'دور جديد' : `تعديل: ${existing?.nameAr}`}</h2>
+            <h2 className="font-medium">{mode === 'create' ? t('roles.newRole') : `${t('common.edit')}: ${existing?.nameAr}`}</h2>
           </div>
           <Button size="icon" variant="ghost" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -260,7 +263,7 @@ function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
           {/* الحقول الأساسية */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
             <div className="md:col-span-3">
-              <Label>الكود</Label>
+              <Label>{t('roles.form.code')}</Label>
               <Input
                 value={code}
                 onChange={e => setCode(e.target.value)}
@@ -269,15 +272,15 @@ function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
                 className="mt-1"
               />
               {isSystem && (
-                <p className="mt-1 text-[11px] text-muted-foreground">دور نظام — لا يمكن تغيير كوده.</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{t('roles.form.codeLocked')}</p>
               )}
             </div>
             <div className="md:col-span-5">
-              <Label>الاسم العربي *</Label>
+              <Label>{t('roles.form.nameAr')}</Label>
               <Input
                 value={nameAr}
                 onChange={e => setNameAr(e.target.value)}
-                placeholder="محاسب"
+                placeholder={t('roles.form.nameArPlaceholder')}
                 className="mt-1"
               />
             </div>
@@ -289,15 +292,15 @@ function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
                   onChange={e => setIsActive(e.target.checked)}
                   className="h-4 w-4"
                 />
-                <span>الدور فعّال</span>
+                <span>{t('roles.form.active')}</span>
               </label>
             </div>
             <div className="md:col-span-12">
-              <Label>وصف</Label>
+              <Label>{t('roles.form.description')}</Label>
               <Input
                 value={description ?? ''}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="وصف مختصر لاستخدام هذا الدور..."
+                placeholder={t('roles.form.descriptionPlaceholder')}
                 className="mt-1"
               />
             </div>
@@ -306,11 +309,11 @@ function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
           {/* شجرة الصلاحيات */}
           <div className="mt-5">
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-medium">صلاحيات الدور</h3>
+              <h3 className="text-sm font-medium">{t('roles.permissionsTitle')}</h3>
             </div>
             {isSuperAdmin ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-400">
-                دور <strong>SuperAdmin</strong> يمنح كل صلاحيات النظام تلقائياً ولا يمكن تعديل صلاحياته من هنا.
+                {t('roles.superAdminNote')}
               </div>
             ) : treeQuery.isLoading || (mode === 'edit' && detailQuery.isLoading) ? (
               <LoadingSpinner />
@@ -319,17 +322,17 @@ function RoleEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
                 tree={treeQuery.data ?? []}
                 selected={selectedPerms}
                 onChange={setSelectedPerms}
-                hint="اختر الصلاحيات التي يحصل عليها كل من يحمل هذا الدور."
+                hint={t('roles.permissionsHint')}
               />
             )}
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-background/40 px-5 py-3">
-          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button disabled={!canSave || saveM.isPending} onClick={() => saveM.mutate()} className="gap-1.5">
             <Save className="h-4 w-4" />
-            {saveM.isPending ? '...' : 'حفظ'}
+            {saveM.isPending ? '...' : t('common.save')}
           </Button>
         </div>
       </div>

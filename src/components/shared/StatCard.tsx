@@ -13,8 +13,8 @@ interface StatCardProps {
 export function StatCard({ label, value, icon: Icon, change, hint, variant = 'default' }: StatCardProps) {
   return (
     <div className={cn(
-      'group relative overflow-hidden rounded-lg border bg-card p-5 transition-all hover:border-primary/30',
-      variant === 'primary' && 'border-primary/20 bg-gradient-to-br from-primary/[0.06] to-transparent'
+      'card-interactive group relative overflow-hidden rounded-lg border bg-card p-5',
+      variant === 'primary' && 'border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card'
     )}>
       <div className="flex items-start justify-between">
         <div className="space-y-2">
@@ -38,8 +38,8 @@ export function StatCard({ label, value, icon: Icon, change, hint, variant = 'de
         <div className={cn(
           'flex h-11 w-11 items-center justify-center rounded-lg transition-colors',
           variant === 'primary'
-            ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
-            : 'bg-secondary text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
+            ? 'bg-primary/20 text-primary ring-1 ring-primary/30 glow-primary'
+            : 'bg-secondary text-muted-foreground ring-1 ring-border group-hover:bg-primary/15 group-hover:text-primary group-hover:ring-primary/25'
         )}>
           <Icon className="h-5 w-5" />
         </div>

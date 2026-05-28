@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ModuleNode } from '@/types/api';
@@ -23,6 +24,7 @@ interface Props {
  * الـ checkbox الأعلى يصير في حالة "indeterminate" تلقائياً إذا بعض أبنائه مختار وبعض لا.
  */
 export function PermissionTreeEditor({ tree, selected, onChange, readOnly, hint }: Props) {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const toggleCollapse = (key: string) =>
@@ -63,7 +65,7 @@ export function PermissionTreeEditor({ tree, selected, onChange, readOnly, hint 
           onChange={v => setMany(allCodes, v)}
         />
         <span className="text-sm font-medium">
-          {allSelected ? 'إلغاء تحديد كل الصلاحيات' : 'تحديد كل الصلاحيات في النظام'}
+          {allSelected ? t('permissions.deselectAll') : t('permissions.selectAll')}
         </span>
         <span className="ms-auto text-xs text-muted-foreground">
           {selected.size} / {allCodes.length}
@@ -86,7 +88,7 @@ export function PermissionTreeEditor({ tree, selected, onChange, readOnly, hint 
                   type="button"
                   onClick={() => toggleCollapse(mKey)}
                   className="text-muted-foreground hover:text-foreground"
-                  aria-label="طي/فتح"
+                  aria-label={t('common.toggleCollapse')}
                 >
                   {isCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>

@@ -1,7 +1,22 @@
-import type { AccountStatementDto, JournalEntryDto, TrialBalanceDto } from '@/types/api';
+import type {
+  AccountBalancesDto,
+  AccountStatementDto,
+  JournalEntryDto,
+  TrialBalanceDto,
+} from '@/types/api';
 import type { CompanySettingsDto } from '@/lib/api/companySettings';
 import { formatAmount, formatDate } from '@/lib/utils';
 import { tafqeet } from '@/lib/tafqeet';
+import {
+  getPrintI18n,
+  getPrintLocale,
+  getPrintDir,
+  formatPrintedAt,
+  type PrintI18n,
+  type PrintLocale,
+} from '@/lib/i18n/printDictionary';
+
+export type { PrintLocale };
 
 function escapeHtml(s: string | null | undefined): string {
   if (s == null) return '';
@@ -13,15 +28,15 @@ function escapeHtml(s: string | null | undefined): string {
     .replace(/'/g, '&#39;');
 }
 
-function statusLabel(status: string): string {
-  if (status === 'Posted') return 'مرحَّل';
-  if (status === 'Draft') return 'غير مرحَّل';
-  if (status === 'Reversed') return 'معكوس';
+function statusLabel(status: string, i18n: PrintI18n): string {
+  if (status === 'Posted')   return i18n.status.posted;
+  if (status === 'Draft')    return i18n.status.draft;
+  if (status === 'Reversed') return i18n.status.reversed;
   return status;
 }
 
-function typeLabel(t?: string): string {
-  return t === 'Opening' ? 'افتتاحي' : 'طبيعي';
+function typeLabel(t: string | undefined, i18n: PrintI18n): string {
+  return t === 'Opening' ? i18n.entryType.opening : i18n.entryType.regular;
 }
 
 const PRINT_STYLES = `
@@ -71,6 +86,16 @@ const PRINT_STYLES = `
   .doc-footer .custom-footer { font-weight: 600; color: #444; margin-bottom: 3px; }
   .signatures { margin-top: 30px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; font-size: 11px; text-align: center; }
   .signatures .sig { border-top: 1px solid #444; padding-top: 6px; }
+  @media (max-width: 600px) {
+    .preview-page { padding: 4mm; margin: 4px auto; }
+    .doc-meta { grid-template-columns: repeat(2, 1fr); }
+    .doc-header { flex-direction: column; gap: 8px; }
+    .doc-header .meta { text-align: start; }
+    .preview-toolbar .actions { flex-wrap: wrap; gap: 4px; }
+    .preview-toolbar button span { display: none; }
+    table { font-size: 10px; }
+    th, td { padding: 3px 4px; }
+  }
   @media print {
     html, body { background: #fff; }
     body { padding: 0; }
@@ -124,23 +149,34 @@ const PRINT_STYLES = `
 // ‎عرض الـ viewport كاملاً في بعض المتصفحات (خصوصاً Chromium داخل WebView2/PWA).
 const PRINTER_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;width:14px;height:14px;display:inline-block"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>';
 const CLOSE_SVG   = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;width:14px;height:14px;display:inline-block"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+const PDF_SVG     = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;width:14px;height:14px;display:inline-block"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line><polyline points="9 9 10 9"></polyline></svg>';
 
 const OVERLAY_STYLES = `
   position: fixed; inset: 0; z-index: 99999; display: flex; flex-direction: column;
-  background: #1f2937; color: #fff;
+  background: #374151; color: #fff;
 `;
-const TOOLBAR_STYLES = `
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 8px 12px; background: #2c3e50; border-bottom: 2px solid #1a242f; box-shadow: 0 2px 6px rgba(0,0,0,.25);
-  font-family: 'Segoe UI', Tahoma, Arial, sans-serif; direction: rtl;
+const TOOLBAR_STYLES_BASE = `
+  display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;
+  padding: 6px 10px; background: #1e293b; border-bottom: 2px solid #0f172a; box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  font-family: 'Segoe UI', Tahoma, Arial, sans-serif; min-height: 48px; flex-shrink: 0;
 `;
-const TOOLBAR_TITLE_STYLES = `font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;`;
-const TOOLBAR_TITLE_TEXT_STYLES = `overflow: hidden; text-overflow: ellipsis; white-space: nowrap;`;
-const TOOLBAR_ACTIONS_STYLES = `display: flex; gap: 8px; flex-shrink: 0;`;
-const BTN_BASE_STYLES = `border: 0; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family: inherit;`;
-const BTN_PRIMARY_STYLES = `${BTN_BASE_STYLES} background: #27ae60; color: #fff;`;
-const BTN_DANGER_STYLES  = `${BTN_BASE_STYLES} background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4);`;
-const IFRAME_STYLES = `flex: 1; width: 100%; border: 0; background: #e9ecef;`;
+const toolbarStyles = (dir: 'rtl' | 'ltr') => `${TOOLBAR_STYLES_BASE} direction: ${dir};`;
+const TOOLBAR_TITLE_STYLES = `font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden;`;
+const TOOLBAR_TITLE_TEXT_STYLES = `overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e2e8f0; max-width: 180px;`;
+const TOOLBAR_ACTIONS_STYLES = `display: flex; gap: 4px; flex-shrink: 0; align-items: center; flex-wrap: wrap;`;
+const BTN_BASE_STYLES = `border: 0; border-radius: 6px; padding: 7px 10px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-family: inherit; transition: opacity .15s; touch-action: manipulation; -webkit-tap-highlight-color: transparent;`;
+const BTN_PRIMARY_STYLES = `${BTN_BASE_STYLES} background: #16a34a; color: #fff;`;
+const BTN_PDF_STYLES     = `${BTN_BASE_STYLES} background: #2563eb; color: #fff;`;
+const BTN_DANGER_STYLES  = `${BTN_BASE_STYLES} background: rgba(255,255,255,.08); color: #e2e8f0; border: 1px solid rgba(255,255,255,.2);`;
+const BTN_ZOOM_STYLES    = `${BTN_BASE_STYLES} background: rgba(255,255,255,.08); color: #e2e8f0; border: 1px solid rgba(255,255,255,.2); padding: 7px 9px; font-size: 14px; min-width: 34px; justify-content: center;`;
+const IFRAME_STYLES = `flex: 1; width: 100%; border: 0; background: #4b5563; display: block;`;
+
+// ── كشف الأجهزة المحمولة والـ Android ──────────────────────────────────────
+const isMobile = () => /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+const isAndroid = () => /Android/i.test(navigator.userAgent);
+const isPWAStandalone = () =>
+  ('standalone' in window.navigator && (window.navigator as any).standalone === true) ||
+  window.matchMedia('(display-mode: standalone)').matches;
 
 /**
  * تفتح معاينة طباعة كاملة الشاشة داخل الصفحة الحالية باستخدام iframe.
@@ -149,7 +185,9 @@ const IFRAME_STYLES = `flex: 1; width: 100%; border: 0; background: #e9ecef;`;
  * @param fullHtmlDocument محتوى HTML كامل (DOCTYPE + html + head + body) يُحقن في iframe عبر srcdoc.
  * @param title عنوان يظهر في شريط الأدوات.
  */
-function openPrintPreview(fullHtmlDocument: string, title: string) {
+function openPrintPreview(fullHtmlDocument: string, title: string, locale: PrintLocale = getPrintLocale()) {
+  const i18n = getPrintI18n(locale);
+  const dir = getPrintDir(locale);
   // ‎احذف أي معاينة سابقة قد تكون مفتوحة
   const existing = document.getElementById('itc-print-overlay');
   if (existing) existing.remove();
@@ -158,11 +196,10 @@ function openPrintPreview(fullHtmlDocument: string, title: string) {
   overlay.id = 'itc-print-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', `معاينة الطباعة - ${title}`);
+  overlay.setAttribute('aria-label', `${i18n.preview.titlePrefix} - ${title}`);
   overlay.style.cssText = OVERLAY_STYLES;
 
   // ‎حاجز CSS قوي: يمنع أي svg داخل الـ overlay من التمدد لكامل الـ viewport
-  // ‎(يصلح بقايا من نسخ مخبَّأة قديمة لـ SVG بدون width/height)
   const guardStyle = document.createElement('style');
   guardStyle.textContent = `
     #itc-print-overlay svg { width: 14px !important; height: 14px !important; max-width: 14px !important; max-height: 14px !important; flex: none !important; }
@@ -170,24 +207,40 @@ function openPrintPreview(fullHtmlDocument: string, title: string) {
   `;
   overlay.appendChild(guardStyle);
 
+  const mobile = isMobile();
+  const android = isAndroid();
+  const pwa = isPWAStandalone();
+
+  // ── على الموبايل: نُخفي أزرار الزوم ونُقلّل النصوص توفيراً للمساحة
+  const zoomSection = mobile
+    ? ''
+    : `<button type="button" data-act="zoom-out"  style="${BTN_ZOOM_STYLES}" title="تصغير">−</button>
+       <span   data-act="zoom-label" style="font-size:11px;color:#94a3b8;min-width:36px;text-align:center;user-select:none;">100%</span>
+       <button type="button" data-act="zoom-in"   style="${BTN_ZOOM_STYLES}" title="تكبير">＋</button>`;
+
+  // ── نص الأزرار: نُقلّله على الشاشات الضيقة
+  const printBtnText = mobile ? '' : `<span>${escapeHtml(i18n.preview.print)}</span>`;
+  const pdfBtnText   = mobile ? '' : `<span>${escapeHtml(i18n.preview.exportPdf)}</span>`;
+  const closeBtnText = `<span>${escapeHtml(i18n.preview.close)}</span>`;
+
   const toolbar = document.createElement('div');
-  toolbar.style.cssText = TOOLBAR_STYLES;
-  // ‎innerHTML آمن لأن العنوان يمر عبر escapeHtml
+  toolbar.style.cssText = toolbarStyles(dir);
   toolbar.innerHTML = `
     <div style="${TOOLBAR_TITLE_STYLES}">
       ${PRINTER_SVG}
-      <span style="${TOOLBAR_TITLE_TEXT_STYLES}">معاينة الطباعة - ${escapeHtml(title)}</span>
+      <span style="${TOOLBAR_TITLE_TEXT_STYLES}">${escapeHtml(title)}</span>
     </div>
     <div style="${TOOLBAR_ACTIONS_STYLES}">
-      <button type="button" data-act="print" style="${BTN_PRIMARY_STYLES}">${PRINTER_SVG}<span>طباعة</span></button>
-      <button type="button" data-act="close" style="${BTN_DANGER_STYLES}">${CLOSE_SVG}<span>إغلاق</span></button>
+      ${zoomSection}
+      <button type="button" data-act="pdf"   style="${BTN_PDF_STYLES}"    title="${escapeHtml(i18n.preview.exportPdfTitle)}">${PDF_SVG}${pdfBtnText}</button>
+      <button type="button" data-act="print" style="${BTN_PRIMARY_STYLES}" title="${escapeHtml(i18n.preview.print)}">${PRINTER_SVG}${printBtnText}</button>
+      <button type="button" data-act="close" style="${BTN_DANGER_STYLES}">${CLOSE_SVG}${closeBtnText}</button>
     </div>
   `;
 
   const iframe = document.createElement('iframe');
   iframe.title = title;
   iframe.style.cssText = IFRAME_STYLES;
-  // ‎srcdoc يحقن الـ HTML مباشرة بدون رحلة شبكة — يعمل خارج الـ Service Worker scope.
   iframe.srcdoc = fullHtmlDocument;
 
   overlay.appendChild(toolbar);
@@ -205,34 +258,112 @@ function openPrintPreview(fullHtmlDocument: string, title: string) {
   };
 
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      close();
-    }
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
   };
   window.addEventListener('keydown', onKey);
 
   toolbar.querySelector<HTMLButtonElement>('[data-act="close"]')?.addEventListener('click', close);
-  toolbar.querySelector<HTMLButtonElement>('[data-act="print"]')?.addEventListener('click', () => {
+
+  // ── تحكم التكبير / التصغير
+  let zoomLevel = 100;
+  const ZOOM_STEPS = [50, 60, 70, 80, 90, 100, 110, 125, 150, 175, 200];
+  const zoomLabel = toolbar.querySelector<HTMLSpanElement>('[data-act="zoom-label"]');
+  const applyZoom = () => {
+    if (zoomLabel) zoomLabel.textContent = `${zoomLevel}%`;
     try {
-      // ‎ركّز iframe قبل الطباعة (يتطلبها Safari)
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (doc?.body) {
+        (doc.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(zoomLevel / 100);
+      }
+    } catch { /* cross-origin guard */ }
+  };
+  toolbar.querySelector<HTMLButtonElement>('[data-act="zoom-in"]')?.addEventListener('click', () => {
+    const idx = ZOOM_STEPS.indexOf(zoomLevel);
+    if (idx < ZOOM_STEPS.length - 1) { zoomLevel = ZOOM_STEPS[idx + 1]; applyZoom(); }
+  });
+  toolbar.querySelector<HTMLButtonElement>('[data-act="zoom-out"]')?.addEventListener('click', () => {
+    const idx = ZOOM_STEPS.indexOf(zoomLevel);
+    if (idx > 0) { zoomLevel = ZOOM_STEPS[idx - 1]; applyZoom(); }
+  });
+  iframe.addEventListener('load', () => applyZoom());
+
+  toolbar.querySelector<HTMLButtonElement>('[data-act="print"]')?.addEventListener('click', () => {
+    // ── على Android/PWA: نفتح ملف HTML قابل للطباعة مباشرةً (لأن print() لا تعمل داخل iframe في Android)
+    if (android || pwa) {
+      triggerHtmlDownload(fullHtmlDocument, title);
+      return;
+    }
+    try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
     } catch {
-      // fallback لطباعة الصفحة الحالية إن فشل الـ iframe
       window.print();
     }
   });
+
+  // ── زر تصدير/تنزيل:
+  //    يُنزّل ملف HTML جاهز للطباعة إلى مجلد التنزيلات (Downloads).
+  //    على Android/PWA: يُنزّل مباشرةً.
+  //    على الديسكتوب: ينزّل HTML يمكن فتحه وطباعته كـ PDF بـ Ctrl+P.
+  toolbar.querySelector<HTMLButtonElement>('[data-act="pdf"]')?.addEventListener('click', () => {
+    triggerHtmlDownload(fullHtmlDocument, title);
+  });
 }
 
-function openPrintWindow(html: string, title: string) {
+/**
+ * يُولّد ملف HTML جاهز للطباعة ويُنزّله إلى جهاز المستخدم.
+ * يعمل على الأندرويد والـ PWA والمتصفحات العادية.
+ */
+function triggerHtmlDownload(fullHtmlDocument: string, title: string) {
+  const printReadyHtml = fullHtmlDocument.replace(
+    '</head>',
+    `<style>
+      .preview-toolbar, .no-print { display: none !important; }
+      @page { size: A4; margin: 10mm; }
+      html, body { background: #fff !important; }
+      .preview-page { margin: 0 !important; padding: 0 !important; box-shadow: none !important; border-radius: 0 !important; max-width: none !important; }
+      @media screen { body { padding: 8px; } }
+    </style>
+    <script>
+      window.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.preview-toolbar,.no-print').forEach(function(el){ el.style.display='none'; });
+        // على الأجهزة المحمولة: اطبع تلقائياً عند الفتح
+        if (/Android|iPhone|iPad/i.test(navigator.userAgent)) {
+          setTimeout(function(){ window.print(); }, 600);
+        }
+      });
+    </script>
+    </head>`
+  );
+  const safeTitle = title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim() || 'document';
+  const blob = new Blob([printReadyHtml], { type: 'text/html; charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${safeTitle}.html`;
+  a.rel      = 'noopener';
+  // ── للـ Android/PWA: نستخدم target="_blank" بدل download إن لزم الأمر
+  if (isAndroid() || isPWAStandalone()) {
+    a.target = '_blank';
+  }
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+function openPrintWindow(html: string, title: string, locale: PrintLocale = getPrintLocale()) {
+  const dir = getPrintDir(locale);
+  // ‎حقن `body { direction: <dir> }` ديناميكياً ليُعكس اتجاه النص في الجداول وأعمدة text-align
+  const bodyDirStyle = `<style>body { direction: ${dir}; }</style>`;
   const fullDoc = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
+<html dir="${dir}" lang="${locale}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)}</title>
 <style>${PRINT_STYLES}</style>
+${bodyDirStyle}
 </head>
 <body>
   <div class="preview-page">
@@ -240,37 +371,47 @@ function openPrintWindow(html: string, title: string) {
   </div>
 </body>
 </html>`;
-  openPrintPreview(fullDoc, title);
+  openPrintPreview(fullDoc, title, locale);
 }
 
-function statusBadgeHtml(status: string): string {
+function statusBadgeHtml(status: string, i18n: PrintI18n): string {
   const cls =
     status === 'Posted' ? 'badge-posted' :
     status === 'Reversed' ? 'badge-reversed' : 'badge-draft';
-  return `<span class="badge ${cls}">${statusLabel(status)}</span>`;
+  return `<span class="badge ${cls}">${statusLabel(status, i18n)}</span>`;
 }
 
 /** يبني الترويسة الموحَّدة (لوكو + اسم + اتصال) من إعدادات الشركة */
-function buildBrandHeader(company: CompanySettingsDto | null | undefined, printedAt: string): string {
+function buildBrandHeader(
+  company: CompanySettingsDto | null | undefined,
+  printedAt: string,
+  i18n: PrintI18n,
+  locale: PrintLocale,
+): string {
   const c = company || ({} as CompanySettingsDto);
-  const heading = c.printHeader || c.nameAr || 'الشركة';
+  // ‎في EN نُفضّل nameEn → printHeader → nameAr → الافتراضي
+  const heading = locale === 'en'
+    ? (c.nameEn || c.printHeader || c.nameAr || i18n.brand.defaultCompanyName)
+    : (c.printHeader || c.nameAr || i18n.brand.defaultCompanyName);
   const logo = c.logoBase64
     ? `<img class="logo" src="${escapeHtml(c.logoBase64)}" alt="logo">`
     : '';
   const contactBits: string[] = [];
-  if (c.address) contactBits.push(`<span>${escapeHtml(c.address)}</span>`);
-  if (c.phone) contactBits.push(`<span>هاتف: ${escapeHtml(c.phone)}</span>`);
+  // ‎اختيار العنوان بحسب اللغة: في EN نُفضّل addressEn → address، وفي AR العكس.
+  const displayAddress = locale === 'en' ? (c.addressEn || c.address) : (c.address || c.addressEn);
+  if (displayAddress) contactBits.push(`<span>${escapeHtml(displayAddress)}</span>`);
+  if (c.phone) contactBits.push(`<span>${escapeHtml(i18n.brand.phone)} ${escapeHtml(c.phone)}</span>`);
   if (c.email) contactBits.push(`<span>${escapeHtml(c.email)}</span>`);
   if (c.website) contactBits.push(`<span>${escapeHtml(c.website)}</span>`);
   const contact = contactBits.length
     ? `<div class="contact">${contactBits.join(' • ')}</div>`
     : '';
 
-  const subEn = c.nameEn ? `<div class="sub-en">${escapeHtml(c.nameEn)}</div>` : '';
+  // ‎لا نعرض الاسم في اللغة الأخرى كنص فرعي — نطبع الاسم وفق اللغة فقط.
 
   const metaBits: string[] = [];
-  metaBits.push(`<div>تاريخ الطباعة</div><div>${escapeHtml(printedAt)}</div>`);
-  if (c.taxNumber) metaBits.push(`<div style="margin-top:4px">الرقم الضريبي</div><div>${escapeHtml(c.taxNumber)}</div>`);
+  metaBits.push(`<div>${escapeHtml(i18n.brand.printedAt)}</div><div>${escapeHtml(printedAt)}</div>`);
+  if (c.taxNumber) metaBits.push(`<div style="margin-top:4px">${escapeHtml(i18n.brand.taxNumber)}</div><div>${escapeHtml(c.taxNumber)}</div>`);
 
   return `
     <div class="doc-header">
@@ -278,7 +419,6 @@ function buildBrandHeader(company: CompanySettingsDto | null | undefined, printe
         ${logo}
         <div class="titles">
           <h1>${escapeHtml(heading)}</h1>
-          ${subEn}
           ${contact}
         </div>
       </div>
@@ -305,61 +445,70 @@ export function printJournalEntriesList(
   entries: JournalEntryDto[],
   filters: PrintListFilters = {},
   company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
 ) {
+  const i18n = getPrintI18n(locale);
   const totalDebit = entries.reduce((s, e) => s + (e.totalDebit || 0), 0);
   const totalCredit = entries.reduce((s, e) => s + (e.totalCredit || 0), 0);
 
   const rows = entries.map((e, idx) => {
+    // ‎خلية رقم القيد تجمع: رقم السند (PV-1) إن وُجد، رقم القيد الداخلي (#29)،
+    // ‎والرقم اليدوي (CHK-123…) إن سجّله المستخدم — يُعرض بلون كهرماني صغير
+    // ‎ليتميّز بصرياً عن المسلسلات النظامية.
+    const manualLine = e.manualNumber
+      ? `<br><span class="num" style="font-size:9px;color:#b45309;direction:ltr">#${escapeHtml(e.manualNumber)}</span>`
+      : '';
     const entryCell = e.voucherNumber
-      ? `<strong class="num">${escapeHtml(e.voucherNumber)}</strong><br><span class="num" style="font-size:9px;color:#777">#${escapeHtml(e.entryNumber)}</span>`
-      : `<span class="num">#${escapeHtml(e.entryNumber)}</span>`;
+      ? `<strong class="num">${escapeHtml(e.voucherNumber)}</strong><br><span class="num" style="font-size:9px;color:#777">#${escapeHtml(e.entryNumber)}</span>${manualLine}`
+      : `<span class="num">#${escapeHtml(e.entryNumber)}</span>${manualLine}`;
     return `
     <tr>
       <td class="center">${idx + 1}</td>
       <td class="center">${entryCell}</td>
       <td class="center">${formatDate(e.entryDate)}</td>
-      <td>${escapeHtml(e.description)} ${e.entryType === 'Opening' ? '<span class="badge badge-opening">افتتاحي</span>' : ''}</td>
+      <td>${escapeHtml(e.description)} ${e.entryType === 'Opening' ? `<span class="badge badge-opening">${escapeHtml(i18n.entryType.openingBadge)}</span>` : ''}</td>
       <td class="left num">${formatAmount(e.totalDebit)}</td>
       <td class="left num">${formatAmount(e.totalCredit)}</td>
       <td class="center">${escapeHtml(e.currency || 'IQD')}</td>
-      <td class="center">${statusBadgeHtml(e.status)}</td>
+      <td class="center">${statusBadgeHtml(e.status, i18n)}</td>
     </tr>
   `;
   }).join('');
 
   const fromTxt = filters.fromDate ? formatDate(filters.fromDate) : '—';
   const toTxt = filters.toDate ? formatDate(filters.toDate) : '—';
-  const statusTxt = filters.status ? statusLabel(filters.status) : 'الكل';
-  const printedAt = new Date().toLocaleString('ar-IQ');
+  const statusTxt = filters.status ? statusLabel(filters.status, i18n) : i18n.journalList.all;
+  const printedAt = formatPrintedAt(locale);
+  const headerCompanyName = locale === 'en' ? (company?.nameEn || company?.nameAr || '') : (company?.nameAr || '');
 
   const html = `
-    ${buildBrandHeader(company, printedAt)}
-    <div class="report-title">تقرير القيود اليومية</div>
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${escapeHtml(i18n.journalList.title)}</div>
     <div class="doc-meta">
-      <div class="item"><span class="label">من تاريخ</span><span class="value">${fromTxt}</span></div>
-      <div class="item"><span class="label">إلى تاريخ</span><span class="value">${toTxt}</span></div>
-      <div class="item"><span class="label">الحالة</span><span class="value">${statusTxt}</span></div>
-      <div class="item"><span class="label">عدد القيود</span><span class="value">${entries.length}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.journalList.fromDate)}</span><span class="value">${fromTxt}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.journalList.toDate)}</span><span class="value">${toTxt}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.journalList.status)}</span><span class="value">${escapeHtml(statusTxt)}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.journalList.entriesCount)}</span><span class="value">${entries.length}</span></div>
     </div>
     <table>
       <thead>
         <tr>
-          <th class="center" style="width:30px">#</th>
-          <th class="center" style="width:80px">السند / القيد</th>
-          <th class="center" style="width:80px">التاريخ</th>
-          <th>البيان</th>
-          <th class="left" style="width:90px">المدين</th>
-          <th class="left" style="width:90px">الدائن</th>
-          <th class="center" style="width:50px">العملة</th>
-          <th class="center" style="width:60px">الحالة</th>
+          <th class="center" style="width:30px">${escapeHtml(i18n.journalList.colNo)}</th>
+          <th class="center" style="width:80px">${escapeHtml(i18n.journalList.colVoucherOrEntry)}</th>
+          <th class="center" style="width:80px">${escapeHtml(i18n.journalList.colDate)}</th>
+          <th>${escapeHtml(i18n.journalList.colDescription)}</th>
+          <th class="left" style="width:90px">${escapeHtml(i18n.journalList.colDebit)}</th>
+          <th class="left" style="width:90px">${escapeHtml(i18n.journalList.colCredit)}</th>
+          <th class="center" style="width:50px">${escapeHtml(i18n.journalList.colCurrency)}</th>
+          <th class="center" style="width:60px">${escapeHtml(i18n.journalList.colStatus)}</th>
         </tr>
       </thead>
       <tbody>
-        ${rows || '<tr><td colspan="8" class="center" style="padding:20px;color:#888">لا توجد قيود ضمن المعايير المحددة</td></tr>'}
+        ${rows || `<tr><td colspan="8" class="center" style="padding:20px;color:#888">${escapeHtml(i18n.journalList.empty)}</td></tr>`}
       </tbody>
       <tfoot>
         <tr>
-          <th colspan="4" class="right">الإجمالي</th>
+          <th colspan="4" class="right">${escapeHtml(i18n.journalList.totals)}</th>
           <th class="left num">${formatAmount(totalDebit)}</th>
           <th class="left num">${formatAmount(totalCredit)}</th>
           <th colspan="2"></th>
@@ -367,82 +516,97 @@ export function printJournalEntriesList(
       </tfoot>
     </table>
     <div class="signatures">
-      <div class="sig">المحاسب</div>
-      <div class="sig">المراجع</div>
-      <div class="sig">المدير المالي</div>
+      <div class="sig">${escapeHtml(i18n.signatures.accountant)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.reviewer)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.financialManager)}</div>
     </div>
-    ${buildFooter(company, 'تقرير القيود اليومية')}
+    ${buildFooter(company, i18n.journalList.title)}
   `;
 
-  openPrintWindow(html, `تقرير القيود اليومية - ${company?.nameAr ?? ''}`.trim());
+  openPrintWindow(html, `${i18n.journalList.previewTitle} - ${headerCompanyName}`.trim(), locale);
 }
 
 export function printSingleJournalEntry(
   e: JournalEntryDto,
   company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
 ) {
+  const i18n = getPrintI18n(locale);
+  // ‎اسم الحساب بحسب اللغة: نُفضّل accountNameEn في EN ثم accountName كاحتياط.
+  const accountDisplayName = (l: JournalEntryDto['lines'][number]): string => {
+    if (locale === 'en') {
+      return (l.accountNameEn?.trim()) || (l.accountName?.trim()) || (l.accountNameAr?.trim()) || `#${l.accountId}`;
+    }
+    return (l.accountNameAr?.trim()) || (l.accountName?.trim()) || `#${l.accountId}`;
+  };
   const lines = e.lines.map((l, idx) => `
     <tr>
       <td class="center">${idx + 1}</td>
-      <td>${escapeHtml(l.accountName ?? `#${l.accountId}`)}</td>
+      <td>${escapeHtml(accountDisplayName(l))}</td>
       <td>${escapeHtml(l.description ?? '')}</td>
       <td class="left num">${l.isDebit ? formatAmount(l.amount) : '—'}</td>
       <td class="left num">${!l.isDebit ? formatAmount(l.amount) : '—'}</td>
     </tr>
   `).join('');
 
-  const printedAt = new Date().toLocaleString('ar-IQ');
+  const printedAt = formatPrintedAt(locale);
 
   const voucherHeader = e.voucherNumber
-    ? `<div class="item"><span class="label">رقم السند</span><span class="value num" style="color:#1f6f43;font-size:14px">${escapeHtml(e.voucherNumber)}</span></div>
-       <div class="item"><span class="label">رقم القيد</span><span class="value num">#${escapeHtml(e.entryNumber)}</span></div>`
-    : `<div class="item"><span class="label">رقم القيد</span><span class="value num">${escapeHtml(e.entryNumber)}</span></div>`;
-  const metaCols = e.voucherNumber ? 5 : 4;
+    ? `<div class="item"><span class="label">${escapeHtml(i18n.singleEntry.voucherNumber)}</span><span class="value num" style="color:#1f6f43;font-size:14px">${escapeHtml(e.voucherNumber)}</span></div>
+       <div class="item"><span class="label">${escapeHtml(i18n.singleEntry.entryNumber)}</span><span class="value num">#${escapeHtml(e.entryNumber)}</span></div>`
+    : `<div class="item"><span class="label">${escapeHtml(i18n.singleEntry.entryNumber)}</span><span class="value num">${escapeHtml(e.entryNumber)}</span></div>`;
+  // ‎الرقم اليدوي (شيك / مرجع خارجي) — يظهر كخلية إضافية في الميتا، فقط
+  // ‎إن وُجد على القيد. يُطبع بلون مميّز (كهرماني) ليُسهل تمييزه بصرياً.
+  const manualNumberCell = e.manualNumber
+    ? `<div class="item"><span class="label">${escapeHtml(i18n.singleEntry.manualNumber)}</span><span class="value num" style="color:#b45309;direction:ltr;text-align:start">${escapeHtml(e.manualNumber)}</span></div>`
+    : '';
+  const metaCols = (e.voucherNumber ? 5 : 4) + (e.manualNumber ? 1 : 0);
 
   const html = `
-    ${buildBrandHeader(company, printedAt)}
-    <div class="report-title">قيد محاسبي</div>
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${escapeHtml(i18n.singleEntry.title)}</div>
     <div class="doc-meta" style="grid-template-columns: repeat(${metaCols}, 1fr)">
       ${voucherHeader}
-      <div class="item"><span class="label">التاريخ</span><span class="value">${formatDate(e.entryDate)}</span></div>
-      <div class="item"><span class="label">النوع</span><span class="value">${typeLabel(e.entryType)}</span></div>
-      <div class="item"><span class="label">العملة</span><span class="value">${escapeHtml(e.currency || 'IQD')}</span></div>
+      ${manualNumberCell}
+      <div class="item"><span class="label">${escapeHtml(i18n.singleEntry.date)}</span><span class="value">${formatDate(e.entryDate)}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.singleEntry.type)}</span><span class="value">${escapeHtml(typeLabel(e.entryType, i18n))}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.singleEntry.currency)}</span><span class="value">${escapeHtml(e.currency || 'IQD')}</span></div>
     </div>
-    <div style="background:#f8f9fa;padding:8px 10px;border-right:3px solid #2c3e50;margin-bottom:10px;font-size:12px">
-      <div style="font-size:10px;color:#555;margin-bottom:2px">البيان العام</div>
+    <div style="background:#f8f9fa;padding:8px 10px;border-${locale === 'en' ? 'left' : 'right'}:3px solid #2c3e50;margin-bottom:10px;font-size:12px">
+      <div style="font-size:10px;color:#555;margin-bottom:2px">${escapeHtml(i18n.singleEntry.generalDescription)}</div>
       <div style="font-weight:600">${escapeHtml(e.description) || '—'}</div>
     </div>
     <table>
       <thead>
         <tr>
-          <th class="center" style="width:30px">#</th>
-          <th>الحساب</th>
-          <th>البيان</th>
-          <th class="left" style="width:120px">المدين</th>
-          <th class="left" style="width:120px">الدائن</th>
+          <th class="center" style="width:30px">${escapeHtml(i18n.singleEntry.colNo)}</th>
+          <th>${escapeHtml(i18n.singleEntry.colAccount)}</th>
+          <th>${escapeHtml(i18n.singleEntry.colDescription)}</th>
+          <th class="left" style="width:120px">${escapeHtml(i18n.singleEntry.colDebit)}</th>
+          <th class="left" style="width:120px">${escapeHtml(i18n.singleEntry.colCredit)}</th>
         </tr>
       </thead>
       <tbody>${lines}</tbody>
       <tfoot>
         <tr>
-          <th colspan="3" class="right">الإجمالي</th>
+          <th colspan="3" class="right">${escapeHtml(i18n.singleEntry.total)}</th>
           <th class="left num">${formatAmount(e.totalDebit)}</th>
           <th class="left num">${formatAmount(e.totalCredit)}</th>
         </tr>
       </tfoot>
     </table>
     <div style="margin-top:14px;padding:6px 10px;background:#f1f8ff;border:1px solid #b3d7ff;border-radius:4px;font-size:11px">
-      <strong>الحالة:</strong> ${statusBadgeHtml(e.status)}
+      <strong>${escapeHtml(i18n.singleEntry.statusLabel)}</strong> ${statusBadgeHtml(e.status, i18n)}
     </div>
     <div class="signatures">
-      <div class="sig">المحاسب</div>
-      <div class="sig">المراجع</div>
-      <div class="sig">المدير المالي</div>
+      <div class="sig">${escapeHtml(i18n.signatures.accountant)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.reviewer)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.financialManager)}</div>
     </div>
-    ${buildFooter(company, `قيد رقم ${escapeHtml(e.entryNumber)}`)}
+    ${buildFooter(company, i18n.singleEntry.footer(escapeHtml(e.entryNumber)))}
   `;
 
-  openPrintWindow(html, `قيد رقم ${e.entryNumber}`);
+  openPrintWindow(html, i18n.singleEntry.previewTitle(e.entryNumber), locale);
 }
 
 /**
@@ -453,17 +617,47 @@ export function printSingleJournalEntry(
  *   - فوتر إجمالي العملة.
  * في الأسفل بطاقة "الإجمالي المُقوَّم بالعملة الأساسية" (افتتاحي/مدين/دائن/ختامي).
  */
+/** تكوين أعمدة كشف الحساب كما يراها المستخدم لحظة الطباعة */
+export interface StatementPrintColConfig {
+  order:  string[];                  // StatementColKey[] بالترتيب الفعلي
+  hidden: string[];                  // الأعمدة المخفية
+  widths: Record<string, number>;    // عرض كل عمود بالـ px
+}
+
+/** خيارات إضافية لطباعة كشف الحساب — للأسماء بالإنجليزية وغيرها. */
+export interface StatementPrintExtra {
+  /** اسم الحساب بالإنجليزية للعرض الرئيسي عند locale='en' (اختياري). */
+  accountNameEn?: string | null;
+  /** خريطة code → nameEn لأسماء الحسابات في صفوف «جميع الحسابات». */
+  accountNamesEn?: Record<string, string>;
+}
+
 export function printAccountStatement(
   data: AccountStatementDto,
-  company: CompanySettingsDto | null | undefined
+  company: CompanySettingsDto | null | undefined,
+  colConfig?: StatementPrintColConfig,
+  locale: PrintLocale = getPrintLocale(),
+  extra: StatementPrintExtra = {},
 ) {
-  const printedAt = new Date().toLocaleString('ar-IQ');
+  const i18n = getPrintI18n(locale);
+  const printedAt = formatPrintedAt(locale);
   const isAll = data.isAllAccounts;
   const base = data.baseCurrency || 'IQD';
 
+  const rowAccountName = (code: string, nameAr: string): string => {
+    if (locale === 'en') {
+      return extra.accountNamesEn?.[code]?.trim() || nameAr || '';
+    }
+    return nameAr || '';
+  };
+
+  // ‎اسم الحساب المعروض: عند EN نُفضّل accountNameEn ثم accountName.
+  const displayAccountName = locale === 'en'
+    ? (extra.accountNameEn?.trim() || data.accountName || '')
+    : (data.accountName || '');
   const accountLine = isAll
-    ? 'جميع الحسابات'
-    : `${data.accountCode ?? ''} - ${data.accountName ?? ''}`;
+    ? i18n.statement.allAccounts
+    : `${data.accountCode ?? ''} - ${displayAccountName}`;
 
   // ── 1) العملات الموجودة فعلاً مرتبة (تتبع نفس منطق الواجهة)
   const seen = new Set<string>();
@@ -561,104 +755,171 @@ export function printAccountStatement(
 
   // ── 6) تركيب الـ HTML
   const metaItems = [
-    { label: 'من تاريخ', value: formatDate(data.fromDate) },
-    { label: 'إلى تاريخ', value: formatDate(data.toDate) },
-    { label: 'الحساب', value: escapeHtml(accountLine) },
-    { label: 'فلتر العرض', value: escapeHtml(data.currency || 'الكل') },
-    { label: 'العملة الأساسية (تقييم)', value: escapeHtml(base) },
+    { label: i18n.statement.fromDate, value: formatDate(data.fromDate) },
+    { label: i18n.statement.toDate, value: formatDate(data.toDate) },
+    { label: i18n.statement.account, value: escapeHtml(accountLine) },
+    { label: i18n.statement.displayFilter, value: escapeHtml(data.currency || i18n.statement.all) },
+    { label: i18n.statement.baseCurrency, value: escapeHtml(base) },
   ];
   const metaHtml = metaItems
-    .map(m => `<div class="item"><span class="label">${m.label}</span><span class="value">${m.value}</span></div>`)
+    .map(m => `<div class="item"><span class="label">${escapeHtml(m.label)}</span><span class="value">${m.value}</span></div>`)
     .join('');
 
-  // ── 7) جدول واحد لكل عملة
+  // ── 7) حساب الأعمدة الفعلية من colConfig (أو الافتراضية)
+  const PRINTABLE_COLS = ['idx','date','entry','account','desc','debit','credit','balance','valBalance','currency'] as const;
+  type PrintCol = typeof PRINTABLE_COLS[number];
+
+  const COL_LABEL_PRINT: Record<PrintCol, string> = {
+    idx: i18n.statement.colIdx, date: i18n.statement.colDate, entry: i18n.statement.colEntry, account: i18n.statement.colAccount,
+    desc: i18n.statement.colDesc, debit: i18n.statement.colDebit, credit: i18n.statement.colCredit, balance: i18n.statement.colBalance,
+    valBalance: i18n.statement.colValBalance(escapeHtml(base)), currency: i18n.statement.colCurrency,
+  };
+
+  const COL_DEFAULT_PX: Record<PrintCol, number> = {
+    idx: 50, date: 110, entry: 110, account: 240, desc: 280,
+    debit: 130, credit: 130, balance: 140, valBalance: 150, currency: 70,
+  };
+
+  // الأعمدة المرئية = نفس الأعمدة المعروضة على الشاشة بالترتيب نفسه.
+  // الواجهة تمرّر بالفعل visibleCols.filter(k !== 'actions')، لذا نحترمها
+  // كما هي ولا نُعيد فلترتها. نتأكد فقط أن المفاتيح ضمن الأعمدة القابلة للطباعة.
+  const visibleCols: PrintCol[] = (() => {
+    const requested = (colConfig?.order ?? [])
+      .filter((k): k is PrintCol => (PRINTABLE_COLS as readonly string[]).includes(k));
+    if (requested.length > 0) {
+      // احترام الترتيب والإخفاء كما حدّدته الواجهة (بدون إعادة فلترة)
+      return requested;
+    }
+    // لا يوجد colConfig: ارجع للترتيب الافتراضي مع احترام isAll
+    const def = [...PRINTABLE_COLS];
+    return isAll ? def : def.filter(k => k !== 'account');
+  })();
+
+  // عرض كل عمود بالـ px من colConfig أو الافتراضي
+  const pxWidths: Record<PrintCol, number> = {} as Record<PrintCol, number>;
+  for (const k of PRINTABLE_COLS) {
+    pxWidths[k] = colConfig?.widths[k] ?? COL_DEFAULT_PX[k];
+  }
+
+  // إجمالي عرض الأعمدة المرئية (لحساب النسب)
+  const totalPx = visibleCols.reduce((s, k) => s + pxWidths[k], 0);
+  // A4 landscape ≈ 277mm صالحة
+  const LANDSCAPE_MM = 277;
+
+  // تحويل px → mm (نسبياً) مع إعطاء desc مرونة auto
+  function colWidthStyle(k: PrintCol): string {
+    if (k === 'desc') return ''; // auto / flex
+    const mm = (pxWidths[k] / totalPx) * LANDSCAPE_MM;
+    return `width:${mm.toFixed(1)}mm`;
+  }
+
+  // ── 8) جدول واحد لكل عملة
   const buildCurrencyTable = (cur: string, rows: EnrichedRow[], totals: Totals): string => {
     const showOpeningRow = totals.opening !== 0 || totals.openingValuated !== 0;
-    const colspan = isAll ? 5 : 4; // # / تاريخ / سند [/ حساب] / بيان
+    const colspan = visibleCols.indexOf('desc') + 1 || visibleCols.length - 5;
 
+    // colgroup
+    const colgroup = `<colgroup>${
+      visibleCols.map(k => `<col${colWidthStyle(k) ? ` style="${colWidthStyle(k)}"` : ''}>`).join('')
+    }</colgroup>`;
+
+    // رأس الجدول
+    const headCells = visibleCols.map(k => {
+      const align = ['debit','credit','balance','valBalance'].includes(k) ? 'left'
+                  : k === 'idx' || k === 'currency' || k === 'entry' ? 'center' : 'right';
+      return `<th class="${align}">${COL_LABEL_PRINT[k]}</th>`;
+    }).join('');
+
+    // صف الافتتاحي
+    const openingCells = visibleCols.map(k => {
+      if (k === 'idx') return `<td class="center">—</td>`;
+      if (k === 'date') return `<td class="num">${formatDate(data.fromDate)}</td>`;
+      if (k === 'entry') return `<td class="center">—</td>`;
+      if (k === 'account') return `<td>—</td>`;
+      if (k === 'desc') return `<td><em>${escapeHtml(i18n.statement.openingBalance)}</em></td>`;
+      if (k === 'debit') return `<td class="left num">—</td>`;
+      if (k === 'credit') return `<td class="left num">—</td>`;
+      if (k === 'balance') return `<td class="left num">${totals.opening !== 0 ? formatAmount(totals.opening) : '—'}</td>`;
+      if (k === 'valBalance') return `<td class="left num">${formatAmount(totals.openingValuated)}</td>`;
+      if (k === 'currency') return `<td class="center">${escapeHtml(cur)}</td>`;
+      return '<td>—</td>';
+    }).join('');
     const openingRow = showOpeningRow
-      ? `<tr class="opening-row">
-           <td class="center">—</td>
-           <td>${formatDate(data.fromDate)}</td>
-           <td class="center">—</td>
-           ${isAll ? '<td>—</td>' : ''}
-           <td><em>رصيد افتتاحي</em></td>
-           <td class="left num">—</td>
-           <td class="left num">—</td>
-           <td class="left num">${totals.opening !== 0 ? formatAmount(totals.opening) : '—'}</td>
-           <td class="left num">${formatAmount(totals.openingValuated)}</td>
-           <td class="center">${escapeHtml(cur)}</td>
-         </tr>`
+      ? `<tr class="opening-row">${openingCells}</tr>`
       : '';
 
-    const rowsHtml = rows
-      .map((r, idx) => {
-        const entryCell = r.voucherNumber
-          ? `<strong class="num">${escapeHtml(r.voucherNumber)}</strong><br><span class="num" style="font-size:9px;color:#777">#${escapeHtml(r.entryNumber)}</span>`
-          : `<span class="num">#${escapeHtml(r.entryNumber)}</span>`;
-        return `
-      <tr>
-        <td class="center">${idx + 1}</td>
-        <td>${formatDate(r.date)}</td>
-        <td class="center">${entryCell}</td>
-        ${isAll ? `<td><span class="num">${escapeHtml(r.accountCode)}</span> - ${escapeHtml(r.accountName)}</td>` : ''}
-        <td>${escapeHtml(r.lineDescription || r.description || '—')}</td>
-        <td class="left num">${r.debit > 0 ? formatAmount(r.debit) : '—'}</td>
-        <td class="left num">${r.credit > 0 ? formatAmount(r.credit) : '—'}</td>
-        <td class="left num"><strong>${formatAmount(r.runningBalance)}</strong></td>
-        <td class="left num"><strong>${formatAmount(r.runningValuated)}</strong></td>
-        <td class="center">${escapeHtml(r.currency)}</td>
-      </tr>`;
-      })
-      .join('');
+    // صفوف البيانات
+    const rowsHtml = rows.map((r, idx) => {
+      // ‎الرقم اليدوي (إن وُجد) يُلصق أسفل رقم القيد بلون كهرماني خفيف ليتميّز
+      // ‎عن الأرقام النظامية في كشف الحساب.
+      const manualLine = r.manualNumber
+        ? `<br><span class="num" style="font-size:8.5px;color:#b45309;direction:ltr">#${escapeHtml(r.manualNumber)}</span>`
+        : '';
+      const entryCell = r.voucherNumber
+        ? `<strong class="num">${escapeHtml(r.voucherNumber)}</strong><br><span class="num" style="font-size:8.5px;color:#777">#${escapeHtml(r.entryNumber)}</span>${manualLine}`
+        : `<span class="num">#${escapeHtml(r.entryNumber)}</span>${manualLine}`;
 
-    const labelText = totals.opening
-      ? `الإجمالي (شامل افتتاحي ${formatAmount(totals.opening)})`
-      : 'الإجمالي';
+      const cells = visibleCols.map(k => {
+        if (k === 'idx')       return `<td class="center">${idx + 1}</td>`;
+        if (k === 'date')      return `<td class="num">${formatDate(r.date)}</td>`;
+        if (k === 'entry')     return `<td class="center">${entryCell}</td>`;
+        if (k === 'account')   return `<td style="font-size:9.5px"><span class="num" style="color:#1f6f43">${escapeHtml(r.accountCode)}</span> ${escapeHtml(rowAccountName(r.accountCode, r.accountName))}</td>`;
+        if (k === 'desc')      return `<td style="font-size:9.5px">${escapeHtml(r.lineDescription || r.description || '—')}</td>`;
+        if (k === 'debit')     return `<td class="left num">${r.debit > 0 ? formatAmount(r.debit) : '<span style="color:#bbb">—</span>'}</td>`;
+        if (k === 'credit')    return `<td class="left num">${r.credit > 0 ? formatAmount(r.credit) : '<span style="color:#bbb">—</span>'}</td>`;
+        if (k === 'balance')   return `<td class="left num"><strong class="c-balance">${formatAmount(r.runningBalance)}</strong></td>`;
+        if (k === 'valBalance')return `<td class="left num" style="color:#7a4f01"><strong>${formatAmount(r.runningValuated)}</strong></td>`;
+        if (k === 'currency')  return `<td class="center" style="font-weight:700;color:#1d4ed8">${escapeHtml(r.currency)}</td>`;
+        return '<td>—</td>';
+      }).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+
+    // صف الإجماليات — يحترم ترتيب الأعمدة المرئية ويملأ غير المبلغية بخلية فارغة
+    const labelText = i18n.statement.totalsRowLabel(
+      totals.opening ? formatAmount(totals.opening) : null
+    );
+    const amountSet = new Set(['debit','credit','balance','valBalance','currency']);
+    const firstAmtIdx = visibleCols.findIndex(c => amountSet.has(c));
+    const leadingNonAmt = firstAmtIdx >= 0 ? firstAmtIdx : visibleCols.length;
+
+    const totalParts: string[] = [];
+    if (leadingNonAmt > 0) {
+      totalParts.push(`<th colspan="${leadingNonAmt}" class="right">${labelText}</th>`);
+    }
+    for (let i = leadingNonAmt; i < visibleCols.length; i++) {
+      const k = visibleCols[i];
+      if (k === 'debit')           totalParts.push(`<th class="left num c-debit">${formatAmount(totals.debit)}</th>`);
+      else if (k === 'credit')     totalParts.push(`<th class="left num c-credit">${formatAmount(totals.credit)}</th>`);
+      else if (k === 'balance')    totalParts.push(`<th class="left num c-balance">${formatAmount(totals.balance)}</th>`);
+      else if (k === 'valBalance') totalParts.push(`<th class="left num c-valuated">${formatAmount(totals.balanceValuated)}</th>`);
+      else if (k === 'currency')   totalParts.push(`<th class="center"><b>${escapeHtml(cur)}</b></th>`);
+      else                          totalParts.push(`<th>&nbsp;</th>`); // خلية فارغة للمحافظة على الترتيب
+    }
+    const totalCells = totalParts.join('');
 
     return `
       <section class="ccy-block">
         <header class="ccy-head">
           <div class="ccy-head-left">
             <span class="ccy-badge">${escapeHtml(cur)}</span>
-            <span class="ccy-title">حركات العملة • ${escapeHtml(cur)}</span>
-            <span class="ccy-count">(${rows.length} حركة)</span>
+            <span class="ccy-title">${escapeHtml(i18n.statement.currencyMovements(cur))}</span>
+            <span class="ccy-count">${escapeHtml(i18n.statement.movementsCount(rows.length))}</span>
           </div>
           <div class="ccy-summary">
-            <span>مدين: <b class="num c-debit">${formatAmount(totals.debit)}</b></span>
-            <span>دائن: <b class="num c-credit">${formatAmount(totals.credit)}</b></span>
-            <span>الرصيد: <b class="num c-balance">${formatAmount(totals.balance)}</b></span>
+            <span>${escapeHtml(i18n.statement.debitLbl)} <b class="num c-debit">${formatAmount(totals.debit)}</b></span>
+            <span>${escapeHtml(i18n.statement.creditLbl)} <b class="num c-credit">${formatAmount(totals.credit)}</b></span>
+            <span>${escapeHtml(i18n.statement.balanceLbl)} <b class="num c-balance">${formatAmount(totals.balance)}</b></span>
           </div>
         </header>
         <table>
-          <thead>
-            <tr>
-              <th class="center" style="width:30px">#</th>
-              <th style="width:80px">التاريخ</th>
-              <th class="center" style="width:90px">السند / القيد</th>
-              ${isAll ? '<th>الحساب</th>' : ''}
-              <th>البيان</th>
-              <th class="left" style="width:90px">مدين</th>
-              <th class="left" style="width:90px">دائن</th>
-              <th class="left" style="width:100px">الرصيد</th>
-              <th class="left" style="width:110px">رصيد مقوم (${escapeHtml(base)})</th>
-              <th class="center" style="width:50px">العملة</th>
-            </tr>
-          </thead>
+          ${colgroup}
+          <thead><tr>${headCells}</tr></thead>
           <tbody>
             ${openingRow}
-            ${rowsHtml || `<tr><td colspan="${colspan + 5}" class="center" style="padding:18px;color:#888">لا توجد حركات</td></tr>`}
+            ${rowsHtml || `<tr><td colspan="${colspan + 5}" class="center" style="padding:18px;color:#888">${escapeHtml(i18n.statement.noMovements)}</td></tr>`}
           </tbody>
-          <tfoot>
-            <tr class="totals-row">
-              <th colspan="${colspan}" class="right">${labelText}</th>
-              <th class="left num c-debit">${formatAmount(totals.debit)}</th>
-              <th class="left num c-credit">${formatAmount(totals.credit)}</th>
-              <th class="left num c-balance">${formatAmount(totals.balance)}</th>
-              <th class="left num c-valuated">${formatAmount(totals.balanceValuated)}</th>
-              <th class="center"><b>${escapeHtml(cur)}</b></th>
-            </tr>
-          </tfoot>
+          <tfoot><tr>${totalCells}</tr></tfoot>
         </table>
       </section>`;
   };
@@ -680,45 +941,40 @@ export function printAccountStatement(
             }
           )
         )
-        // ‎فاصل بصري بارز بين كل كتلتي عملة
         .join('<hr class="ccy-divider" />\n')
-    : `<div style="padding:18px;text-align:center;color:#888;border:1px dashed #ccc;border-radius:6px">لا توجد حركات للمعايير المحددة</div>`;
+    : `<div style="padding:18px;text-align:center;color:#888;border:1px dashed #ccc;border-radius:6px">${escapeHtml(i18n.statement.noMovementsCriteria)}</div>`;
 
   const fxWarn = data.fxUsedFallback
-    ? `<div style="margin-top:10px;font-size:10px;color:#856404;background:#fff3cd;padding:8px;border-radius:4px;border:1px solid #ffeeba">تنبيه: استُخدم مضاعف 1 لعملات دون سعر صرف في إعدادات الشركة.</div>`
+    ? `<div style="margin-top:10px;font-size:10px;color:#856404;background:#fff3cd;padding:8px;border-radius:4px;border:1px solid #ffeeba">${escapeHtml(i18n.statement.fxFallbackWarn)}</div>`
     : '';
 
   // بطاقة الإجمالي المُقوَّم بالعملة الأساسية (مطابقة لشكل الواجهة)
   const baseTotalsHtml = `
     <section class="base-summary">
       <header class="base-summary-head">
-        <span>⚖️ الإجمالي المُقوَّم بالعملة الأساسية (${escapeHtml(base)})</span>
+        <span>${escapeHtml(i18n.statement.grandTotalTitle(base))}</span>
       </header>
       <div class="base-summary-grid">
         <div class="bs-cell">
-          <div class="bs-label">الرصيد الافتتاحي</div>
+          <div class="bs-label">${escapeHtml(i18n.statement.openingBalanceLbl)}</div>
           <div class="bs-value num c-opening">${formatAmount(data.openingBalanceValuated ?? data.openingBalance)}</div>
         </div>
         <div class="bs-cell">
-          <div class="bs-label">إجمالي المدين</div>
+          <div class="bs-label">${escapeHtml(i18n.statement.totalDebitLbl)}</div>
           <div class="bs-value num c-debit">${formatAmount(data.totalDebitValuated ?? data.totalDebit)}</div>
         </div>
         <div class="bs-cell">
-          <div class="bs-label">إجمالي الدائن</div>
+          <div class="bs-label">${escapeHtml(i18n.statement.totalCreditLbl)}</div>
           <div class="bs-value num c-credit">${formatAmount(data.totalCreditValuated ?? data.totalCredit)}</div>
         </div>
         <div class="bs-cell highlight">
-          <div class="bs-label">الرصيد الختامي</div>
+          <div class="bs-label">${escapeHtml(i18n.statement.closingBalanceLbl)}</div>
           <div class="bs-value num c-balance"><b>${formatAmount(data.closingBalanceValuated ?? data.closingBalance)}</b></div>
         </div>
       </div>
       ${
         currenciesPresent.length > 1
-          ? `<div class="base-summary-foot">
-               تم تجميع المجاميع من <b>${currenciesPresent.length}</b> عملات مختلفة وتقويمها بالعملة الأساسية${
-                 data.fxBulletinName ? ` باستخدام نشرة <b>${escapeHtml(data.fxBulletinName)}</b>` : ''
-               }.
-             </div>`
+          ? `<div class="base-summary-foot">${i18n.statement.multiCurrencyFoot(currenciesPresent.length, data.fxBulletinName ? escapeHtml(data.fxBulletinName) : null)}</div>`
           : ''
       }
     </section>`;
@@ -760,14 +1016,18 @@ export function printAccountStatement(
     .bs-value { font-size: 14px; font-weight: 700; margin-top: 2px; }
     .base-summary-foot { padding: 6px 12px; background:#e8eeff; border-top: 1px solid #c4d4ff; font-size: 9.5px; color:#345; }
 
+    /* A4 أفقي للكشف — يمنح مساحة كافية للأعمدة العشرة */
+    @page { size: A4 landscape; margin: 10mm; }
+    .preview-page { max-width: 277mm; }
+
     @media print {
       .ccy-block, .base-summary { box-shadow: none; }
     }
   `;
 
   const html = `
-    ${buildBrandHeader(company, printedAt)}
-    <div class="report-title">كشف حساب</div>
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${escapeHtml(i18n.statement.title)}</div>
     <div class="doc-meta">${metaHtml}</div>
 
     <style>${styles}</style>
@@ -778,10 +1038,10 @@ export function printAccountStatement(
 
     ${baseTotalsHtml}
 
-    ${buildFooter(company, 'كشف حساب')}
+    ${buildFooter(company, i18n.statement.title)}
   `;
 
-  openPrintWindow(html, `كشف حساب - ${accountLine}`);
+  openPrintWindow(html, `${i18n.statement.previewTitle} - ${accountLine}`, locale);
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -829,7 +1089,6 @@ const SINGLE_VOUCHER_STYLES = `
     position: relative; text-align: center;
   }
   .copy-divider::after {
-    content: '\\2702  قص هنا  \\2702';
     position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
     background: #fff; padding: 0 12px; color: #555; font-size: 11px; letter-spacing: 1px;
   }
@@ -881,7 +1140,7 @@ const SINGLE_VOUCHER_STYLES = `
 
   .v-amount-words {
     margin: 2mm 0 3mm; padding: 5px 10px;
-    background: #fff8e1; border-right: 3px solid #d4a017; border-radius: 4px;
+    background: #fff8e1; border-inline-start: 3px solid #d4a017; border-radius: 4px;
     font-size: 12px; line-height: 1.7;
   }
   .v-amount-words .lbl { color: #8a6d00; font-weight: 600; margin-left: 6px; }
@@ -893,13 +1152,13 @@ const SINGLE_VOUCHER_STYLES = `
   }
   .v-info-grid .cell {
     background: #f5f7fa; padding: 5px 8px; border-radius: 4px;
-    border-right: 3px solid #2c3e50;
+    border-inline-start: 3px solid #2c3e50;
   }
   .v-info-grid .cell .lbl { color: #555; font-size: 10px; display: block; margin-bottom: 2px; }
   .v-info-grid .cell .val { font-weight: 600; font-size: 12px; }
 
   .v-desc {
-    background: #f8f9fa; border-right: 3px solid #555; padding: 5px 10px;
+    background: #f8f9fa; border-inline-start: 3px solid #555; padding: 5px 10px;
     font-size: 11px; margin: 2mm 0; min-height: 16mm;
   }
   .v-desc .lbl { color: #555; font-size: 10px; margin-bottom: 2px; display: block; }
@@ -957,20 +1216,28 @@ const SINGLE_VOUCHER_STYLES = `
   }
 `;
 
-function openSingleVoucherWindow(html: string, title: string) {
+function openSingleVoucherWindow(html: string, title: string, locale: PrintLocale = getPrintLocale()) {
+  const i18n = getPrintI18n(locale);
+  const dir = getPrintDir(locale);
+  const cutContent = `\\2702  ${i18n.voucher.cutHere}  \\2702`.replace(/'/g, "\\'");
+  const bodyDirStyle = `<style>
+    body { direction: ${dir}; }
+    .copy-divider::after { content: '${cutContent}'; }
+  </style>`;
   const fullDoc = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
+<html dir="${dir}" lang="${locale}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)}</title>
 <style>${SINGLE_VOUCHER_STYLES}</style>
+${bodyDirStyle}
 </head>
 <body>
   ${html}
 </body>
 </html>`;
-  openPrintPreview(fullDoc, title);
+  openPrintPreview(fullDoc, title, locale);
 }
 
 function buildVoucherMiniHeader(
@@ -978,15 +1245,19 @@ function buildVoucherMiniHeader(
   copyLabel: string,
   copyKind: 'company' | 'customer',
   printedAt: string,
+  i18n: PrintI18n,
+  locale: PrintLocale,
 ): string {
   const c = company || ({} as CompanySettingsDto);
-  const heading = c.printHeader || c.nameAr || 'الشركة';
+  const heading = locale === 'en'
+    ? (c.nameEn || c.printHeader || c.nameAr || i18n.brand.defaultCompanyName)
+    : (c.printHeader || c.nameAr || i18n.brand.defaultCompanyName);
   const logo = c.logoBase64 ? `<img class="logo" src="${escapeHtml(c.logoBase64)}" alt="logo">` : '';
   const contactBits: string[] = [];
-  if (c.address) contactBits.push(`<span>${escapeHtml(c.address)}</span>`);
-  if (c.phone) contactBits.push(`<span>هاتف: ${escapeHtml(c.phone)}</span>`);
+  const displayAddress = locale === 'en' ? (c.addressEn || c.address) : (c.address || c.addressEn);
+  if (displayAddress) contactBits.push(`<span>${escapeHtml(displayAddress)}</span>`);
+  if (c.phone) contactBits.push(`<span>${escapeHtml(i18n.brand.phone)} ${escapeHtml(c.phone)}</span>`);
   const contact = contactBits.length ? `<div class="contact">${contactBits.join(' • ')}</div>` : '';
-  const subEn = c.nameEn ? `<div class="sub-en">${escapeHtml(c.nameEn)}</div>` : '';
 
   return `
     <div class="v-head">
@@ -994,14 +1265,13 @@ function buildVoucherMiniHeader(
         ${logo}
         <div class="titles">
           <h1>${escapeHtml(heading)}</h1>
-          ${subEn}
           ${contact}
         </div>
       </div>
       <div class="v-head-right">
         <div class="copy-label ${copyKind}">${escapeHtml(copyLabel)}</div>
-        <div class="printed-at" title="تاريخ ووقت طباعة هذا السند">
-          <span class="lbl">طُبع في:</span>
+        <div class="printed-at">
+          <span class="lbl">${escapeHtml(i18n.voucher.printedAtLbl)}</span>
           <span class="val">${escapeHtml(printedAt)}</span>
         </div>
       </div>
@@ -1014,37 +1284,31 @@ function buildVoucherCopy(
   copyLabel: string,
   copyKind: 'company' | 'customer',
   printedAt: string,
+  i18n: PrintI18n,
+  locale: PrintLocale,
 ): string {
   const { entry, voucherTypeName, voucherNature, cashBoxName, counterAccountName, counterAccountCode, company } = input;
-
-  // ‎الصياغة تعتمد على جانب الصندوق في القيد:
-  //   • سند قبض (nature = Debit  / مدين على الصندوق) → استلمنا من السيد  (المال يدخل الصندوق — أخضر)
-  //   • سند دفع (nature = Credit / دائن من الصندوق) → صرفنا للسيد        (المال يخرج من الصندوق — أحمر)
-  //
-  // ‎ملاحظة: nature في النظام تُمثّل جانب الصندوق (الحساب الافتراضي) لا الطرف المقابل.
 
   const amount = entry.totalDebit || entry.totalCredit;
   const currency = entry.currency || 'IQD';
 
-  const isReceipt = voucherNature === 'Debit';   // سند قبض: الصندوق مدين
-  const isPayment = voucherNature === 'Credit';  // سند دفع: الصندوق دائن
+  const isReceipt = voucherNature === 'Debit';
+  const isPayment = voucherNature === 'Credit';
 
   const titleCls = isReceipt ? 'receipt' : isPayment ? 'payment' : '';
   const statementVerb =
-    isReceipt ? 'استلمنا من السيِّد / السادة:' :
-    isPayment ? 'صرفنا للسيِّد / السادة:' :
-    'الطرف الآخر:';
+    isReceipt ? i18n.voucher.receiptVerb :
+    isPayment ? i18n.voucher.paymentVerb :
+    i18n.voucher.otherSideVerb;
 
-  // ‎تفقيط المبلغ بالعربية: مثلاً "فقط مئة ألف دينار عراقي لا غير"
-  const amountInWords = tafqeet(amount, { currency });
+  // ‎التفقيط مدعوم بالعربية فقط حالياً (مكتبة tafqeet). في وضع EN نَعرض المبلغ
+  // ‎رقمياً + العملة فقط (لا تفقيط إنجليزي).
+  const amountInWords = locale === 'en' ? '' : tafqeet(amount, { currency });
 
-  // الطرف الآخر:
-  //   • قبض: العميل/المصدر هو "المسلِّم" (سلّمنا المال)
-  //   • دفع: العميل/المستفيد هو "المستلِم" (استلم منّا المال)
-  const counterRoleAr =
-    isReceipt ? 'المسلِّم' :
-    isPayment ? 'المستلِم' :
-    'الطرف الآخر';
+  const counterRole =
+    isReceipt ? i18n.voucher.counterRoleReceipt :
+    isPayment ? i18n.voucher.counterRolePayment :
+    i18n.voucher.counterRoleOther;
 
   const counterFull = counterAccountCode
     ? `${counterAccountCode} — ${counterAccountName}`
@@ -1052,17 +1316,18 @@ function buildVoucherCopy(
 
   return `
     <section class="voucher-copy">
-      ${buildVoucherMiniHeader(company, copyLabel, copyKind, printedAt)}
+      ${buildVoucherMiniHeader(company, copyLabel, copyKind, printedAt, i18n, locale)}
 
       <div class="v-title-row">
         <div class="v-title ${titleCls}">${escapeHtml(voucherTypeName)}</div>
         <div class="v-meta">
           ${entry.voucherNumber
-            ? `<div class="item"><span class="lbl">رقم السند:</span><strong class="num" style="font-size:15px">${escapeHtml(entry.voucherNumber)}</strong></div>
-               <div class="item"><span class="lbl">رقم القيد:</span><strong class="num" style="color:#666">#${escapeHtml(entry.entryNumber)}</strong></div>`
-            : `<div class="item"><span class="lbl">رقم السند:</span><strong class="num">${escapeHtml(entry.entryNumber)}</strong></div>`
+            ? `<div class="item"><span class="lbl">${escapeHtml(i18n.voucher.voucherNumber)}</span><strong class="num" style="font-size:15px">${escapeHtml(entry.voucherNumber)}</strong></div>
+               <div class="item"><span class="lbl">${escapeHtml(i18n.voucher.entryNumber)}</span><strong class="num" style="color:#666">#${escapeHtml(entry.entryNumber)}</strong></div>`
+            : `<div class="item"><span class="lbl">${escapeHtml(i18n.voucher.voucherNumber)}</span><strong class="num">${escapeHtml(entry.entryNumber)}</strong></div>`
           }
-          <div class="item"><span class="lbl">تاريخ القيد:</span><strong>${formatDate(entry.entryDate)}</strong></div>
+          ${entry.manualNumber ? `<div class="item"><span class="lbl">${escapeHtml(i18n.singleEntry.manualNumber)}</span><strong class="num" style="color:#b45309;direction:ltr">${escapeHtml(entry.manualNumber)}</strong></div>` : ''}
+          <div class="item"><span class="lbl">${escapeHtml(i18n.voucher.entryDate)}</span><strong>${formatDate(entry.entryDate)}</strong></div>
         </div>
       </div>
 
@@ -1070,45 +1335,46 @@ function buildVoucherCopy(
         ${escapeHtml(statementVerb)}
         <span class="field">${escapeHtml(counterFull)}</span>
         <br/>
-        مبلغاً وقدره:
+        ${escapeHtml(i18n.voucher.amountIs)}
         <span class="v-amount-box">
           <span class="num">${formatAmount(amount)}</span>
           <span class="currency">${escapeHtml(currency)}</span>
         </span>
       </div>
 
+      ${amountInWords ? `
       <div class="v-amount-words">
-        <span class="lbl">المبلغ كتابةً:</span>
+        <span class="lbl">${escapeHtml(i18n.voucher.amountInWords)}</span>
         <span class="val">${escapeHtml(amountInWords)}</span>
-      </div>
+      </div>` : ''}
 
       <div class="v-info-grid">
         <div class="cell">
-          <span class="lbl">نوع القيد</span>
+          <span class="lbl">${escapeHtml(i18n.voucher.entryType)}</span>
           <span class="val">${escapeHtml(voucherTypeName)}</span>
         </div>
         <div class="cell">
-          <span class="lbl">الصندوق</span>
+          <span class="lbl">${escapeHtml(i18n.voucher.cashBox)}</span>
           <span class="val">${escapeHtml(cashBoxName)}</span>
         </div>
       </div>
 
       <div class="v-desc">
-        <span class="lbl">وذلك عن (البيان):</span>
+        <span class="lbl">${escapeHtml(i18n.voucher.description)}</span>
         <span class="val">${escapeHtml(entry.description) || '—'}</span>
       </div>
 
       <div class="v-signatures">
         <div class="sig">
-          <div class="role">أمين الصندوق</div>
+          <div class="role">${escapeHtml(i18n.signatures.cashier)}</div>
           <div class="name">${escapeHtml(cashBoxName)}</div>
         </div>
         <div class="sig">
-          <div class="role">${escapeHtml(counterRoleAr)}</div>
+          <div class="role">${escapeHtml(counterRole)}</div>
           <div class="name">${escapeHtml(counterAccountName)}</div>
         </div>
         <div class="sig">
-          <div class="role">المدير العام</div>
+          <div class="role">${escapeHtml(i18n.signatures.generalManager)}</div>
           <div class="name">&nbsp;</div>
         </div>
       </div>
@@ -1116,42 +1382,28 @@ function buildVoucherCopy(
   `;
 }
 
-export function printSingleVoucher(input: PrintSingleVoucherInput) {
+export function printSingleVoucher(input: PrintSingleVoucherInput, locale: PrintLocale = getPrintLocale()) {
+  const i18n = getPrintI18n(locale);
   const { entry, voucherTypeName } = input;
-  // وقت الطباعة موحَّد للنسختين (الشركة والزبون) — لضمان توافقهما حتى لو طُبعتا
-  // بفارق ميلي‑ثانية، ولكي تتطابق العلامة الزمنية على ورقة واحدة.
-  const printedAt = new Date().toLocaleString('ar-IQ', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  });
+  const printedAt = formatPrintedAt(locale);
 
   const html = `
     <div class="a4-sheet">
-      ${buildVoucherCopy(input, 'نسخة الشركة', 'company', printedAt)}
+      ${buildVoucherCopy(input, i18n.voucher.companyCopy, 'company', printedAt, i18n, locale)}
       <hr class="copy-divider" />
-      ${buildVoucherCopy(input, 'نسخة الزبون', 'customer', printedAt)}
+      ${buildVoucherCopy(input, i18n.voucher.customerCopy, 'customer', printedAt, i18n, locale)}
     </div>
   `;
 
-  // ‎عنوان النافذة/التبويب يفضّل رقم السند المخصّص (مثل RV-2) لسهولة التمييز،
-  // ‎ويُلحَق رقم القيد الداخلي بين قوسين كمرجع.
   const titleNumber = entry.voucherNumber
-    ? `${entry.voucherNumber} (قيد #${entry.entryNumber})`
-    : `رقم ${entry.entryNumber}`;
-  openSingleVoucherWindow(html, `${voucherTypeName} ${titleNumber}`);
+    ? `${entry.voucherNumber} (#${entry.entryNumber})`
+    : i18n.voucher.titleSuffix(entry.entryNumber);
+  openSingleVoucherWindow(html, i18n.voucher.previewTitle(voucherTypeName, titleNumber), locale);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // طباعة ميزان المراجعة (Trial Balance)
 // ═══════════════════════════════════════════════════════════════════════════
-
-const TRIAL_BALANCE_TYPE_LABELS: Record<string, string> = {
-  Asset: 'أصول',
-  Liability: 'خصوم',
-  Equity: 'حقوق ملكية',
-  Revenue: 'إيرادات',
-  Expense: 'مصاريف',
-};
 
 const TRIAL_BALANCE_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
   Asset:     { bg: '#dbeafe', fg: '#1d4ed8' },
@@ -1167,28 +1419,45 @@ function tbFmt(n: number): string {
   return formatAmount(n, 2);
 }
 
+/** خيارات إضافية لطباعة ميزان المراجعة. */
+export interface TrialBalancePrintExtra {
+  /** خرائط (accountCode → nameEn) لاستعمالها في وضع EN عند انعدام الاسم الإنجليزي بالـ DTO. */
+  accountNamesEn?: Record<string, string>;
+}
+
 export function printTrialBalance(
   data: TrialBalanceDto,
   company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
+  extra: TrialBalancePrintExtra = {},
 ) {
-  const printedAt = new Date().toLocaleString('ar-IQ');
+  const i18n = getPrintI18n(locale);
+  const printedAt = formatPrintedAt(locale);
   const displayUnit = data.currency
     ? data.currency
-    : (data.valuated ? (data.baseCurrency || 'IQD') : 'متعددة');
+    : (data.valuated ? (data.baseCurrency || 'IQD') : i18n.trialBalance.multiCurrency);
 
   const isBalanced = Math.abs(data.totalClosingDebit - data.totalClosingCredit) < 0.01;
+
+  const rowName = (r: TrialBalanceDto['rows'][number]): string => {
+    if (locale === 'en') {
+      const fromMap = extra.accountNamesEn?.[r.accountCode];
+      return fromMap?.trim() || (r as { accountNameEn?: string }).accountNameEn || r.accountName || '';
+    }
+    return r.accountName || '';
+  };
 
   const rows = data.rows.map(r => {
     const indent = Math.max(0, (r.level - 1)) * 10;
     const colors = TRIAL_BALANCE_TYPE_COLORS[r.accountType] ?? { bg: '#e5e7eb', fg: '#374151' };
-    const typeLabel = TRIAL_BALANCE_TYPE_LABELS[r.accountType] ?? r.accountType;
+    const typeLbl = i18n.accountType[r.accountType as keyof typeof i18n.accountType] ?? r.accountType;
     const rowBg = r.isLeaf ? '' : 'background:#f3f4f6;font-weight:600;';
     return `
       <tr style="${rowBg}">
         <td class="center num" style="white-space:nowrap;">${escapeHtml(r.accountCode)}</td>
-        <td><span style="padding-inline-start:${indent}px;">${escapeHtml(r.accountName)}</span></td>
+        <td><span style="padding-inline-start:${indent}px;">${escapeHtml(rowName(r))}</span></td>
         <td class="center">
-          <span class="badge" style="background:${colors.bg};color:${colors.fg};border:1px solid ${colors.fg}33;">${escapeHtml(typeLabel)}</span>
+          <span class="badge" style="background:${colors.bg};color:${colors.fg};border:1px solid ${colors.fg}33;">${escapeHtml(typeLbl)}</span>
         </td>
         <td class="left num" style="border-right:1px solid #aaa;">${tbFmt(r.openingDebit)}</td>
         <td class="left num">${tbFmt(r.openingCredit)}</td>
@@ -1200,54 +1469,55 @@ export function printTrialBalance(
     `;
   }).join('');
 
-  const profitLabel = data.netIncome >= 0 ? 'صافي الربح' : 'صافي الخسارة';
+  const profitLabel = data.netIncome >= 0 ? i18n.trialBalance.netProfit : i18n.trialBalance.netLoss;
   const profitColor = data.netIncome >= 0 ? '#047857' : '#b91c1c';
-  const profitInWords = tafqeet(Math.abs(data.netIncome), {
-    currency: displayUnit === 'متعددة' ? (data.baseCurrency || 'IQD') : displayUnit,
+  // ‎التفقيط بالعربية فقط حالياً (مكتبة tafqeet). في EN نُخفيه.
+  const profitInWords = locale === 'en' ? '' : tafqeet(Math.abs(data.netIncome), {
+    currency: displayUnit === i18n.trialBalance.multiCurrency ? (data.baseCurrency || 'IQD') : displayUnit,
   });
 
   const filterChips: string[] = [];
-  filterChips.push(`<span class="chip">من <strong class="num">${escapeHtml(formatDate(data.fromDate))}</strong></span>`);
-  filterChips.push(`<span class="chip">إلى <strong class="num">${escapeHtml(formatDate(data.toDate))}</strong></span>`);
-  filterChips.push(`<span class="chip">العملة: <strong>${escapeHtml(displayUnit)}</strong></span>`);
-  if (data.leavesOnly) filterChips.push(`<span class="chip">الأبناء فقط</span>`);
-  if (data.maxLevel != null) filterChips.push(`<span class="chip">حتى مستوى ${data.maxLevel}</span>`);
+  filterChips.push(`<span class="chip">${escapeHtml(i18n.trialBalance.fromDate)} <strong class="num">${escapeHtml(formatDate(data.fromDate))}</strong></span>`);
+  filterChips.push(`<span class="chip">${escapeHtml(i18n.trialBalance.toDate)} <strong class="num">${escapeHtml(formatDate(data.toDate))}</strong></span>`);
+  filterChips.push(`<span class="chip">${escapeHtml(i18n.trialBalance.currencyChip)} <strong>${escapeHtml(displayUnit)}</strong></span>`);
+  if (data.leavesOnly) filterChips.push(`<span class="chip">${escapeHtml(i18n.trialBalance.leavesOnly)}</span>`);
+  if (data.maxLevel != null) filterChips.push(`<span class="chip">${escapeHtml(i18n.trialBalance.maxLevel(data.maxLevel))}</span>`);
   if (data.valuated && !data.currency) {
-    filterChips.push(`<span class="chip" style="background:#d1fae5;color:#047857;">مبالغ مقوَّمة</span>`);
+    filterChips.push(`<span class="chip" style="background:#d1fae5;color:#047857;">${escapeHtml(i18n.trialBalance.valuated)}</span>`);
   }
   if (data.fxBulletinName) {
-    filterChips.push(`<span class="chip" style="background:#eef2ff;color:#4338ca;">نشرة: ${escapeHtml(data.fxBulletinName)}</span>`);
+    filterChips.push(`<span class="chip" style="background:#eef2ff;color:#4338ca;">${escapeHtml(i18n.trialBalance.bulletin(data.fxBulletinName))}</span>`);
   }
 
   const html = `
-    ${buildBrandHeader(company, printedAt)}
-    <div class="report-title">ميزان المراجعة — الأرصدة المدينة والدائنة</div>
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${escapeHtml(i18n.trialBalance.title)}</div>
 
     <div class="tb-filters">${filterChips.join(' ')}</div>
 
     ${data.fxUsedFallback ? `
       <div class="tb-alert">
-        ⚠ عملة واحدة على الأقل لا تملك سعر صرف في النشرة المنشورة — استُعمل مضاعف 1 لها (قد لا تكون الأرقام دقيقة).
+        ${escapeHtml(i18n.trialBalance.fxWarn)}
       </div>
     ` : ''}
 
     <table class="tb-table">
       <thead>
         <tr>
-          <th rowspan="2" class="center" style="width:60px;">الكود</th>
-          <th rowspan="2" class="right">الحساب</th>
-          <th rowspan="2" class="center" style="width:80px;">النوع</th>
-          <th colspan="2" class="center" style="background:#475569;">الفترة السابقة (الافتتاحي)</th>
-          <th colspan="2" class="center" style="background:#1d4ed8;">حركة الفترة الحالية</th>
-          <th colspan="2" class="center" style="background:#b45309;">الرصيد النهائي</th>
+          <th rowspan="2" class="center" style="width:60px;">${escapeHtml(i18n.trialBalance.code)}</th>
+          <th rowspan="2" class="right">${escapeHtml(i18n.trialBalance.account)}</th>
+          <th rowspan="2" class="center" style="width:80px;">${escapeHtml(i18n.trialBalance.type)}</th>
+          <th colspan="2" class="center" style="background:#475569;">${escapeHtml(i18n.trialBalance.prevPeriod)}</th>
+          <th colspan="2" class="center" style="background:#1d4ed8;">${escapeHtml(i18n.trialBalance.currentMovement)}</th>
+          <th colspan="2" class="center" style="background:#b45309;">${escapeHtml(i18n.trialBalance.closingBalance)}</th>
         </tr>
         <tr>
-          <th class="center" style="background:#64748b;">مدين</th>
-          <th class="center" style="background:#64748b;">دائن</th>
-          <th class="center" style="background:#2563eb;">مدين</th>
-          <th class="center" style="background:#2563eb;">دائن</th>
-          <th class="center" style="background:#d97706;">مدين</th>
-          <th class="center" style="background:#d97706;">دائن</th>
+          <th class="center" style="background:#64748b;">${escapeHtml(i18n.trialBalance.debit)}</th>
+          <th class="center" style="background:#64748b;">${escapeHtml(i18n.trialBalance.credit)}</th>
+          <th class="center" style="background:#2563eb;">${escapeHtml(i18n.trialBalance.debit)}</th>
+          <th class="center" style="background:#2563eb;">${escapeHtml(i18n.trialBalance.credit)}</th>
+          <th class="center" style="background:#d97706;">${escapeHtml(i18n.trialBalance.debit)}</th>
+          <th class="center" style="background:#d97706;">${escapeHtml(i18n.trialBalance.credit)}</th>
         </tr>
       </thead>
       <tbody>
@@ -1255,7 +1525,7 @@ export function printTrialBalance(
       </tbody>
       <tfoot>
         <tr>
-          <th colspan="3" class="center" style="background:#ecf0f1;">الإجمالي</th>
+          <th colspan="3" class="center" style="background:#ecf0f1;">${escapeHtml(i18n.trialBalance.total)}</th>
           <th class="left num" style="border-right:1px solid #aaa;">${tbFmt(data.totalOpeningDebit)}</th>
           <th class="left num">${tbFmt(data.totalOpeningCredit)}</th>
           <th class="left num" style="border-right:1px solid #aaa;">${tbFmt(data.totalPeriodDebit)}</th>
@@ -1268,38 +1538,39 @@ export function printTrialBalance(
 
     <div class="tb-balance-badge">
       ${isBalanced
-        ? '<span style="background:#d1fae5;color:#047857;">✓ الميزان متوازن</span>'
-        : '<span style="background:#fee2e2;color:#b91c1c;">× الميزان غير متوازن</span>'}
+        ? `<span style="background:#d1fae5;color:#047857;">${escapeHtml(i18n.trialBalance.balanced)}</span>`
+        : `<span style="background:#fee2e2;color:#b91c1c;">${escapeHtml(i18n.trialBalance.unbalanced)}</span>`}
     </div>
 
     <div class="tb-profit-card">
-      <div class="tb-profit-title">نتيجة الفترة (طريقة احتساب الأرباح)</div>
+      <div class="tb-profit-title">${escapeHtml(i18n.trialBalance.profitTitle)}</div>
       <table class="tb-profit-grid">
         <tr>
-          <td class="lbl">إجمالي الإيرادات</td>
+          <td class="lbl">${escapeHtml(i18n.trialBalance.totalRevenue)}</td>
           <td class="val num" style="color:#047857;">${formatAmount(data.totalRevenue, 2)}</td>
-          <td class="lbl">إجمالي المصاريف</td>
+          <td class="lbl">${escapeHtml(i18n.trialBalance.totalExpense)}</td>
           <td class="val num" style="color:#b91c1c;">${formatAmount(data.totalExpense, 2)}</td>
-          <td class="lbl">${profitLabel}</td>
+          <td class="lbl">${escapeHtml(profitLabel)}</td>
           <td class="val num" style="color:${profitColor};font-size:14px;">${formatAmount(Math.abs(data.netIncome), 2)}</td>
         </tr>
       </table>
+      ${profitInWords ? `
       <div class="tb-profit-words">
-        <span class="lbl">المبلغ كتابةً:</span>
+        <span class="lbl">${escapeHtml(i18n.trialBalance.amountInWords)}</span>
         <span class="val">${escapeHtml(profitInWords)}</span>
-      </div>
+      </div>` : ''}
       <div class="tb-formula">
-        المعادلة: صافي الربح = Σ(دائن − مدين) للإيرادات − Σ(مدين − دائن) للمصاريف
+        ${escapeHtml(i18n.trialBalance.formula)}
       </div>
     </div>
 
     <div class="signatures">
-      <div class="sig">المحاسب</div>
-      <div class="sig">المدقّق</div>
-      <div class="sig">المدير المالي</div>
+      <div class="sig">${escapeHtml(i18n.signatures.accountant)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.auditor)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.financialManager)}</div>
     </div>
 
-    ${buildFooter(company, 'ميزان المراجعة — مولَّد إلكترونياً')}
+    ${buildFooter(company, i18n.trialBalance.footerText)}
   `;
 
   // ‎ستايلات إضافية للطباعة (تنسيقات خاصة بميزان المراجعة)
@@ -1324,13 +1595,14 @@ export function printTrialBalance(
     .tb-formula { margin-top: 6px; text-align: center; font-size: 10px; color: #6b7280; font-style: italic; }
   `;
 
-  openTrialBalanceWindow(html, 'ميزان المراجعة', extraStyles);
+  openTrialBalanceWindow(html, i18n.trialBalance.previewTitle, extraStyles, locale);
 }
 
 /** نافذة طباعة خاصة بميزان المراجعة — تشمل ستايلاته المخصّصة. */
-function openTrialBalanceWindow(html: string, title: string, extraStyles: string) {
+function openTrialBalanceWindow(html: string, title: string, extraStyles: string, locale: PrintLocale = getPrintLocale()) {
+  const dir = getPrintDir(locale);
   const fullDoc = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
+<html dir="${dir}" lang="${locale}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1338,13 +1610,14 @@ function openTrialBalanceWindow(html: string, title: string, extraStyles: string
   <style>${PRINT_STYLES}${extraStyles}
     @page { size: A4 landscape; margin: 10mm; }
     .preview-page { max-width: 297mm; }
+    body { direction: ${dir}; }
   </style>
 </head>
 <body>
   <div class="preview-page">${html}</div>
 </body>
 </html>`;
-  openPrintPreview(fullDoc, title);
+  openPrintPreview(fullDoc, title, locale);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1359,9 +1632,13 @@ export interface PrintCashBoxBalance {
   cashBoxId: number;
   code: string;
   nameAr: string;
+  /** الاسم الإنجليزي للصندوق (اختياري). يُستخدَم عند locale='en'. */
+  nameEn?: string | null;
   accountId: number;
   accountCode?: string | null;
   accountName?: string | null;
+  /** الاسم الإنجليزي للحساب المرتبط (اختياري). يُستخدَم عند locale='en'. */
+  accountNameEn?: string | null;
   currency: string;
   debit: number;
   credit: number;
@@ -1373,8 +1650,16 @@ export interface PrintCashBoxBalance {
 export function printCashBoxBalances(
   balances: PrintCashBoxBalance[],
   company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
 ) {
-  const printedAt = new Date().toLocaleString('ar-IQ');
+  const i18n = getPrintI18n(locale);
+  const printedAt = formatPrintedAt(locale);
+  const headerCompanyName = locale === 'en' ? (company?.nameEn || company?.nameAr || '') : (company?.nameAr || '');
+  // ‎اختيار اسم الصندوق/الحساب بحسب اللغة:
+  const boxName = (b: PrintCashBoxBalance) =>
+    locale === 'en' ? (b.nameEn?.trim() || b.nameAr) : b.nameAr;
+  const accountName = (b: PrintCashBoxBalance) =>
+    locale === 'en' ? (b.accountNameEn?.trim() || b.accountName || '') : (b.accountName || '');
 
   // ‎تجميع الأرصدة حسب الصندوق ليُظهر الصندوق مرة واحدة بصفّ مع عدّة عملات داخله.
   const grouped = new Map<number, { box: PrintCashBoxBalance; rows: PrintCashBoxBalance[] }>();
@@ -1418,11 +1703,11 @@ export function printCashBoxBalances(
       const limitsParts: string[] = [];
       if (r.debitLimit != null) {
         const cls = exceedsDebit ? 'color:#b91c1c;font-weight:700;' : 'color:#047857;';
-        limitsParts.push(`<div style="${cls}">مدين ≤ ${formatAmount(r.debitLimit)}</div>`);
+        limitsParts.push(`<div style="${cls}">${escapeHtml(i18n.cashBoxes.debitLimitPrefix)} ${formatAmount(r.debitLimit)}</div>`);
       }
       if (r.creditLimit != null) {
         const cls = exceedsCredit ? 'color:#b91c1c;font-weight:700;' : 'color:#92400e;';
-        limitsParts.push(`<div style="${cls}">دائن ≤ ${formatAmount(r.creditLimit)}</div>`);
+        limitsParts.push(`<div style="${cls}">${escapeHtml(i18n.cashBoxes.creditLimitPrefix)} ${formatAmount(r.creditLimit)}</div>`);
       }
       const limitsCell = limitsParts.length
         ? `<div class="num" style="font-size:9.5px;line-height:1.5;">${limitsParts.join('')}</div>`
@@ -1431,12 +1716,12 @@ export function printCashBoxBalances(
       const boxCells = isBoxStart
         ? `
           <td rowspan="${rows.length}" style="${rowStyle}vertical-align:top;">
-            <div style="font-weight:700">${escapeHtml(box.nameAr)}</div>
+            <div style="font-weight:700">${escapeHtml(boxName(box))}</div>
             <code class="num" style="display:inline-block;margin-top:2px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:3px;font-size:10px;">${escapeHtml(box.code)}</code>
           </td>
           <td rowspan="${rows.length}" style="${rowStyle}vertical-align:top;font-size:10.5px;">
             ${box.accountCode ? `<span class="num" style="color:#1f6f43;font-weight:600">${escapeHtml(box.accountCode)}</span>` : ''}
-            ${box.accountName ? `<span style="color:#555"> - ${escapeHtml(box.accountName)}</span>` : ''}
+            ${accountName(box) ? `<span style="color:#555"> - ${escapeHtml(accountName(box))}</span>` : ''}
           </td>
         `
         : '';
@@ -1461,13 +1746,13 @@ export function printCashBoxBalances(
         return `
           <tr>
             ${idx === 0
-              ? `<th rowspan="${totalsList.length}" colspan="2" class="right" style="background:#fef3c7;color:#92400e;">الإجمالي حسب العملة</th>`
+              ? `<th rowspan="${totalsList.length}" colspan="2" class="right" style="background:#fef3c7;color:#92400e;">${escapeHtml(i18n.cashBoxes.totalByCurrency)}</th>`
               : ''}
             <td class="center num" style="font-weight:700;color:#92400e;background:#fffbeb;">${escapeHtml(t.currency)}</td>
             <td class="left num" style="font-weight:700;color:${balanceColor};background:#fffbeb;">${formatAmount(t.balance)}</td>
             <td class="left num" style="background:#fffbeb;">${formatAmount(t.debit)}</td>
             <td class="left num" style="background:#fffbeb;">${formatAmount(t.credit)}</td>
-            <td class="center" style="background:#fffbeb;color:#6b7280;font-size:10px;">${t.boxCount} صندوق</td>
+            <td class="center" style="background:#fffbeb;color:#6b7280;font-size:10px;">${t.boxCount} ${escapeHtml(i18n.cashBoxes.boxesSuffix)}</td>
           </tr>
         `;
       }).join('');
@@ -1481,55 +1766,55 @@ export function printCashBoxBalances(
         <span class="num" style="background:#fff;border:1px solid ${balanceColor}55;color:${balanceColor};border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;">${escapeHtml(t.currency)}</span>
         <div style="display:flex;flex-direction:column;line-height:1.1;">
           <span class="num" style="font-size:13px;font-weight:700;color:${balanceColor};">${formatAmount(t.balance)}</span>
-          <span style="font-size:9px;color:#666;">${t.boxCount} صندوق</span>
+          <span style="font-size:9px;color:#666;">${t.boxCount} ${escapeHtml(i18n.cashBoxes.boxesSuffix)}</span>
         </div>
       </div>
     `;
   }).join('');
 
   const html = `
-    ${buildBrandHeader(company, printedAt)}
-    <div class="report-title">أرصدة الصناديق</div>
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${escapeHtml(i18n.cashBoxes.title)}</div>
     <div style="text-align:center;font-size:10.5px;color:#555;margin:0 0 8px;">
-      محسوبة من سطور القيود المرحَّلة فقط — السقوف الحمراء تعني تجاوز السقف المعرَّف للصندوق.
+      ${escapeHtml(i18n.cashBoxes.subtitle)}
     </div>
 
     ${currencyChips ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:10px;">${currencyChips}</div>` : ''}
 
     <div class="doc-meta" style="grid-template-columns:repeat(3,1fr);">
-      <div class="item"><span class="label">عدد الصناديق</span><span class="value num">${grouped.size}</span></div>
-      <div class="item"><span class="label">عدد العملات</span><span class="value num">${totalsList.length}</span></div>
-      <div class="item"><span class="label">عدد الأسطر</span><span class="value num">${balances.length}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.cashBoxes.cashBoxesCount)}</span><span class="value num">${grouped.size}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.cashBoxes.currenciesCount)}</span><span class="value num">${totalsList.length}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.cashBoxes.rowsCount)}</span><span class="value num">${balances.length}</span></div>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th class="right" style="width:20%;">الصندوق</th>
-          <th class="right" style="width:25%;">الحساب المحاسبي</th>
-          <th class="center" style="width:8%;">العملة</th>
-          <th class="left" style="width:14%;">الرصيد</th>
-          <th class="left" style="width:12%;">المدين</th>
-          <th class="left" style="width:12%;">الدائن</th>
-          <th class="center" style="width:9%;">السقوف</th>
+          <th class="right" style="width:20%;">${escapeHtml(i18n.cashBoxes.cashBoxLabel)}</th>
+          <th class="right" style="width:25%;">${escapeHtml(i18n.cashBoxes.accountLabel)}</th>
+          <th class="center" style="width:8%;">${escapeHtml(i18n.cashBoxes.currencyLabel)}</th>
+          <th class="left" style="width:14%;">${escapeHtml(i18n.cashBoxes.balance)}</th>
+          <th class="left" style="width:12%;">${escapeHtml(i18n.cashBoxes.debit)}</th>
+          <th class="left" style="width:12%;">${escapeHtml(i18n.cashBoxes.credit)}</th>
+          <th class="center" style="width:9%;">${escapeHtml(i18n.cashBoxes.limits)}</th>
         </tr>
       </thead>
       <tbody>
-        ${bodyRows || '<tr><td colspan="7" class="center" style="padding:18px;color:#888">لا توجد أرصدة بعد — أنشئ صناديق أو أضف حركات.</td></tr>'}
+        ${bodyRows || `<tr><td colspan="7" class="center" style="padding:18px;color:#888">${escapeHtml(i18n.cashBoxes.empty)}</td></tr>`}
       </tbody>
       ${totalsRows ? `<tfoot>${totalsRows}</tfoot>` : ''}
     </table>
 
     <div class="signatures">
-      <div class="sig">أمين الصندوق</div>
-      <div class="sig">المحاسب</div>
-      <div class="sig">المدير المالي</div>
+      <div class="sig">${escapeHtml(i18n.signatures.cashier)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.accountant)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.financialManager)}</div>
     </div>
 
-    ${buildFooter(company, 'تقرير أرصدة الصناديق')}
+    ${buildFooter(company, i18n.cashBoxes.footerText)}
   `;
 
-  openPrintWindow(html, `أرصدة الصناديق - ${company?.nameAr ?? ''}`.trim());
+  openPrintWindow(html, `${i18n.cashBoxes.previewTitle} - ${headerCompanyName}`.trim(), locale);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1571,10 +1856,10 @@ export interface PrintCashBoxTransfer {
   createdAt?: string | null;
 }
 
-function transferStatusLabel(s: PrintCashBoxTransfer['status']): { label: string; bg: string; fg: string } {
-  if (s === 'Received') return { label: 'مستلَمة', bg: '#d1fae5', fg: '#047857' };
-  if (s === 'Cancelled') return { label: 'ملغاة', bg: '#fee2e2', fg: '#b91c1c' };
-  return { label: 'بانتظار الاستلام', bg: '#fef3c7', fg: '#92400e' };
+function transferStatusLabel(s: PrintCashBoxTransfer['status'], i18n: PrintI18n): { label: string; bg: string; fg: string } {
+  if (s === 'Received')  return { label: i18n.transfer.statusReceived, bg: '#d1fae5', fg: '#047857' };
+  if (s === 'Cancelled') return { label: i18n.transfer.statusCancelled, bg: '#fee2e2', fg: '#b91c1c' };
+  return                       { label: i18n.transfer.statusPending, bg: '#fef3c7', fg: '#92400e' };
 }
 
 function fmtDateTime(value: string | null | undefined): string {
@@ -1592,25 +1877,39 @@ function fmtDateTime(value: string | null | undefined): string {
   } catch { return '—'; }
 }
 
+/** خيارات إضافية لطباعة المناقلة — لتمرير الأسماء الإنجليزية المعروفة. */
+export interface PrintCashBoxTransferExtra {
+  fromCashBoxNameEn?: string | null;
+  toCashBoxNameEn?: string | null;
+  transitAccountNameEn?: string | null;
+}
+
 export function printCashBoxTransfer(
   t: PrintCashBoxTransfer,
   company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
+  extra: PrintCashBoxTransferExtra = {},
 ) {
-  const printedAt = new Date().toLocaleString('ar-IQ');
-  const status = transferStatusLabel(t.status);
-  const amountWords = tafqeet(Math.abs(t.amount), { currency: t.currency });
+  const i18n = getPrintI18n(locale);
+  const printedAt = formatPrintedAt(locale);
+  const status = transferStatusLabel(t.status, i18n);
+  const amountWords = locale === 'en' ? '' : tafqeet(Math.abs(t.amount), { currency: t.currency });
+
+  const fromBoxName = locale === 'en' ? (extra.fromCashBoxNameEn?.trim() || t.fromCashBoxName) : t.fromCashBoxName;
+  const toBoxName = locale === 'en' ? (extra.toCashBoxNameEn?.trim() || t.toCashBoxName) : t.toCashBoxName;
+  const transitName = locale === 'en' ? (extra.transitAccountNameEn?.trim() || t.transitAccountName || '') : (t.transitAccountName || '');
 
   // ─── طرف الإرسال (موجود دائماً)
   const sendCard = `
     <div class="ct-side ct-side--out">
       <div class="ct-side__head">
         <span class="ct-side__icon">⬅</span>
-        <span>طرف الإرسال (صادر)</span>
+        <span>${escapeHtml(i18n.transfer.sendSideTitle)}</span>
       </div>
-      <div class="ct-side__row"><span class="lbl">من صندوق</span><span class="val">${escapeHtml(t.fromCashBoxName)} ${t.fromCashBoxCode ? `<code class="num">${escapeHtml(t.fromCashBoxCode)}</code>` : ''}</span></div>
-      <div class="ct-side__row"><span class="lbl">تاريخ ووقت الإرسال</span><span class="val num">${fmtDateTime(t.sendDate)}</span></div>
-      <div class="ct-side__row"><span class="lbl">قيد الإرسال</span><span class="val num">${t.sendEntryNumber ? `#${escapeHtml(t.sendEntryNumber)}` : (t.sendJournalEntryId ? `#${t.sendJournalEntryId}` : '—')}</span></div>
-      <div class="ct-side__row"><span class="lbl">المبلغ المُرسَل</span><span class="val num ct-amount">${formatAmount(t.amount)} ${escapeHtml(t.currency)}</span></div>
+      <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.fromCashBox)}</span><span class="val">${escapeHtml(fromBoxName)} ${t.fromCashBoxCode ? `<code class="num">${escapeHtml(t.fromCashBoxCode)}</code>` : ''}</span></div>
+      <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.sendDateTime)}</span><span class="val num">${fmtDateTime(t.sendDate)}</span></div>
+      <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.sendEntry)}</span><span class="val num">${t.sendEntryNumber ? `#${escapeHtml(t.sendEntryNumber)}` : (t.sendJournalEntryId ? `#${t.sendJournalEntryId}` : '—')}</span></div>
+      <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.sentAmount)}</span><span class="val num ct-amount">${formatAmount(t.amount)} ${escapeHtml(t.currency)}</span></div>
     </div>
   `;
 
@@ -1621,15 +1920,15 @@ export function printCashBoxTransfer(
       <div class="ct-side ct-side--in ct-side--ok">
         <div class="ct-side__head">
           <span class="ct-side__icon">➡</span>
-          <span>طرف الاستلام (وارد)</span>
+          <span>${escapeHtml(i18n.transfer.receiveSideTitle)}</span>
         </div>
-        <div class="ct-side__row"><span class="lbl">إلى صندوق</span><span class="val">${escapeHtml(t.toCashBoxName)} ${t.toCashBoxCode ? `<code class="num">${escapeHtml(t.toCashBoxCode)}</code>` : ''}</span></div>
-        <div class="ct-side__row"><span class="lbl">تاريخ ووقت الاستلام</span><span class="val num">${fmtDateTime(t.receiveDate)}</span></div>
-        <div class="ct-side__row"><span class="lbl">قيد الاستلام</span><span class="val num">${t.receiveEntryNumber ? `#${escapeHtml(t.receiveEntryNumber)}` : (t.receiveJournalEntryId ? `#${t.receiveJournalEntryId}` : '—')}</span></div>
-        <div class="ct-side__row"><span class="lbl">المبلغ المستلَم</span><span class="val num ct-amount">${formatAmount(t.amount)} ${escapeHtml(t.currency)}</span></div>
-        ${t.receivedByUserId ? `<div class="ct-side__row"><span class="lbl">اعتمد الاستلام</span><span class="val">${escapeHtml(t.receivedByUserId)}</span></div>` : ''}
-        ${t.receivedAt ? `<div class="ct-side__row"><span class="lbl">وقت الاعتماد</span><span class="val num">${fmtDateTime(t.receivedAt)}</span></div>` : ''}
-        ${t.receiveNotes ? `<div class="ct-side__row ct-side__notes"><span class="lbl">ملاحظات</span><span class="val">${escapeHtml(t.receiveNotes)}</span></div>` : ''}
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.toCashBox)}</span><span class="val">${escapeHtml(toBoxName)} ${t.toCashBoxCode ? `<code class="num">${escapeHtml(t.toCashBoxCode)}</code>` : ''}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.receiveDateTime)}</span><span class="val num">${fmtDateTime(t.receiveDate)}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.receiveEntry)}</span><span class="val num">${t.receiveEntryNumber ? `#${escapeHtml(t.receiveEntryNumber)}` : (t.receiveJournalEntryId ? `#${t.receiveJournalEntryId}` : '—')}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.receivedAmount)}</span><span class="val num ct-amount">${formatAmount(t.amount)} ${escapeHtml(t.currency)}</span></div>
+        ${t.receivedByUserId ? `<div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.approvedBy)}</span><span class="val">${escapeHtml(t.receivedByUserId)}</span></div>` : ''}
+        ${t.receivedAt ? `<div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.approvalTime)}</span><span class="val num">${fmtDateTime(t.receivedAt)}</span></div>` : ''}
+        ${t.receiveNotes ? `<div class="ct-side__row ct-side__notes"><span class="lbl">${escapeHtml(i18n.transfer.notes)}</span><span class="val">${escapeHtml(t.receiveNotes)}</span></div>` : ''}
       </div>
     `;
   } else if (t.status === 'Cancelled') {
@@ -1637,13 +1936,13 @@ export function printCashBoxTransfer(
       <div class="ct-side ct-side--in ct-side--cancel">
         <div class="ct-side__head">
           <span class="ct-side__icon">⛔</span>
-          <span>طرف الاستلام — ألغيت قبل الاستلام</span>
+          <span>${escapeHtml(i18n.transfer.cancelSideTitle)}</span>
         </div>
-        <div class="ct-side__row"><span class="lbl">الصندوق المستهدَف</span><span class="val">${escapeHtml(t.toCashBoxName)} ${t.toCashBoxCode ? `<code class="num">${escapeHtml(t.toCashBoxCode)}</code>` : ''}</span></div>
-        <div class="ct-side__row"><span class="lbl">قيد عكس الإرسال</span><span class="val num">${t.reversalEntryNumber ? `#${escapeHtml(t.reversalEntryNumber)}` : (t.reversalJournalEntryId ? `#${t.reversalJournalEntryId}` : '—')}</span></div>
-        ${t.cancelledByUserId ? `<div class="ct-side__row"><span class="lbl">ألغاها</span><span class="val">${escapeHtml(t.cancelledByUserId)}</span></div>` : ''}
-        ${t.cancelledAt ? `<div class="ct-side__row"><span class="lbl">وقت الإلغاء</span><span class="val num">${fmtDateTime(t.cancelledAt)}</span></div>` : ''}
-        ${t.cancellationReason ? `<div class="ct-side__row ct-side__notes"><span class="lbl">سبب الإلغاء</span><span class="val">${escapeHtml(t.cancellationReason)}</span></div>` : ''}
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.targetCashBox)}</span><span class="val">${escapeHtml(toBoxName)} ${t.toCashBoxCode ? `<code class="num">${escapeHtml(t.toCashBoxCode)}</code>` : ''}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.reversalEntry)}</span><span class="val num">${t.reversalEntryNumber ? `#${escapeHtml(t.reversalEntryNumber)}` : (t.reversalJournalEntryId ? `#${t.reversalJournalEntryId}` : '—')}</span></div>
+        ${t.cancelledByUserId ? `<div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.cancelledBy)}</span><span class="val">${escapeHtml(t.cancelledByUserId)}</span></div>` : ''}
+        ${t.cancelledAt ? `<div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.cancelTime)}</span><span class="val num">${fmtDateTime(t.cancelledAt)}</span></div>` : ''}
+        ${t.cancellationReason ? `<div class="ct-side__row ct-side__notes"><span class="lbl">${escapeHtml(i18n.transfer.cancelReason)}</span><span class="val">${escapeHtml(t.cancellationReason)}</span></div>` : ''}
       </div>
     `;
   } else {
@@ -1651,65 +1950,66 @@ export function printCashBoxTransfer(
       <div class="ct-side ct-side--in ct-side--pending">
         <div class="ct-side__head">
           <span class="ct-side__icon">⏳</span>
-          <span>طرف الاستلام — بانتظار الاعتماد</span>
+          <span>${escapeHtml(i18n.transfer.pendingSideTitle)}</span>
         </div>
-        <div class="ct-side__row"><span class="lbl">إلى صندوق</span><span class="val">${escapeHtml(t.toCashBoxName)} ${t.toCashBoxCode ? `<code class="num">${escapeHtml(t.toCashBoxCode)}</code>` : ''}</span></div>
-        <div class="ct-side__row"><span class="lbl">تاريخ الاستلام المتوقَّع</span><span class="val num">${fmtDateTime(t.receiveDate)}</span></div>
-        <div class="ct-side__row"><span class="lbl">قيد الاستلام</span><span class="val num" style="color:#92400e">سيُولَّد عند موافقة الصندوق المستلم</span></div>
-        <div class="ct-side__row"><span class="lbl">المبلغ المتوقَّع</span><span class="val num ct-amount">${formatAmount(t.amount)} ${escapeHtml(t.currency)}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.toCashBox)}</span><span class="val">${escapeHtml(toBoxName)} ${t.toCashBoxCode ? `<code class="num">${escapeHtml(t.toCashBoxCode)}</code>` : ''}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.expectedReceiveDate)}</span><span class="val num">${fmtDateTime(t.receiveDate)}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.receiveEntry)}</span><span class="val num" style="color:#92400e">${escapeHtml(i18n.transfer.pendingReceiveText)}</span></div>
+        <div class="ct-side__row"><span class="lbl">${escapeHtml(i18n.transfer.expectedAmount)}</span><span class="val num ct-amount">${formatAmount(t.amount)} ${escapeHtml(t.currency)}</span></div>
       </div>
     `;
   }
 
-  const transitInfo = (t.transitAccountCode || t.transitAccountName)
-    ? `<div class="item"><span class="label">الحساب الوسيط</span><span class="value">${t.transitAccountCode ? `<span class="num" style="color:#1f6f43;font-weight:600">${escapeHtml(t.transitAccountCode)}</span>` : ''}${t.transitAccountName ? ` ${escapeHtml(t.transitAccountName)}` : ''}</span></div>`
+  const transitInfo = (t.transitAccountCode || transitName)
+    ? `<div class="item"><span class="label">${escapeHtml(i18n.transfer.transitAccount)}</span><span class="value">${t.transitAccountCode ? `<span class="num" style="color:#1f6f43;font-weight:600">${escapeHtml(t.transitAccountCode)}</span>` : ''}${transitName ? ` ${escapeHtml(transitName)}` : ''}</span></div>`
     : '';
 
   const html = `
-    ${buildBrandHeader(company, printedAt)}
-    <div class="report-title">سند مناقلة بين صندوقَين</div>
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${escapeHtml(i18n.transfer.title)}</div>
 
     <div class="ct-banner" style="background:${status.bg};color:${status.fg};">
       <div class="ct-banner__num">
-        <span style="font-size:10px;opacity:.8;">رقم المناقلة</span>
+        <span style="font-size:10px;opacity:.8;">${escapeHtml(i18n.transfer.transferNumber)}</span>
         <span class="num" style="font-size:16px;font-weight:800;">${escapeHtml(t.transferNumber)}</span>
       </div>
       <div class="ct-banner__status">
-        <span style="font-size:10px;opacity:.8;">الحالة</span>
+        <span style="font-size:10px;opacity:.8;">${escapeHtml(i18n.transfer.status)}</span>
         <span style="font-size:13px;font-weight:700;">${escapeHtml(status.label)}</span>
       </div>
       <div class="ct-banner__amt">
-        <span style="font-size:10px;opacity:.8;">المبلغ</span>
+        <span style="font-size:10px;opacity:.8;">${escapeHtml(i18n.transfer.amount)}</span>
         <span class="num" style="font-size:18px;font-weight:800;">${formatAmount(t.amount)} ${escapeHtml(t.currency)}</span>
       </div>
     </div>
 
     <div class="doc-meta" style="grid-template-columns:repeat(3,1fr);">
-      <div class="item"><span class="label">العملة</span><span class="value num">${escapeHtml(t.currency)}</span></div>
+      <div class="item"><span class="label">${escapeHtml(i18n.transfer.currency)}</span><span class="value num">${escapeHtml(t.currency)}</span></div>
       ${transitInfo}
-      ${t.referenceNumber ? `<div class="item"><span class="label">المرجع الخارجي</span><span class="value num">${escapeHtml(t.referenceNumber)}</span></div>` : ''}
-      ${t.createdAt ? `<div class="item"><span class="label">تاريخ الإنشاء</span><span class="value num">${fmtDateTime(t.createdAt)}</span></div>` : ''}
+      ${t.referenceNumber ? `<div class="item"><span class="label">${escapeHtml(i18n.transfer.externalRef)}</span><span class="value num">${escapeHtml(t.referenceNumber)}</span></div>` : ''}
+      ${t.createdAt ? `<div class="item"><span class="label">${escapeHtml(i18n.transfer.createdAt)}</span><span class="value num">${fmtDateTime(t.createdAt)}</span></div>` : ''}
     </div>
 
-    ${t.description ? `<div class="ct-desc"><span class="lbl">البيان:</span> ${escapeHtml(t.description)}</div>` : ''}
+    ${t.description ? `<div class="ct-desc"><span class="lbl">${escapeHtml(i18n.transfer.description)}</span> ${escapeHtml(t.description)}</div>` : ''}
 
     <div class="ct-grid">
       ${sendCard}
       ${receiveCard}
     </div>
 
+    ${amountWords ? `
     <div class="ct-words">
-      <span class="lbl">المبلغ كتابةً:</span>
+      <span class="lbl">${escapeHtml(i18n.transfer.amountInWords)}</span>
       <span class="val">${escapeHtml(amountWords)}</span>
-    </div>
+    </div>` : ''}
 
     <div class="signatures">
-      <div class="sig">أمين الصندوق المُرسِل</div>
-      <div class="sig">أمين الصندوق المستلم</div>
-      <div class="sig">المحاسب / المراجع</div>
+      <div class="sig">${escapeHtml(i18n.signatures.sendingCashier)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.receivingCashier)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.accountantReviewer)}</div>
     </div>
 
-    ${buildFooter(company, 'سند مناقلة بين صندوقَين — مولَّد إلكترونياً')}
+    ${buildFooter(company, i18n.transfer.footerText)}
   `;
 
   const extraStyles = `
@@ -1752,17 +2052,319 @@ export function printCashBoxTransfer(
     }
   `;
 
+  const dir = getPrintDir(locale);
+  const previewTitle = i18n.transfer.previewTitle(t.transferNumber);
   const fullDoc = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
+<html dir="${dir}" lang="${locale}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(`مناقلة ${t.transferNumber}`)}</title>
-  <style>${PRINT_STYLES}${extraStyles}</style>
+  <title>${escapeHtml(previewTitle)}</title>
+  <style>${PRINT_STYLES}${extraStyles}
+    body { direction: ${dir}; }
+  </style>
 </head>
 <body>
   <div class="preview-page">${html}</div>
 </body>
 </html>`;
-  openPrintPreview(fullDoc, `سند مناقلة ${t.transferNumber}`);
+  openPrintPreview(fullDoc, previewTitle, locale);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// طباعة أرصدة الحسابات (Account Balances) — جدول ديناميكي
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// يبني تقريراً HTML يتكيّف مع البيانات والإعدادات:
+//   - يُظهر/يُخفي عمودَي «مقوّم» تلقائياً حسب data.valuated.
+//   - يَخفي عمود «العملة» إذا كل الصفوف بنفس عملة واحدة.
+//   - يحترم ترتيب وإخفاء وعرض الأعمدة المُمَرَّر من الواجهة (colConfig)
+//     ليُطابق ما يراه المستخدم على الشاشة بالضبط.
+//   - يدعم تمرير `searchFilter` للإشارة إلى أن المعروض هو نتيجة بحث.
+
+const ACCOUNT_BALANCES_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
+  Asset:     { bg: '#dbeafe', fg: '#1d4ed8' },
+  Liability: { bg: '#fef3c7', fg: '#a16207' },
+  Equity:    { bg: '#ede9fe', fg: '#6d28d9' },
+  Revenue:   { bg: '#d1fae5', fg: '#047857' },
+  Expense:   { bg: '#fee2e2', fg: '#b91c1c' },
+};
+
+/** نفس قاعدة tbFmt: 0 → "—" */
+function abFmt(n: number): string {
+  if (!n || Math.abs(n) < 0.005) return '—';
+  return formatAmount(n, 2);
+}
+
+export type AccountBalancesPrintCol =
+  | 'idx'
+  | 'code'
+  | 'name'
+  | 'type'
+  | 'currency'
+  | 'debit'
+  | 'credit'
+  | 'valDebit'
+  | 'valCredit';
+
+export interface AccountBalancesPrintColConfig {
+  order?: AccountBalancesPrintCol[];
+  hidden?: AccountBalancesPrintCol[];
+  widths?: Partial<Record<AccountBalancesPrintCol, number>>;
+  searchFilter?: string;
+  accountLabel?: string;
+  /** خرائط (accountCode → nameEn) للاستخدام في وضع EN حين لا يوفّر الـ DTO الاسم الإنجليزي. */
+  accountNamesEn?: Record<string, string>;
+}
+
+export function printAccountBalances(
+  data: AccountBalancesDto,
+  company: CompanySettingsDto | null = null,
+  colConfig: AccountBalancesPrintColConfig = {},
+  locale: PrintLocale = getPrintLocale(),
+) {
+  const i18n = getPrintI18n(locale);
+  const printedAt = formatPrintedAt(locale);
+  const base = data.baseCurrency || 'IQD';
+  const isValuated = data.valuated;
+
+  // ── 1) تحديد الأعمدة المتاحة + الترتيب
+  const ALL_COLS: AccountBalancesPrintCol[] =
+    ['idx', 'code', 'name', 'type', 'currency', 'debit', 'credit', 'valDebit', 'valCredit'];
+
+  const COL_LABEL: Record<AccountBalancesPrintCol, string> = {
+    idx: i18n.accountBalances.idx,
+    code: i18n.accountBalances.code,
+    name: i18n.accountBalances.account,
+    type: i18n.accountBalances.type,
+    currency: i18n.accountBalances.currency,
+    debit: i18n.accountBalances.debit,
+    credit: i18n.accountBalances.credit,
+    valDebit: i18n.accountBalances.valDebit(base),
+    valCredit: i18n.accountBalances.valCredit(base),
+  };
+
+  const COL_DEFAULT_PX: Record<AccountBalancesPrintCol, number> = {
+    idx: 40, code: 70, name: 240, type: 80, currency: 60,
+    debit: 110, credit: 110, valDebit: 120, valCredit: 120,
+  };
+
+  // العملات الموجودة في الصفوف — لو واحدة فقط نُخفي عمود العملة
+  const distinctCurrencies = new Set<string>();
+  for (const r of data.rows) distinctCurrencies.add((r.currency || '').toUpperCase());
+  const showCurrencyCol = distinctCurrencies.size > 1;
+
+  const hiddenSet = new Set<AccountBalancesPrintCol>(colConfig.hidden ?? []);
+
+  function isColAllowed(k: AccountBalancesPrintCol): boolean {
+    if (hiddenSet.has(k)) return false;
+    if (!isValuated && (k === 'valDebit' || k === 'valCredit')) return false;
+    if (!showCurrencyCol && k === 'currency') return false;
+    return true;
+  }
+
+  // ابدأ من الترتيب المُمَرَّر (إن وُجد) ثم أكمل بالأعمدة المتبقية، ثم فلتر بالمسموح.
+  const requestedOrder = colConfig.order && colConfig.order.length > 0
+    ? colConfig.order
+    : ALL_COLS;
+  const seenOrder = new Set<AccountBalancesPrintCol>();
+  const orderedAll: AccountBalancesPrintCol[] = [];
+  for (const k of requestedOrder) {
+    if (!seenOrder.has(k) && ALL_COLS.includes(k)) {
+      orderedAll.push(k);
+      seenOrder.add(k);
+    }
+  }
+  for (const k of ALL_COLS) {
+    if (!seenOrder.has(k)) orderedAll.push(k);
+  }
+  const visibleCols: AccountBalancesPrintCol[] = orderedAll.filter(isColAllowed);
+
+  // عرض الأعمدة بالـ px
+  const pxWidths: Record<AccountBalancesPrintCol, number> = { ...COL_DEFAULT_PX };
+  if (colConfig.widths) {
+    for (const k of ALL_COLS) {
+      const w = colConfig.widths[k];
+      if (typeof w === 'number' && w > 0) pxWidths[k] = w;
+    }
+  }
+  const totalPx = visibleCols.reduce((s, k) => s + pxWidths[k], 0);
+  const LANDSCAPE_MM = 277;
+  function colWidthStyle(k: AccountBalancesPrintCol): string {
+    if (k === 'name') return ''; // الاسم مرن — auto
+    const mm = (pxWidths[k] / totalPx) * LANDSCAPE_MM;
+    return `width:${mm.toFixed(1)}mm`;
+  }
+
+  // ── 2) صف الجدول
+  const renderHeadCell = (k: AccountBalancesPrintCol): string => {
+    const align = (k === 'debit' || k === 'credit' || k === 'valDebit' || k === 'valCredit') ? 'left'
+                : (k === 'idx' || k === 'currency' || k === 'type') ? 'center'
+                : 'right';
+    return `<th class="${align}">${escapeHtml(COL_LABEL[k])}</th>`;
+  };
+
+  const renderRowCell = (
+    k: AccountBalancesPrintCol,
+    r: AccountBalancesDto['rows'][number],
+    idx: number,
+  ): string => {
+    switch (k) {
+      case 'idx':
+        return `<td class="center" style="color:#888">${idx + 1}</td>`;
+      case 'code':
+        return `<td class="center num" style="white-space:nowrap;color:#1f6f43;font-weight:600">${escapeHtml(r.accountCode)}</td>`;
+      case 'name': {
+        const indent = Math.max(0, (r.level - 1)) * 10;
+        const nameStyle = !r.isLeaf ? 'font-weight:700;background:#f8f9fa;' : '';
+        // ‎اسم الحساب: في EN نُفضّل colConfig.accountNamesEn[code] ثم accountNameEn من الـ DTO ثم accountName.
+        const displayName = locale === 'en'
+          ? (colConfig.accountNamesEn?.[r.accountCode]?.trim()
+              || (r as { accountNameEn?: string }).accountNameEn
+              || r.accountName)
+          : r.accountName;
+        return `<td style="${nameStyle}"><span style="padding-inline-start:${indent}px;">${escapeHtml(displayName)}</span></td>`;
+      }
+      case 'type': {
+        const colors = ACCOUNT_BALANCES_TYPE_COLORS[r.accountType] ?? { bg: '#e5e7eb', fg: '#374151' };
+        const lbl = i18n.accountType[r.accountType as keyof typeof i18n.accountType] ?? r.accountType;
+        return `<td class="center"><span class="badge" style="background:${colors.bg};color:${colors.fg};border:1px solid ${colors.fg}33;">${escapeHtml(lbl)}</span></td>`;
+      }
+      case 'currency':
+        return `<td class="center"><span class="num" style="background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:3px;font-weight:600;font-size:10px;">${escapeHtml(r.currency || '—')}</span></td>`;
+      case 'debit':
+        return `<td class="left num" style="${r.debitBalance > 0 ? 'color:#047857;font-weight:600;' : 'color:#aaa;'}">${abFmt(r.debitBalance)}</td>`;
+      case 'credit':
+        return `<td class="left num" style="${r.creditBalance > 0 ? 'color:#b91c1c;font-weight:600;' : 'color:#aaa;'}">${abFmt(r.creditBalance)}</td>`;
+      case 'valDebit':
+        return `<td class="left num" style="${r.valuatedDebit > 0 ? 'color:#a16207;font-weight:600;' : 'color:#aaa;'}">${abFmt(r.valuatedDebit)}</td>`;
+      case 'valCredit':
+        return `<td class="left num" style="${r.valuatedCredit > 0 ? 'color:#a16207;font-weight:600;' : 'color:#aaa;'}">${abFmt(r.valuatedCredit)}</td>`;
+      default:
+        return '<td>—</td>';
+    }
+  };
+
+  // صف الإجماليات
+  const renderTotalsRow = (): string => {
+    // كم عمود غير مبلغي في البداية (لـ colspan على عمود "الإجمالي")
+    const amountCols = new Set<AccountBalancesPrintCol>(['debit', 'credit', 'valDebit', 'valCredit']);
+    const firstAmtIdx = visibleCols.findIndex(k => amountCols.has(k));
+    const leadingNon = firstAmtIdx >= 0 ? firstAmtIdx : visibleCols.length;
+
+    const parts: string[] = [];
+    if (leadingNon > 0) {
+      parts.push(`<th colspan="${leadingNon}" class="right" style="background:#ecf0f1;">${escapeHtml(i18n.accountBalances.totalsLbl(data.rows.length))}</th>`);
+    }
+    for (let i = leadingNon; i < visibleCols.length; i++) {
+      const k = visibleCols[i];
+      switch (k) {
+        case 'debit':
+          parts.push(`<th class="left num" style="background:#ecf0f1;color:#047857;">${abFmt(data.totalDebit)}</th>`);
+          break;
+        case 'credit':
+          parts.push(`<th class="left num" style="background:#ecf0f1;color:#b91c1c;">${abFmt(data.totalCredit)}</th>`);
+          break;
+        case 'valDebit':
+          parts.push(`<th class="left num" style="background:#ecf0f1;color:#a16207;">${abFmt(data.totalValuatedDebit)}</th>`);
+          break;
+        case 'valCredit':
+          parts.push(`<th class="left num" style="background:#ecf0f1;color:#a16207;">${abFmt(data.totalValuatedCredit)}</th>`);
+          break;
+        default:
+          parts.push(`<th style="background:#ecf0f1;">&nbsp;</th>`);
+      }
+    }
+    return `<tr>${parts.join('')}</tr>`;
+  };
+
+  const colgroup = `<colgroup>${
+    visibleCols.map(k => `<col${colWidthStyle(k) ? ` style="${colWidthStyle(k)}"` : ''}>`).join('')
+  }</colgroup>`;
+
+  const headRow = `<tr>${visibleCols.map(renderHeadCell).join('')}</tr>`;
+  const bodyRows = data.rows.map((r, idx) =>
+    `<tr>${visibleCols.map(k => renderRowCell(k, r, idx)).join('')}</tr>`
+  ).join('');
+
+  // ── 3) شارات الفلاتر (chips) في الأعلى
+  const filterChips: string[] = [];
+  filterChips.push(`<span class="chip">${escapeHtml(i18n.accountBalances.fromDate)} <strong class="num">${escapeHtml(formatDate(data.fromDate))}</strong></span>`);
+  filterChips.push(`<span class="chip">${escapeHtml(i18n.accountBalances.toDate)} <strong class="num">${escapeHtml(formatDate(data.toDate))}</strong></span>`);
+  if (colConfig.accountLabel || data.filterAccountId) {
+    filterChips.push(`<span class="chip" style="background:#dbeafe;color:#1d4ed8;">${escapeHtml(i18n.accountBalances.accountChip)} <strong>${escapeHtml(colConfig.accountLabel ?? `#${data.filterAccountId}`)}</strong></span>`);
+  } else {
+    filterChips.push(`<span class="chip">${escapeHtml(i18n.accountBalances.accountChip)} <strong>${escapeHtml(i18n.accountBalances.allAccounts)}</strong></span>`);
+  }
+  filterChips.push(`<span class="chip">${escapeHtml(i18n.accountBalances.currencyChip)} <strong>${escapeHtml(data.filterCurrency || i18n.accountBalances.allCurrencies)}</strong></span>`);
+  if (data.leavesOnly) filterChips.push(`<span class="chip">${escapeHtml(i18n.accountBalances.leavesOnly)}</span>`);
+  if (data.maxLevel != null) filterChips.push(`<span class="chip">${escapeHtml(i18n.accountBalances.maxLevel(data.maxLevel))}</span>`);
+  if (isValuated) filterChips.push(`<span class="chip" style="background:#fef3c7;color:#a16207;">${escapeHtml(i18n.accountBalances.valuatedBy(base))}</span>`);
+  if (data.fxBulletinName) {
+    filterChips.push(`<span class="chip" style="background:#eef2ff;color:#4338ca;">${escapeHtml(i18n.accountBalances.bulletin(data.fxBulletinName))}</span>`);
+  }
+  if (colConfig.searchFilter) {
+    filterChips.push(`<span class="chip" style="background:#fce7f3;color:#9d174d;">${escapeHtml(i18n.accountBalances.searchFilter(colConfig.searchFilter))}</span>`);
+  }
+
+  const html = `
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${escapeHtml(i18n.accountBalances.title)}</div>
+
+    <div class="ab-filters">${filterChips.join(' ')}</div>
+
+    ${data.fxUsedFallback ? `
+      <div class="ab-alert">
+        ${escapeHtml(i18n.accountBalances.fxWarn)}
+      </div>
+    ` : ''}
+
+    <table class="ab-table">
+      ${colgroup}
+      <thead>${headRow}</thead>
+      <tbody>
+        ${bodyRows || `<tr><td colspan="${visibleCols.length}" class="center" style="padding:18px;color:#888">${escapeHtml(i18n.accountBalances.empty)}</td></tr>`}
+      </tbody>
+      <tfoot>${renderTotalsRow()}</tfoot>
+    </table>
+
+    <div class="signatures">
+      <div class="sig">${escapeHtml(i18n.signatures.accountant)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.auditor)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.financialManager)}</div>
+    </div>
+
+    ${buildFooter(company, i18n.accountBalances.footerText)}
+  `;
+
+  const extraStyles = `
+    .ab-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; }
+    .ab-filters .chip { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 999px; padding: 3px 10px; font-size: 11px; color: #374151; }
+    .ab-alert { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-size: 11px; color: #92400e; }
+    .ab-table { width: 100%; border-collapse: collapse; font-size: 10.5px; margin-top: 6px; table-layout: fixed; }
+    .ab-table th, .ab-table td { border: 1px solid #94a3b8; padding: 4px 6px; vertical-align: middle; }
+    .ab-table thead th { background: #2c3e50; color: #fff; font-weight: 600; font-size: 11px; }
+    .ab-table tfoot th { background: #ecf0f1; color: #111; font-weight: 700; }
+    .ab-table tbody tr:nth-child(even) td { background: #fafbfc; }
+    @page { size: A4 landscape; margin: 10mm; }
+    .preview-page { max-width: 297mm; }
+  `;
+
+  const dir = getPrintDir(locale);
+  const headerCompanyName = locale === 'en' ? (company?.nameEn || company?.nameAr || '') : (company?.nameAr || '');
+  const fullDoc = `<!DOCTYPE html>
+<html dir="${dir}" lang="${locale}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(i18n.accountBalances.title)}</title>
+  <style>${PRINT_STYLES}${extraStyles}
+    body { direction: ${dir}; }
+  </style>
+</head>
+<body>
+  <div class="preview-page">${html}</div>
+</body>
+</html>`;
+  openPrintPreview(fullDoc, `${i18n.accountBalances.previewTitle} - ${headerCompanyName}`.trim(), locale);
 }

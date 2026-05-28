@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   ArrowRight, Save, Wallet, Banknote, AlertTriangle, BookOpen, X, ArrowDownLeft, ArrowUpRight, Pencil,
-  Trash2, FilePlus2, Printer, Lock,
+  Trash2, FilePlus2, Printer, Lock, History, Archive, TrendingUp, TrendingDown, Minus, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,8 +20,13 @@ import { companySettingsApi } from '@/lib/api/companySettings';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { printSingleVoucher } from '@/lib/printUtils';
+import { auditApi } from '@/lib/api/audit';
+import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
+import { VoucherAttachmentsDialog } from '@/components/accounting/VoucherAttachmentsDialog';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { cn, formatAmount, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
+import { useLocale } from '@/lib/i18n/useLocale';
+import { localizedAccountName, localizedVoucherTypeName } from '@/lib/i18n';
 import type { AccountDto } from '@/types/api';
 
 function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
@@ -38,8 +44,9 @@ function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
 /** مكوّن صغير لإعادة التوجيه برمجياً مع التعويض عن النافذة الزمنية بين الـ render وبين useEffect */
 function RedirectTo({ to }: { to: string }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   useEffect(() => { navigate(to, { replace: true }); }, [to, navigate]);
-  return <LoadingSpinner text="جارٍ التحويل..." />;
+  return <LoadingSpinner text={t('voucherEntry.redirecting')} />;
 }
 
 /**
@@ -54,6 +61,8 @@ export function VoucherEntryPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const { code: codeParam, id: idParam } = useParams<{ code: string; id?: string }>();
   const code = (codeParam ?? '').toUpperCase();
   // وضع التعديل: id موجود في الرابط
@@ -167,9 +176,16 @@ export function VoucherEntryPage() {
   const [amount, setAmount] = useState<number>(0);
   const [currency, setCurrency] = useState('IQD');
   const [description, setDescription] = useState('');
+  // ‎true = المستخدم عدّل الوصف يدوياً → لا نلمسه عند تغيير الصندوق
+  // ‎false = الوصف تلقائي → نُعيد توليده عند تغيير الصندوق أو اللغة
+  const [isDescCustom, setIsDescCustom] = useState(false);
+  const [manualNumber, setManualNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [prefilled, setPrefilled] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // ‎فتح نافذة "مراقبة" خاصة بهذا السند (تعرض سجل عمليات الإضافة/التعديل/الحذف/الطباعة).
+  const [showAudit, setShowAudit] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   // ‎ترحيل فوري عند الحفظ (Posted) أو إبقاء القيد كمسودة (Draft).
   // ‎الافتراضي true ليبقى السلوك الحالي عند الإنشاء.
   const [postImmediately, setPostImmediately] = useState(true);
@@ -207,6 +223,7 @@ export function VoucherEntryPage() {
     const entry = editEntryQuery.data;
     if (!entry) return;
     setEntryDate(toIsoLocalDate(entry.entryDate));
+    setManualNumber(entry.manualNumber ?? '');
   }, [isEditMode, editEntryQuery.data]);
 
   useEffect(() => {
@@ -245,6 +262,16 @@ export function VoucherEntryPage() {
   const selectedBox: CashBoxDto | null = useMemo(
     () => cashBoxes.find(b => b.id === cashBoxId) ?? null,
     [cashBoxes, cashBoxId]
+  );
+
+  // ‎الحساب المربوط بالصندوق المختار — نأخذه من شجرة الحسابات لأن CashBoxDto
+  // ‎لا يحوي accountNameEn، بينما AccountDto يحويه. هكذا "كي كارت" تصبح "Q Card"
+  // ‎(إن وُجد nameEn في الحساب) سواء في سطر "الحساب المربوط" أو في ملخّص القيد.
+  // ‎يجب أن يكون هنا (قبل أي early return) لأن قاعدة React Hooks تستوجب
+  // ‎استدعاء كل الـ hooks في نفس الترتيب في كل render.
+  const selectedBoxAccount = useMemo(
+    () => (selectedBox ? leafAccounts.find(a => a.id === selectedBox.accountId) ?? null : null),
+    [selectedBox, leafAccounts]
   );
 
   // العملات المسموحة في الصندوق المختار (إن وُجد) — وإلا كل العملات المفعّلة
@@ -289,27 +316,100 @@ export function VoucherEntryPage() {
     if (suggestedId != null) setCounterAccountId(suggestedId);
   }, [voucherType, counterAccountId]);
 
+  // ── مولّد الوصف التلقائي: "{نوع السند} — {اسم الصندوق}" بلغة المستخدم الحالية
+  const autoDescription = useMemo(() => {
+    if (!voucherType || !cashBoxId) return '';
+    const box = cashBoxes.find(b => b.id === cashBoxId);
+    if (!box) return '';
+    return `${localizedVoucherTypeName(locale, voucherType.nameAr, voucherType.nameEn)} — ${localizedAccountName(locale, box.nameAr, box.nameEn)}`;
+  }, [locale, voucherType, cashBoxId, cashBoxes]);
+
+  // ── عند تغيير الصندوق أو اللغة: حدّث الوصف إذا كان تلقائياً (لم يعدّله المستخدم)
+  useEffect(() => {
+    if (!autoDescription) return;
+    if (isDescCustom) return;
+    setDescription(autoDescription);
+  }, [autoDescription]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── عند تحميل سند محفوظ: افحص هل وصفه يطابق النمط التلقائي بأي لغة
+  //    إذا نعم → اعتبره تلقائياً (isDescCustom=false) وحدّثه للغة الحالية
+  //    إذا لا  → اعتبره مخصّصاً (isDescCustom=true) واتركه كما هو
+  useEffect(() => {
+    if (!isEditMode || !prefilled) return;
+    if (!voucherType || !cashBoxId) return;
+    const box = cashBoxes.find(b => b.id === cashBoxId);
+    if (!box) return;
+
+    const autoAr = `${voucherType.nameAr} — ${box.nameAr}`;
+    const autoEnVal = `${localizedVoucherTypeName('en', voucherType.nameAr, voucherType.nameEn)} — ${localizedAccountName('en', box.nameAr, box.nameEn)}`;
+    const trimmed = description.trim();
+
+    const isAuto = !trimmed || trimmed === autoAr || trimmed === autoEnVal || trimmed === autoDescription;
+    setIsDescCustom(!isAuto);
+    if (isAuto && description !== autoDescription) setDescription(autoDescription);
+  }, [prefilled]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // عرض الحدّ الحالي للعملة المختارة في الصندوق
   const currencyLimits = useMemo(() => {
     if (!selectedBox) return null;
     return selectedBox.currencies.find(c => c.currency.toUpperCase() === currency.toUpperCase()) ?? null;
   }, [selectedBox, currency]);
 
+  // ── رصيد الصندوق الحالي (بعملة السند)
+  const cashBoxBalancesQuery = useQuery({
+    queryKey: ['cash-box-balances', currency],
+    queryFn: () => cashBoxesApi.getBalances(currency),
+    staleTime: 30_000,
+    enabled: !!cashBoxId,
+  });
+  const cashBoxBalance = useMemo(() => {
+    if (!cashBoxId || !cashBoxBalancesQuery.data) return null;
+    return cashBoxBalancesQuery.data.find(b => b.cashBoxId === cashBoxId && b.currency.toUpperCase() === currency.toUpperCase()) ?? null;
+  }, [cashBoxBalancesQuery.data, cashBoxId, currency]);
+
+  // ── رصيد الحساب المقابل (ضمن السنة المالية النشطة أو منذ البداية حتى اليوم)
+  const counterBalanceDateRange = useMemo(() => {
+    const to = toIsoLocalDate(new Date());
+    const from = activeFiscalYear?.startDate
+      ? toIsoLocalDate(new Date(activeFiscalYear.startDate))
+      : '2000-01-01';
+    return { from, to };
+  }, [activeFiscalYear]);
+
+  const counterBalanceQuery = useQuery({
+    queryKey: ['account-balance-single', counterAccountId, currency, counterBalanceDateRange.from, counterBalanceDateRange.to],
+    queryFn: () => accountingApi.getAccountBalances({
+      from: counterBalanceDateRange.from,
+      to: counterBalanceDateRange.to,
+      accountId: counterAccountId!,
+      currency,
+      leavesOnly: true,
+      includeDraft: false,
+    }),
+    enabled: counterAccountId != null,
+    staleTime: 30_000,
+  });
+  const counterBalance = useMemo(() => {
+    const rows = counterBalanceQuery.data?.rows;
+    if (!rows?.length) return null;
+    const row = rows.find(r => r.accountId === counterAccountId) ?? rows[0];
+    const debit = row.debitBalance ?? 0;
+    const credit = row.creditBalance ?? 0;
+    return { debit, credit, net: debit - credit };
+  }, [counterBalanceQuery.data, counterAccountId]);
+
   // التحقق
   const validate = (): string | null => {
-    if (!voucherType) return 'نوع السند غير معروف';
+    if (!voucherType) return t('voucherEntry.errors.typeUnknown');
     // الأنواع المختلطة يُتعامل معها عبر صفحة "قيد محاسبي" — هذا المسار محمي بإعادة التوجيه أعلاه
-    if (cashBoxId == null) return 'اختر الصندوق';
-    if (counterAccountId == null) return 'اختر الحساب المقابل';
+    if (cashBoxId == null) return t('voucherEntry.errors.chooseBox');
+    if (counterAccountId == null) return t('voucherEntry.errors.chooseCounter');
     if (selectedBox?.accountId === counterAccountId)
-      return 'لا يجوز أن يكون حساب الصندوق هو نفسه حساب الطرف المقابل';
-    if (!amount || amount <= 0) return 'المبلغ يجب أن يكون أكبر من صفر';
-    if (!entryDate) return 'التاريخ مطلوب';
-    // ‎حارس السنة المالية النشطة على مستوى التحقق:
-    //   حتى لو أُخفيت أزرار الواجهة، نمنع الحفظ صراحةً عند التعديل خارج
-    //   نطاق السنة الحالية مع رسالة موضِّحة.
+      return t('voucherEntry.errors.sameAccount');
+    if (!amount || amount <= 0) return t('voucherEntry.errors.amountPositive');
+    if (!entryDate) return t('voucherEntry.errors.dateRequired');
     if (isOriginalOutsideActiveFY && activeFiscalYear) {
-      return `لا يمكن تعديل سند خارج السنة المالية النشطة "${activeFiscalYear.name}". لتعديله، فعِّل السنة المالية المناسبة أولاً.`;
+      return t('voucherEntry.errors.outsideFY', { fy: activeFiscalYear.name });
     }
     return null;
   };
@@ -317,7 +417,7 @@ export function VoucherEntryPage() {
   // الحفظ — يستخدم نقطة نهاية مختلفة في وضع التعديل
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!voucherType || !selectedBox) throw new Error('بيانات ناقصة');
+      if (!voucherType || !selectedBox) throw new Error(t('voucherEntry.errors.missingData'));
       const cashBoxAccountId = selectedBox.accountId;
       const isCashDebit = voucherType.nature === 'Debit';
 
@@ -338,12 +438,22 @@ export function VoucherEntryPage() {
         },
       ];
 
+      // ── تحديد الوصف المحفوظ في قاعدة البيانات:
+      //    • إذا كان الوصف تلقائياً (أو فارغاً) → احفظ دائماً النسخة العربية
+      //      (ثابتة في قاعدة البيانات بصرف النظر عن لغة المستخدم)
+      //    • إذا عدّله المستخدم يدوياً → احفظ ما كتبه كما هو
+      const arAutoDesc = `${voucherType.nameAr} — ${selectedBox.nameAr}`;
+      const descToSave = isDescCustom && description.trim()
+        ? description.trim()
+        : arAutoDesc;
+
       if (isEditMode && editingId != null) {
         const payload: UpdateVoucherEntryPayload = {
           entryDate: isoDateForBackend(entryDate),
-          description: description.trim() || `${voucherType.nameAr} — ${selectedBox.nameAr}`,
+          description: descToSave,
           currency,
           postImmediately,
+          manualNumber: manualNumber.trim() || null,
           lines,
         };
         return accountingApi.updateVoucherEntry(editingId, payload);
@@ -351,23 +461,24 @@ export function VoucherEntryPage() {
 
       const payload: PostJournalEntryPayload = {
         entryDate: isoDateForBackend(entryDate),
-        description: description.trim() || `${voucherType.nameAr} — ${selectedBox.nameAr}`,
+        description: descToSave,
         entryType: 1,
         currency,
         postImmediately,
         voucherTypeId: voucherType.id,
+        manualNumber: manualNumber.trim() || null,
         lines,
       };
       return accountingApi.postJournalEntry(payload);
     },
     onSuccess: async res => {
       if (!res.success) {
-        const msg = extractApiError(res, isEditMode ? 'تعذّر تحديث السند' : 'تعذّر حفظ السند');
+        const msg = extractApiError(res, isEditMode ? t('voucherEntry.errors.updateFailed') : t('voucherEntry.errors.saveFailed'));
         setError(msg);
         toast.error(msg);
         return;
       }
-      toast.success(isEditMode ? 'تم تحديث السند' : 'تم حفظ السند');
+      toast.success(isEditMode ? t('voucherEntry.success.updated') : t('voucherEntry.success.saved'));
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
 
       // ‎فتح صفحة الطباعة تلقائياً بعد الحفظ الناجح (نسخة شركة + نسخة زبون).
@@ -396,11 +507,13 @@ export function VoucherEntryPage() {
       setCounterAccountId(null);
       setAmount(0);
       setDescription('');
+      setIsDescCustom(false);
+      setManualNumber('');
       setError(null);
       setEntryDate(toIsoLocalDate(new Date()));
     },
     onError: (e: any) => {
-      const msg = extractApiError(e, isEditMode ? 'فشل تحديث السند' : 'فشل حفظ السند');
+      const msg = extractApiError(e, isEditMode ? t('voucherEntry.errors.updateFailed') : t('voucherEntry.errors.saveFailed'));
       setError(msg);
       toast.error(msg);
     },
@@ -418,17 +531,17 @@ export function VoucherEntryPage() {
     mutationFn: () => accountingApi.deleteVoucherEntry(editingId!),
     onSuccess: res => {
       if (!res.success) {
-        const msg = extractApiError(res, 'تعذّر حذف السند');
+        const msg = extractApiError(res, t('voucherEntry.errors.deleteFailed'));
         toast.error(msg);
         return;
       }
-      toast.success('تم حذف السند');
+      toast.success(t('voucherEntry.success.deleted'));
       setShowDeleteConfirm(false);
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
       navigate(code ? `/accounting/vouchers/${code}` : '/accounting/journal');
     },
     onError: (e: any) => {
-      toast.error(extractApiError(e, 'فشل حذف السند'));
+      toast.error(extractApiError(e, t('voucherEntry.errors.deleteFailed')));
     },
   });
 
@@ -443,26 +556,56 @@ export function VoucherEntryPage() {
   //    حيث يكون النموذج قد فُرّغ، وكذلك للسندات المحمَّلة في وضع التعديل).
   const printEntryData = (fullEntry: import('@/types/api').JournalEntryDto) => {
     if (!voucherType) {
-      toast.error('نوع السند غير معروف');
+      toast.error(t('voucherEntry.errors.typeUnknown'));
       return;
     }
     const isCashDebit = voucherType.nature === 'Debit';
     const cashLine = fullEntry.lines.find(l => l.isDebit === isCashDebit);
     const counterLine = fullEntry.lines.find(l => l.isDebit !== isCashDebit);
     if (!cashLine || !counterLine) {
-      toast.error('بيانات السند غير مكتملة للطباعة');
+      toast.error(t('voucherEntry.errors.printIncomplete'));
       return;
     }
     const box = cashBoxes.find(b => b.accountId === cashLine.accountId) ?? null;
     const counterAcc = leafAccounts.find(a => a.id === counterLine.accountId) ?? null;
+    const autoAr = box ? `${voucherType.nameAr} — ${box.nameAr}` : '';
+    const autoEn = box
+      ? `${localizedVoucherTypeName('en', voucherType.nameAr, voucherType.nameEn)} — ${localizedAccountName('en', box.nameAr, box.nameEn)}`
+      : '';
+    const autoCurrent = box
+      ? `${localizedVoucherTypeName(locale, voucherType.nameAr, voucherType.nameEn)} — ${localizedAccountName(locale, box.nameAr, box.nameEn)}`
+      : '';
+    const trimmedDesc = (fullEntry.description ?? '').trim();
+    const printDescription =
+      !trimmedDesc || trimmedDesc === autoAr || trimmedDesc === autoEn || trimmedDesc === autoCurrent
+        ? autoCurrent
+        : fullEntry.description;
     printSingleVoucher({
-      entry: fullEntry,
-      voucherTypeName: voucherType.nameAr,
+      entry: { ...fullEntry, description: printDescription ?? fullEntry.description },
+      voucherTypeName: localizedVoucherTypeName(locale, voucherType.nameAr, voucherType.nameEn),
       voucherNature: voucherType.nature as 'Debit' | 'Credit' | 'Mixed',
-      cashBoxName: box?.nameAr ?? cashLine.accountName ?? '—',
-      counterAccountName: counterAcc?.nameAr ?? counterLine.accountName ?? '—',
+      cashBoxName: box
+        ? localizedAccountName(locale, box.nameAr, box.nameEn)
+        : localizedAccountName(locale, cashLine.accountName ?? '', cashLine.accountNameEn ?? null),
+      counterAccountName: counterAcc
+        ? localizedAccountName(locale, counterAcc.nameAr, counterAcc.nameEn)
+        : localizedAccountName(locale, counterLine.accountName ?? '', counterLine.accountNameEn ?? null),
       counterAccountCode: counterAcc?.code ?? null,
       company: companyQuery.data ?? null,
+    }, locale);
+    // ‎سجل عملية طباعة السند في سجل المراقبة (ضمن نفس الكيان "Voucher").
+    void auditApi.logPrint({
+      entityType: 'Voucher',
+      entityId: fullEntry.id,
+      summary: fullEntry.voucherNumber
+        ? `طباعة سند ${fullEntry.voucherNumber} — ${fullEntry.description}`
+        : `طباعة سند #${fullEntry.entryNumber} — ${fullEntry.description}`,
+      details: {
+        entryNumber: fullEntry.entryNumber,
+        voucherNumber: fullEntry.voucherNumber,
+        manualNumber: fullEntry.manualNumber,
+        voucherTypeCode: voucherType.code,
+      },
     });
   };
 
@@ -470,7 +613,7 @@ export function VoucherEntryPage() {
   const handlePrint = () => {
     const entry = editEntryQuery.data;
     if (!entry) {
-      toast.error('لا توجد بيانات سند للطباعة');
+      toast.error(t('voucherEntry.errors.printNoData'));
       return;
     }
     printEntryData(entry);
@@ -483,15 +626,15 @@ export function VoucherEntryPage() {
     || (code ? `/accounting/vouchers/${code}` : '/accounting/journal');
 
   if (typesQuery.isLoading || cashBoxesQuery.isLoading || treeQuery.isLoading) {
-    return <LoadingSpinner text={isEditMode ? 'تحميل القيد للتعديل...' : 'تحميل البيانات...'} />;
+    return <LoadingSpinner text={isEditMode ? t('voucherEntry.loadingForEdit') : t('voucherEntry.loadingData')} />;
   }
 
   if (!voucherType) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-10 text-sm text-muted-foreground">
         <AlertTriangle className="h-10 w-10 text-amber-400" />
-        <div>نوع السند بالكود <span className="font-bold text-foreground">{code}</span> غير موجود أو معطّل.</div>
-        <Button variant="outline" size="sm" onClick={() => navigate('/accounting/voucher-types')}>إدارة الأنواع</Button>
+        <div>{t('voucherEntry.typeNotFound', { code })}</div>
+        <Button variant="outline" size="sm" onClick={() => navigate('/accounting/voucher-types')}>{t('voucherEntry.manageTypes')}</Button>
       </div>
     );
   }
@@ -516,8 +659,8 @@ export function VoucherEntryPage() {
   if (isEditMode && lockedRefType && editEntryQuery.data) {
     const entry = editEntryQuery.data;
     const lockedTitle = lockedRefType === 'reversal'
-      ? 'هذا القيد عكس مناقلة'
-      : 'هذا القيد مولَّد من مناقلة بين صناديق';
+      ? t('voucherEntry.transferLocked.titleReversal')
+      : t('voucherEntry.transferLocked.titleTransfer');
     return (
       <div className="flex h-full min-h-0 items-center justify-center p-6">
         <div className="w-full max-w-lg rounded-lg border border-amber-400/40 bg-amber-400/5 p-6 text-center">
@@ -526,41 +669,37 @@ export function VoucherEntryPage() {
           </div>
           <h2 className="mb-2 text-base font-semibold">{lockedTitle}</h2>
           <p className="mb-1 text-sm text-muted-foreground">
-            القيد رقم{' '}
-            <span className="font-mono text-foreground">
-              {entry.voucherNumber ?? `#${entry.entryNumber}`}
-            </span>{' '}
-            لا يمكن تعديله أو حذفه من هذه الصفحة.
+            {t('voucherEntry.transferLocked.subtitleNumber', {
+              number: entry.voucherNumber ?? `#${entry.entryNumber}`,
+            })}
           </p>
           <p className="mb-5 text-xs text-muted-foreground">
-            للحفاظ على ترابط قيدَيْ الإرسال والاستلام يجب التعديل/الإلغاء من
-            تبويب «المناقلات» في نافذة الصناديق (تراجع عن الاستلام أوّلاً إن
-            كانت المناقلة مستلَمة).
+            {t('voucherEntry.transferLocked.hint')}
           </p>
           <div className="flex items-center justify-center gap-2">
             <Button
               size="sm"
               onClick={() =>
                 navigate('/accounting/cash-boxes?tab=transfers', {
-                  state: { returnTo: backHref, returnLabel: 'القيد' },
+                  state: { returnTo: backHref, returnLabel: t('voucherEntry.transferLocked.entryRefLabel') },
                 })
               }
               className="gap-1.5"
             >
               <BookOpen className="h-3.5 w-3.5" />
-              فتح المناقلات
+              {t('voucherEntry.transferLocked.openTransfers')}
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() =>
                 navigate(`/accounting/journal/${entry.id}/view`, {
-                  state: { returnTo: backHref, returnLabel: 'القيد' },
+                  state: { returnTo: backHref, returnLabel: t('voucherEntry.transferLocked.entryRefLabel') },
                 })
               }
               className="gap-1.5"
             >
-              عرض القيد فقط
+              {t('voucherEntry.transferLocked.viewEntryOnly')}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => navigate(backHref)}>
               <X className="h-3.5 w-3.5" />
@@ -573,13 +712,18 @@ export function VoucherEntryPage() {
 
   // ‎في وضع التعديل: ننتظر اكتمال تحميل القيد ثم تعبئته في الحقول قبل العرض
   if (isEditMode && (editEntryQuery.isLoading || !prefilled)) {
-    return <LoadingSpinner text="تحميل القيد للتعديل..." />;
+    return <LoadingSpinner text={t('voucherEntry.loadingForEdit')} />;
   }
 
   const isCashDebit = voucherType.nature === 'Debit';
-  const cashSideLabel = isCashDebit ? 'مدين' : 'دائن';
-  const counterSideLabel = isCashDebit ? 'دائن' : 'مدين';
+  const cashSideLabel = isCashDebit ? t('voucherEntry.side.debit') : t('voucherEntry.side.credit');
+  const counterSideLabel = isCashDebit ? t('voucherEntry.side.credit') : t('voucherEntry.side.debit');
   const sideColor = isCashDebit ? 'emerald' : 'amber';
+  const voucherTypeDisplayName = localizedVoucherTypeName(locale, voucherType.nameAr, voucherType.nameEn);
+
+  const selectedBoxLinkedAccountName = selectedBoxAccount
+    ? localizedAccountName(locale, selectedBoxAccount.nameAr, selectedBoxAccount.nameEn)
+    : (selectedBox ? localizedAccountName(locale, selectedBox.accountName ?? '', null) : '');
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -596,12 +740,12 @@ export function VoucherEntryPage() {
             className="h-9 shrink-0 gap-1 px-2 sm:h-8"
           >
             <ArrowRight className="h-3.5 w-3.5" />
-            رجوع
+            {t('voucherEntry.back')}
           </Button>
           <h1 className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-base font-semibold">
             <span className="inline-flex items-center gap-1">
               {isCashDebit ? <ArrowDownLeft className="h-4 w-4 text-emerald-400" /> : <ArrowUpRight className="h-4 w-4 text-amber-400" />}
-              {voucherType.nameAr}
+              {voucherTypeDisplayName}
             </span>
             <span className={cn(
               'rounded-full px-2 py-0.5 text-[10px] font-medium border',
@@ -609,12 +753,12 @@ export function VoucherEntryPage() {
                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
                 : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
             )}>
-              طبيعته: {cashSideLabel}
+              {t('voucherEntry.natureLabel', { side: cashSideLabel })}
             </span>
             {isEditMode && (
               <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                 <Pencil className="h-3 w-3" />
-                وضع التعديل
+                {t('voucherEntry.editMode')}
               </span>
             )}
             {isEditMode && editEntryQuery.data?.voucherNumber && (
@@ -624,7 +768,7 @@ export function VoucherEntryPage() {
                 </span>
                 <span
                   className="num-display rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                  title="رقم القيد الداخلي"
+                  title={t('voucherEntry.internalNumberTip')}
                 >
                   #{editEntryQuery.data.entryNumber}
                 </span>
@@ -645,11 +789,40 @@ export function VoucherEntryPage() {
               variant="outline"
               size="sm"
               onClick={handlePrint}
-              title="طباعة السند (نسخة شركة + نسخة زبون)"
+              title={t('voucherEntry.buttons.printTip')}
               className="h-9 gap-1.5 border-primary/30 text-primary hover:bg-primary/10 hover:text-primary sm:h-8"
             >
               <Printer className="h-3.5 w-3.5" />
-              طباعة
+              {t('voucherEntry.buttons.print')}
+            </Button>
+          )}
+          {/*
+            زرّ "مراقبة": يفتح نافذة سجل المراقبة لهذا السند تحديداً —
+            يعرض إضافة/تعديل/حذف/طباعة مع المستخدم والتاريخ. متاح فقط في وضع
+            التعديل (السند الجديد ليس له معرّف ولا تاريخ بعد).
+          */}
+          {isEditMode && editingId != null && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAudit(true)}
+              title={t('audit.openButtonTip')}
+              className="h-9 gap-1.5 border-violet-500/60 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 hover:text-violet-300 sm:h-8"
+            >
+              <History className="h-3.5 w-3.5" />
+              {t('audit.openButton')}
+            </Button>
+          )}
+          {isEditMode && editingId != null && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowArchive(true)}
+              title={t('attachments.openButtonTip')}
+              className="h-9 gap-1.5 border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 sm:h-8"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {t('attachments.openButton')}
             </Button>
           )}
           {isEditMode && (
@@ -657,11 +830,11 @@ export function VoucherEntryPage() {
               variant="outline"
               size="sm"
               onClick={handleCreateNew}
-              title={`إنشاء ${voucherType.nameAr} جديد`}
+              title={t('voucherEntry.buttons.newTip', { name: voucherTypeDisplayName })}
               className="h-9 gap-1.5 sm:h-8"
             >
               <FilePlus2 className="h-3.5 w-3.5" />
-              جديد
+              {t('voucherEntry.buttons.new')}
             </Button>
           )}
           {/*
@@ -675,17 +848,17 @@ export function VoucherEntryPage() {
               variant="outline"
               size="sm"
               onClick={() => setShowDeleteConfirm(true)}
-              title="حذف السند"
+              title={t('voucherEntry.buttons.deleteTip')}
               className="h-9 gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-8"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              حذف
+              {t('voucherEntry.buttons.delete')}
             </Button>
           )}
           {!isPeriodLocked && !isOriginalOutsideActiveFY && (
             <label
               className="flex h-9 items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 text-xs sm:h-8"
-              title="حفظ القيد كمُرحَّل مباشرةً (Posted) أو إبقائه كمسودة (Draft)"
+              title={t('voucherEntry.buttons.postImmediatelyTip')}
             >
               <input
                 type="checkbox"
@@ -693,7 +866,7 @@ export function VoucherEntryPage() {
                 onChange={e => setPostImmediately(e.target.checked)}
                 className="h-3.5 w-3.5 accent-primary"
               />
-              <span>ترحيل فوري</span>
+              <span>{t('voucherEntry.buttons.postImmediately')}</span>
             </label>
           )}
           {!isPeriodLocked && !isOriginalOutsideActiveFY && (
@@ -705,14 +878,14 @@ export function VoucherEntryPage() {
             >
               <Save className="h-3.5 w-3.5" />
               {saveMutation.isPending
-                ? (isEditMode ? 'جارٍ التحديث...' : 'جارٍ الحفظ...')
-                : (isEditMode ? 'تحديث السند' : 'حفظ السند')}
+                ? (isEditMode ? t('voucherEntry.buttons.updating') : t('voucherEntry.buttons.saving'))
+                : (isEditMode ? t('voucherEntry.buttons.update') : t('voucherEntry.buttons.save'))}
             </Button>
           )}
           {(isPeriodLocked || isOriginalOutsideActiveFY) && (
             <span className="flex h-9 items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 text-xs text-warning sm:h-8">
               <Lock className="h-3.5 w-3.5" />
-              قراءة فقط
+              {t('voucherEntry.buttons.readOnly')}
             </span>
           )}
         </div>
@@ -723,9 +896,9 @@ export function VoucherEntryPage() {
         <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
           <Lock className="mt-0.5 h-4 w-4 shrink-0" />
           <div className="flex-1">
-            <div className="font-medium">{periodLockReason} — لا يمكن إنشاء أو تعديل أو حذف القيود في هذا التاريخ.</div>
+            <div className="font-medium">{periodLockReason}{t('voucherEntry.locks.periodSuffix')}</div>
             <div className="mt-0.5 text-[11px] text-warning/80">
-              لإجراء تعديلات، يجب فك إغلاق الفترة من صفحة "الفترات المحاسبية"، أو اختيار تاريخ ضمن فترة مفتوحة.
+              {t('voucherEntry.locks.periodHint')}
             </div>
           </div>
         </div>
@@ -738,7 +911,7 @@ export function VoucherEntryPage() {
           <div className="flex-1">
             <div className="font-medium">{outsideFYReason}</div>
             <div className="mt-0.5 text-[11px] text-rose-300/80">
-              ملاحظة: تغيير حقل التاريخ في النموذج لا يفك هذا القيد — السنة المالية الأصلية للسند هي ما يُحدِّد قابلية التعديل.
+              {t('voucherEntry.locks.outsideFYHint')}
             </div>
           </div>
         </div>
@@ -750,7 +923,7 @@ export function VoucherEntryPage() {
         <div className="space-y-3 lg:col-span-2">
           <div className="grid gap-3 rounded-md border border-border bg-card/50 p-3 md:grid-cols-12">
             <div className="md:col-span-3">
-              <Label className="mb-1 block text-[11px] text-muted-foreground">التاريخ</Label>
+              <Label className="mb-1 block text-[11px] text-muted-foreground">{t('voucherEntry.fields.date')}</Label>
               <Input
                 type="date"
                 value={entryDate}
@@ -763,7 +936,7 @@ export function VoucherEntryPage() {
               <Label className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Wallet className="h-3 w-3" />
-                  الصندوق ({cashSideLabel})
+                  {t('voucherEntry.fields.box', { side: cashSideLabel })}
                 </span>
                 {selectedBox?.code && (
                   <span className="num-display text-[10px] text-primary">{selectedBox.code}</span>
@@ -771,24 +944,49 @@ export function VoucherEntryPage() {
               </Label>
               <select
                 value={cashBoxId ?? ''}
-                onChange={e => setCashBoxId(e.target.value === '' ? null : Number(e.target.value))}
+                onChange={e => {
+                  const newId = e.target.value === '' ? null : Number(e.target.value);
+                  // عند تغيير الصندوق: إذا كان البيان تلقائياً (أو يطابق نمط الصندوق القديم) حدّثه للصندوق الجديد
+                  const oldBox = cashBoxes.find(b => b.id === cashBoxId);
+                  const newBox = cashBoxes.find(b => b.id === newId);
+                  if (newBox && voucherType) {
+                    const oldAutoAr = oldBox ? voucherType.nameAr + ' — ' + oldBox.nameAr : null;
+                    const currentDesc = description.trim();
+                    const isCurrentAuto =
+                      !currentDesc ||
+                      !isDescCustom ||
+                      (oldAutoAr && currentDesc === oldAutoAr) ||
+                      currentDesc === autoDescription;
+                    if (isCurrentAuto) {
+                      const newAutoDesc =
+                        localizedVoucherTypeName(locale, voucherType.nameAr, voucherType.nameEn) +
+                        ' — ' +
+                        localizedAccountName(locale, newBox.nameAr, newBox.nameEn);
+                      setDescription(newAutoDesc);
+                      setIsDescCustom(false);
+                    }
+                  }
+                  setCashBoxId(newId);
+                }}
                 disabled={allowedBoxes.length <= 1}
-                title={allowedBoxes.length <= 1 ? 'لا تتوفر سوى صندوق واحد ضمن صلاحياتك' : undefined}
+                title={allowedBoxes.length <= 1 ? t('voucherEntry.fields.boxSingleOnly') : undefined}
                 className={cn(
                   'h-9 w-full rounded-md border border-input bg-secondary/40 px-2 text-sm',
                   allowedBoxes.length <= 1 && 'cursor-not-allowed opacity-90'
                 )}
               >
                 {allowedBoxes.length === 0 ? (
-                  <option value="">— لا توجد صناديق متاحة —</option>
+                  <option value="">{t('voucherEntry.fields.noBoxes')}</option>
                 ) : allowedBoxes.length === 1 ? (
-                  <option value={allowedBoxes[0].id}>{allowedBoxes[0].nameAr}</option>
+                  <option value={allowedBoxes[0].id}>
+                    {localizedAccountName(locale, allowedBoxes[0].nameAr, allowedBoxes[0].nameEn)}
+                  </option>
                 ) : (
                   <>
-                    <option value="">— اختر الصندوق —</option>
+                    <option value="">{t('voucherEntry.fields.chooseBox')}</option>
                     {allowedBoxes.map(b => (
                       <option key={b.id} value={b.id}>
-                        {b.nameAr}
+                        {localizedAccountName(locale, b.nameAr, b.nameEn)}
                       </option>
                     ))}
                   </>
@@ -796,9 +994,9 @@ export function VoucherEntryPage() {
               </select>
               {selectedBox && (
                 <p className="mt-1 text-[10px] text-muted-foreground">
-                  الحساب المربوط:&nbsp;
+                  {t('voucherEntry.fields.boxLinkedAccount')}&nbsp;
                   <span className="num-display text-primary">{selectedBox.accountCode}</span>
-                  <span className="ms-1">- {selectedBox.accountName}</span>
+                  <span className="ms-1">- {selectedBoxLinkedAccountName}</span>
                 </p>
               )}
             </div>
@@ -806,7 +1004,7 @@ export function VoucherEntryPage() {
             <div className="md:col-span-2">
               <Label className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                 <Banknote className="h-3 w-3" />
-                العملة
+                {t('voucherEntry.fields.currency')}
               </Label>
               <select
                 value={currency}
@@ -825,7 +1023,7 @@ export function VoucherEntryPage() {
             </div>
 
             <div className="md:col-span-4">
-              <Label className="mb-1 block text-[11px] text-muted-foreground">المبلغ</Label>
+              <Label className="mb-1 block text-[11px] text-muted-foreground">{t('voucherEntry.fields.amount')}</Label>
               <Input
                 type="number"
                 inputMode="decimal"
@@ -841,9 +1039,9 @@ export function VoucherEntryPage() {
 
             <div className="md:col-span-12">
               <Label className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>الحساب المقابل ({counterSideLabel})</span>
+                <span>{t('voucherEntry.fields.counterAccount', { side: counterSideLabel })}</span>
                 <span className="text-[9px] text-muted-foreground/70">
-                  {isCashDebit ? 'من الذي قام بالدفع/الجهة' : 'إلى الذي تم الدفع/الجهة'}
+                  {isCashDebit ? t('voucherEntry.fields.counterAccountHintIn') : t('voucherEntry.fields.counterAccountHintOut')}
                 </span>
               </Label>
               <AccountPicker
@@ -853,26 +1051,65 @@ export function VoucherEntryPage() {
                   counterAccountId != null
                     ? leafAccounts
                         .filter(a => a.id === counterAccountId)
-                        .map(a => `${a.code} - ${a.nameAr}`)[0]
+                        .map(a => `${a.code} - ${localizedAccountName(locale, a.nameAr, a.nameEn)}`)[0]
                     : undefined
                 }
                 onChange={id => setCounterAccountId(id)}
                 allowClear
-                placeholder="اختر الحساب المقابل..."
+                placeholder={t('voucherEntry.fields.counterAccountPlaceholder')}
                 inputHeight={9}
               />
             </div>
 
-            <div className="md:col-span-12">
+            <div className="md:col-span-8">
               <Label className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>البيان (اختياري)</span>
-                <span className="num-display">{description.length}/200</span>
+                <span>{t('voucherEntry.fields.description')}</span>
+                <div className="flex items-center gap-2">
+                  {isDescCustom && (
+                    <button
+                      type="button"
+                      onClick={() => { setIsDescCustom(false); setDescription(autoDescription); }}
+                      className="text-[10px] text-primary/70 hover:text-primary underline"
+                    >
+                      {t('voucherEntry.fields.resetAutoDesc', { defaultValue: 'إعادة التوليد' })}
+                    </button>
+                  )}
+                  <span className="num-display">{description.length}/200</span>
+                </div>
               </Label>
               <Input
                 value={description}
-                onChange={e => setDescription(e.target.value.slice(0, 200))}
-                placeholder={`${voucherType.nameAr} — وصف العملية`}
+                onChange={e => {
+                  const val = e.target.value.slice(0, 200);
+                  setDescription(val);
+                  // إذا أفرغ المستخدم الحقل → أعِد الوصف التلقائي
+                  if (!val.trim()) {
+                    setIsDescCustom(false);
+                  } else {
+                    setIsDescCustom(val !== autoDescription);
+                  }
+                }}
+                placeholder={t('voucherEntry.fields.descriptionPlaceholder', { name: voucherTypeDisplayName })}
                 className="h-9 text-sm"
+              />
+            </div>
+
+            {/*
+              الرقم اليدوي للسند:
+              رقم اختياري يُسجَّل لربط السند بمستند خارجي (شيك / إيصال / فاتورة …).
+              يدخل في فلتر البحث على صفحة "القيود" أو صفحة السند.
+            */}
+            <div className="md:col-span-4">
+              <Label className="mb-1 block text-[11px] text-muted-foreground">
+                {t('voucherEntry.fields.manualNumber', { defaultValue: 'Manual number (check / external ref)' })}
+              </Label>
+              <Input
+                value={manualNumber}
+                onChange={e => setManualNumber(e.target.value.slice(0, 50))}
+                maxLength={50}
+                placeholder={t('voucherEntry.fields.manualNumberPlaceholder', { defaultValue: 'Optional…' })}
+                className="h-9 num-display text-sm"
+                dir="ltr"
               />
             </div>
           </div>
@@ -893,7 +1130,7 @@ export function VoucherEntryPage() {
           <div className="rounded-md border border-border bg-card/50 p-3">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
               <BookOpen className="h-3.5 w-3.5" />
-              ملخّص القيد الناتج
+              {t('voucherEntry.summary.title')}
             </div>
             {selectedBox && counterAccountId != null && amount > 0 ? (
               <div className="space-y-1.5 text-xs">
@@ -903,7 +1140,7 @@ export function VoucherEntryPage() {
                 )}>
                   <div className="flex flex-col">
                     <span className="text-muted-foreground/80">{cashSideLabel}</span>
-                    <span className="font-medium">{selectedBox.accountName}</span>
+                    <span className="font-medium">{selectedBoxLinkedAccountName}</span>
                   </div>
                   <span className={cn('num-display font-bold', isCashDebit ? 'text-emerald-300' : 'text-amber-300')}>
                     {formatAmount(amount)} {currency}
@@ -918,27 +1155,119 @@ export function VoucherEntryPage() {
                   <div className="flex flex-col">
                     <span className="text-muted-foreground/80">{counterSideLabel}</span>
                     <span className="font-medium">
-                      {leafAccounts.find(a => a.id === counterAccountId)?.nameAr ?? '—'}
+                      {(() => {
+                        const a = leafAccounts.find(x => x.id === counterAccountId);
+                        return a ? localizedAccountName(locale, a.nameAr, a.nameEn) : '—';
+                      })()}
                     </span>
                   </div>
                   <span className={cn('num-display font-bold', isCashDebit ? 'text-amber-300' : 'text-emerald-300')}>
                     {formatAmount(amount)} {currency}
                   </span>
                 </div>
+
+                {/* ── أرصدة الحسابات الحالية ── */}
+                <div className="mt-1 grid grid-cols-2 gap-1.5 pt-1 border-t border-border/30">
+                  {/* رصيد الصندوق */}
+                  <div className="rounded border border-border/40 bg-background/40 px-2 py-1.5">
+                    <div className="mb-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                      <Wallet className="h-3 w-3" />
+                      <span>{t('voucherEntry.summary.boxBalance', { defaultValue: 'رصيد الصندوق' })}</span>
+                      {cashBoxBalancesQuery.isFetching && <RefreshCw className="h-2.5 w-2.5 animate-spin" />}
+                    </div>
+                    {cashBoxBalance != null ? (
+                      <div className="flex items-center gap-1">
+                        {cashBoxBalance.balance > 0
+                          ? <TrendingUp className="h-3 w-3 text-emerald-400 shrink-0" />
+                          : cashBoxBalance.balance < 0
+                            ? <TrendingDown className="h-3 w-3 text-rose-400 shrink-0" />
+                            : <Minus className="h-3 w-3 text-muted-foreground shrink-0" />}
+                        <span className={cn(
+                          'num-display text-[11px] font-bold',
+                          cashBoxBalance.balance > 0 ? 'text-emerald-400' : cashBoxBalance.balance < 0 ? 'text-rose-400' : 'text-muted-foreground'
+                        )}>
+                          {formatAmount(Math.abs(cashBoxBalance.balance))} <span className="font-normal opacity-70">{cashBoxBalance.currency}</span>
+                        </span>
+                      </div>
+                    ) : cashBoxBalancesQuery.isFetching ? (
+                      <span className="text-[10px] text-muted-foreground">…</span>
+                    ) : (
+                      <span className="num-display text-[11px] font-bold text-muted-foreground">0.000 {currency}</span>
+                    )}
+                    {/* رصيد ما بعد السند */}
+                    {cashBoxBalance != null && amount > 0 && (
+                      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60 border-t border-border/20 pt-0.5">
+                        <span>{t('voucherEntry.summary.afterTx', { defaultValue: 'بعد السند:' })}</span>
+                        {(() => {
+                          const after = cashBoxBalance.balance + (isCashDebit ? Number(amount) : -Number(amount));
+                          return (
+                            <span className={cn('num-display font-semibold', after >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80')}>
+                              {formatAmount(Math.abs(after))} {after < 0 ? '−' : ''}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* رصيد الحساب المقابل */}
+                  <div className="rounded border border-border/40 bg-background/40 px-2 py-1.5">
+                    <div className="mb-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                      <Banknote className="h-3 w-3" />
+                      <span>{t('voucherEntry.summary.counterBalance', { defaultValue: 'رصيد الحساب' })}</span>
+                      {counterBalanceQuery.isFetching && <RefreshCw className="h-2.5 w-2.5 animate-spin" />}
+                    </div>
+                    {counterBalance != null ? (
+                      <div className="flex items-center gap-1">
+                        {counterBalance.net > 0
+                          ? <TrendingUp className="h-3 w-3 text-emerald-400 shrink-0" />
+                          : counterBalance.net < 0
+                            ? <TrendingDown className="h-3 w-3 text-rose-400 shrink-0" />
+                            : <Minus className="h-3 w-3 text-muted-foreground shrink-0" />}
+                        <span className={cn(
+                          'num-display text-[11px] font-bold',
+                          counterBalance.net > 0 ? 'text-emerald-400' : counterBalance.net < 0 ? 'text-rose-400' : 'text-muted-foreground'
+                        )}>
+                          {formatAmount(Math.abs(counterBalance.net))} <span className="font-normal opacity-70">{currency}</span>
+                        </span>
+                      </div>
+                    ) : counterBalanceQuery.isFetching ? (
+                      <span className="text-[10px] text-muted-foreground">…</span>
+                    ) : counterAccountId ? (
+                      <span className="num-display text-[11px] font-bold text-muted-foreground">0.000 {currency}</span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground/40">—</span>
+                    )}
+                    {/* رصيد ما بعد السند */}
+                    {counterBalance != null && amount > 0 && (
+                      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/60 border-t border-border/20 pt-0.5">
+                        <span>{t('voucherEntry.summary.afterTx', { defaultValue: 'بعد السند:' })}</span>
+                        {(() => {
+                          const after = counterBalance.net + (isCashDebit ? -Number(amount) : Number(amount));
+                          return (
+                            <span className={cn('num-display font-semibold', after >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80')}>
+                              {formatAmount(Math.abs(after))} {after < 0 ? '−' : ''}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : (
               <p className="rounded border border-dashed border-border/50 px-2 py-3 text-center text-[11px] text-muted-foreground">
-                املأ الحقول أعلاه لرؤية ملخّص القيد.
+                {t('voucherEntry.summary.empty')}
               </p>
             )}
           </div>
 
           {currencyLimits && (currencyLimits.debitLimit != null || currencyLimits.creditLimit != null) && (
             <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
-              <div className="mb-1 font-semibold text-amber-300">سقوف الصندوق ({currency})</div>
+              <div className="mb-1 font-semibold text-amber-300">{t('voucherEntry.summary.limitsTitle', { currency })}</div>
               {currencyLimits.debitLimit != null && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">سقف مدين:</span>
+                  <span className="text-muted-foreground">{t('voucherEntry.summary.debitLimit')}</span>
                   <span className="num-display font-bold text-emerald-300">
                     {formatAmount(currencyLimits.debitLimit)}
                   </span>
@@ -946,7 +1275,7 @@ export function VoucherEntryPage() {
               )}
               {currencyLimits.creditLimit != null && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">سقف دائن:</span>
+                  <span className="text-muted-foreground">{t('voucherEntry.summary.creditLimit')}</span>
                   <span className="num-display font-bold text-amber-300">
                     {formatAmount(currencyLimits.creditLimit)}
                   </span>
@@ -957,6 +1286,43 @@ export function VoucherEntryPage() {
         </div>
       </div>
 
+      {/*
+        مودال "مراقبة": يعرض سجل عمليات هذا السند تحديداً (إضافة/تعديل/حذف/طباعة).
+        يُمرَّر subtitle يحتوي رقم السند ورقم القيد الداخلي ليسهل التمييز عند فتح
+        عدة نوافذ مراقبة بالتتابع.
+      */}
+      {showAudit && isEditMode && editingId != null && (
+        <EntityAuditDialog
+          open={showAudit}
+          onClose={() => setShowAudit(false)}
+          entityType="Voucher"
+          entityId={editingId}
+          subtitle={
+            editEntryQuery.data?.voucherNumber
+              ? `${editEntryQuery.data.voucherNumber}${editEntryQuery.data.entryNumber ? ` · #${editEntryQuery.data.entryNumber}` : ''}`
+              : editEntryQuery.data?.entryNumber
+                ? `#${editEntryQuery.data.entryNumber}`
+                : undefined
+          }
+        />
+      )}
+
+      {/* أرشيف السند: ملفات/صور مرفقة (شيكات، إيصالات، …). */}
+      {showArchive && isEditMode && editingId != null && (
+        <VoucherAttachmentsDialog
+          open={showArchive}
+          onClose={() => setShowArchive(false)}
+          entryId={editingId}
+          subtitle={
+            editEntryQuery.data?.voucherNumber
+              ? `${editEntryQuery.data.voucherNumber}${editEntryQuery.data.entryNumber ? ` · #${editEntryQuery.data.entryNumber}` : ''}`
+              : editEntryQuery.data?.entryNumber
+                ? `#${editEntryQuery.data.entryNumber}`
+                : undefined
+          }
+        />
+      )}
+
       {/* مودال تأكيد الحذف */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -964,7 +1330,7 @@ export function VoucherEntryPage() {
             <div className="flex items-start justify-between border-b border-border px-4 py-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-destructive" />
-                <h3 className="font-semibold">تأكيد حذف السند</h3>
+                <h3 className="font-semibold">{t('voucherEntry.deleteConfirm.title')}</h3>
               </div>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
@@ -975,29 +1341,29 @@ export function VoucherEntryPage() {
             </div>
             <div className="space-y-3 p-4 text-sm">
               <p>
-                هل أنت متأكد من حذف{' '}
-                <span className="font-semibold text-primary">{voucherType.nameAr}</span>
+                {t('voucherEntry.deleteConfirm.question')}{' '}
+                <span className="font-semibold text-primary">{voucherTypeDisplayName}</span>
                 {editEntryQuery.data?.entryNumber && (
                   <>
-                    {' '}رقم{' '}
+                    {' '}{t('voucherEntry.deleteConfirm.numberPrefix')}{' '}
                     <span className="font-mono text-primary">
                       {editEntryQuery.data.voucherNumber ?? `#${editEntryQuery.data.entryNumber}`}
                     </span>
                   </>
                 )}
-                ؟
+                {t('voucherEntry.deleteConfirm.questionMark')}
               </p>
               {editEntryQuery.data && (
                 <div className="rounded-md bg-secondary/40 p-3 text-xs text-muted-foreground">
-                  <div>البيان: {editEntryQuery.data.description || '—'}</div>
-                  <div>المبلغ: {formatAmount(amount)} {currency}</div>
+                  <div>{t('voucherEntry.deleteConfirm.descLabel')} {editEntryQuery.data.description || '—'}</div>
+                  <div>{t('voucherEntry.deleteConfirm.amountLabel')} {formatAmount(amount)} {currency}</div>
                 </div>
               )}
-              <p className="text-xs text-amber-400">لا يمكن التراجع عن هذه العملية.</p>
+              <p className="text-xs text-amber-400">{t('voucherEntry.deleteConfirm.warning')}</p>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/20 px-4 py-3">
               <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(false)}>
-                إلغاء
+                {t('voucherEntry.deleteConfirm.cancel')}
               </Button>
               <Button
                 variant="destructive"
@@ -1007,7 +1373,7 @@ export function VoucherEntryPage() {
                 className="gap-1.5"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                {deleteMutation.isPending ? 'جارٍ الحذف...' : 'حذف السند'}
+                {deleteMutation.isPending ? t('voucherEntry.deleteConfirm.deleting') : t('voucherEntry.deleteConfirm.delete')}
               </Button>
             </div>
           </div>

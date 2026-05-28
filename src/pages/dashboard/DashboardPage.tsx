@@ -5,93 +5,107 @@ import { Link } from 'react-router-dom';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatIQD } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
+import { useLocale } from '@/lib/i18n';
 import { ShortcutsBar } from '@/components/dashboard/ShortcutsBar';
 
 // بيانات تجريبية - في الإنتاج تُجلب من الـ API
+// ‎نستخدم مفاتيح ترجمة لليوم/العميل/المندوب/المخزون كي يتبدل النص مع اللغة.
 const salesData = [
-  { day: 'سبت', sales: 4200000, orders: 12 },
-  { day: 'أحد', sales: 3850000, orders: 9 },
-  { day: 'إثنين', sales: 5100000, orders: 14 },
-  { day: 'ثلاثاء', sales: 6300000, orders: 18 },
-  { day: 'أربعاء', sales: 4900000, orders: 13 },
-  { day: 'خميس', sales: 7200000, orders: 21 },
-  { day: 'جمعة', sales: 5800000, orders: 16 },
+  { dayKey: 'sat', sales: 4200000, orders: 12 },
+  { dayKey: 'sun', sales: 3850000, orders: 9 },
+  { dayKey: 'mon', sales: 5100000, orders: 14 },
+  { dayKey: 'tue', sales: 6300000, orders: 18 },
+  { dayKey: 'wed', sales: 4900000, orders: 13 },
+  { dayKey: 'thu', sales: 7200000, orders: 21 },
+  { dayKey: 'fri', sales: 5800000, orders: 16 },
 ];
 
 const topRepsData = [
-  { name: 'أحمد ا.', sales: 18500000 },
-  { name: 'محمد ر.', sales: 14200000 },
-  { name: 'علي ك.', sales: 11800000 },
-  { name: 'حسين م.', sales: 9300000 },
+  { nameKey: 'rep1', sales: 18500000 },
+  { nameKey: 'rep2', sales: 14200000 },
+  { nameKey: 'rep3', sales: 11800000 },
+  { nameKey: 'rep4', sales: 9300000 },
 ];
 
 const recentInvoices = [
-  { id: 'INV-20250513-A8F2', customer: 'متجر الأمل', amount: 1250000, status: 'Paid' },
-  { id: 'INV-20250513-B3D9', customer: 'بقالة الكرخ', amount: 875000, status: 'PartiallyPaid' },
-  { id: 'INV-20250513-C7E1', customer: 'سوبر ماركت بغداد', amount: 2400000, status: 'Issued' },
-  { id: 'INV-20250513-D2F4', customer: 'متجر الزهور', amount: 540000, status: 'Paid' },
+  { id: 'INV-20250513-A8F2', customerKey: 'store1', amount: 1250000, status: 'Paid' },
+  { id: 'INV-20250513-B3D9', customerKey: 'store2', amount: 875000, status: 'PartiallyPaid' },
+  { id: 'INV-20250513-C7E1', customerKey: 'store3', amount: 2400000, status: 'Issued' },
+  { id: 'INV-20250513-D2F4', customerKey: 'store4', amount: 540000, status: 'Paid' },
 ];
 
 const lowStockItems = [
-  { name: 'حليب الصافي 1 لتر', remaining: 12, unit: 'كرتون' },
-  { name: 'زيت الرفيدين 5 لتر', remaining: 3, unit: 'كرتون' },
-  { name: 'سكر أبيض 1 كغ', remaining: 28, unit: 'كيس' },
+  { nameKey: 'milk', remaining: 12, unitKey: 'carton' },
+  { nameKey: 'oil', remaining: 3, unitKey: 'carton' },
+  { nameKey: 'sugar', remaining: 28, unitKey: 'bag' },
 ];
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; variant: 'success' | 'warning' | 'default' | 'muted' }> = {
-    Paid: { label: 'مدفوعة', variant: 'success' },
-    PartiallyPaid: { label: 'مدفوعة جزئياً', variant: 'warning' },
-    Issued: { label: 'مصدرة', variant: 'default' },
-    Draft: { label: 'مسودة', variant: 'muted' },
+  const { t } = useTranslation();
+  const variantMap: Record<string, 'success' | 'warning' | 'default' | 'muted'> = {
+    Paid: 'success',
+    PartiallyPaid: 'warning',
+    Issued: 'default',
+    Draft: 'muted',
   };
-  const cfg = map[status] ?? { label: status, variant: 'muted' as const };
-  return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
+  const variant = variantMap[status] ?? 'muted';
+  const label = t(`dashboard.invoiceStatus.${status}`, { defaultValue: status });
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 export function DashboardPage() {
-  const todayDate = new Intl.DateTimeFormat('ar-IQ', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  }).format(new Date());
+  const { t } = useTranslation();
+  const { isRtl } = useLocale();
+
+  const todayDate = new Intl.DateTimeFormat(
+    isRtl ? 'ar-IQ-u-nu-latn' : 'en-GB',
+    {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      ...(isRtl ? { numberingSystem: 'latn' } : {}),
+    },
+  ).format(new Date());
 
   // ‎ألوان الرسم البياني تتكيّف مع الوضع الفعّال — لا hardcoded.
   const { theme } = useTheme();
   const chartColors = theme === 'dark'
     ? {
-        primary: 'hsl(35 50% 65%)',
-        primaryFaint: 'hsl(35 50% 65% / 0.05)',
-        grid: 'hsl(240 5% 17%)',
-        axis: 'hsl(30 5% 58%)',
-        tooltipBg: 'hsl(240 5% 10%)',
-        tooltipBorder: 'hsl(240 5% 17%)',
-        tooltipText: 'hsl(36 15% 90%)',
+        primary: 'hsl(38 72% 58%)',
+        primaryFaint: 'hsl(38 72% 58% / 0.08)',
+        grid: 'hsl(228 10% 18%)',
+        axis: 'hsl(35 8% 55%)',
+        tooltipBg: 'hsl(228 12% 11%)',
+        tooltipBorder: 'hsl(228 10% 18%)',
+        tooltipText: 'hsl(40 18% 92%)',
       }
     : {
-        primary: 'hsl(36 45% 42%)',
-        primaryFaint: 'hsl(36 45% 42% / 0.06)',
-        grid: 'hsl(220 13% 91%)',
-        axis: 'hsl(220 9% 46%)',
-        tooltipBg: 'hsl(0 0% 100%)',
-        tooltipBorder: 'hsl(220 13% 91%)',
-        tooltipText: 'hsl(222 47% 11%)',
+        primary: 'hsl(38 92% 42%)',
+        primaryFaint: 'hsl(38 92% 42% / 0.08)',
+        grid: 'hsl(220 14% 78%)',
+        axis: 'hsl(220 10% 38%)',
+        tooltipBg: 'hsl(42 28% 97%)',
+        tooltipBorder: 'hsl(220 14% 78%)',
+        tooltipText: 'hsl(222 38% 11%)',
       };
+
+  const salesChartData = salesData.map(d => ({ ...d, day: t(`dashboard.weekDays.${d.dayKey}`) }));
 
   return (
     <div className="space-y-6">
       {/* Hero strip */}
-      <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/[0.08] via-card to-card p-4 sm:p-6">
-        <div className="pattern-meso absolute inset-0 opacity-40" />
+      <div className="gradient-hero relative overflow-hidden rounded-xl border border-primary/25 p-4 shadow-md sm:p-6">
+        <div className="pattern-meso absolute inset-0 opacity-50" />
+        <div className="gold-underline absolute bottom-0 left-0 right-0" />
         <div className="relative flex items-center gap-3 sm:gap-5">
-          {/* لوكو مركز التجارة العراقي - أصغر على الموبايل */}
           <div className="shrink-0">
             <img
               src="/logo.png?v=3"
-              alt="مركز التجارة العراقي"
+              alt={t('app.name')}
               className="h-16 w-16 object-contain sm:h-24 sm:w-24"
               draggable={false}
             />
@@ -101,54 +115,56 @@ export function DashboardPage() {
               {todayDate}
             </p>
             <h1 className="mt-1 font-display text-xl font-semibold leading-tight sm:mt-1.5 sm:text-2xl md:text-3xl">
-              مركز التجارة العراقي
+              {t('app.name')}
             </h1>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-              <span className="font-medium text-foreground/90">صباح الخير</span>
+              <span className="font-medium text-foreground/90">{t('dashboard.goodMorning')}</span>
               {' · '}
               <span className="whitespace-nowrap">
-                مبيعات اليوم:{' '}
+                {t('dashboard.todaySales')}:{' '}
                 <span className="font-medium tnum text-foreground">{formatIQD(5800000)}</span>
               </span>
               {' · '}
-              <span className="whitespace-nowrap text-success">+18% عن الأمس</span>
+              <span className="whitespace-nowrap text-success">
+                {t('dashboard.vsYesterday', { value: 18 })}
+              </span>
             </p>
           </div>
         </div>
       </div>
 
-      {/* Quick shortcuts — قسم مستقل أسفل Hero مباشرة، خاص بكل مستخدم وفق صلاحياته */}
+      {/* Quick shortcuts */}
       <ShortcutsBar />
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="مبيعات الشهر"
+          label={t('dashboard.monthlySales')}
           value={formatIQD(142500000)}
           icon={Receipt}
           change={{ value: 23, positive: true }}
-          hint="مقابل الشهر الماضي"
+          hint={t('dashboard.vsLastMonth')}
           variant="primary"
         />
         <StatCard
-          label="عدد الفواتير"
+          label={t('dashboard.invoicesCount')}
           value="342"
           icon={ShoppingBag}
           change={{ value: 12, positive: true }}
-          hint="هذا الشهر"
+          hint={t('dashboard.thisMonth')}
         />
         <StatCard
-          label="عملاء نشطون"
+          label={t('dashboard.activeCustomers')}
           value="68"
           icon={Users}
           change={{ value: 5, positive: true }}
-          hint="من أصل 84"
+          hint={t('dashboard.outOf', { total: 84 })}
         />
         <StatCard
-          label="ذمم العملاء"
+          label={t('dashboard.customerReceivables')}
           value={formatIQD(28400000)}
           icon={Wallet}
-          hint="إجمالي غير مسدّد"
+          hint={t('dashboard.totalUnpaid')}
         />
       </div>
 
@@ -159,13 +175,13 @@ export function DashboardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>المبيعات الأسبوعية</CardTitle>
-                <CardDescription>آخر 7 أيام</CardDescription>
+                <CardTitle>{t('dashboard.weeklySales')}</CardTitle>
+                <CardDescription>{t('dashboard.last7Days')}</CardDescription>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-primary" />
-                  المبيعات
+                  {t('dashboard.salesLegend')}
                 </span>
               </div>
             </div>
@@ -173,7 +189,7 @@ export function DashboardPage() {
           <CardContent>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={salesData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                <AreaChart data={salesChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={chartColors.primary} stopOpacity={0.4} />
@@ -181,10 +197,17 @@ export function DashboardPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
-                  <XAxis dataKey="day" stroke={chartColors.axis} fontSize={12} reversed tickLine={false} axisLine={false} />
+                  <XAxis
+                    dataKey="day"
+                    stroke={chartColors.axis}
+                    fontSize={12}
+                    reversed={isRtl}
+                    tickLine={false}
+                    axisLine={false}
+                  />
                   <YAxis stroke={chartColors.axis} fontSize={12} tickLine={false} axisLine={false}
                     tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`}
-                    orientation="right"
+                    orientation={isRtl ? 'right' : 'left'}
                   />
                   <Tooltip
                     contentStyle={{
@@ -192,9 +215,11 @@ export function DashboardPage() {
                       border: `1px solid ${chartColors.tooltipBorder}`,
                       borderRadius: 8,
                       color: chartColors.tooltipText,
-                      fontFamily: '"IBM Plex Sans Arabic", sans-serif',
+                      fontFamily: isRtl
+                        ? '"IBM Plex Sans Arabic", sans-serif'
+                        : 'system-ui, -apple-system, sans-serif',
                     }}
-                    formatter={(v: number) => [formatIQD(v), 'المبيعات']}
+                    formatter={(v: number) => [formatIQD(v), t('dashboard.salesLegend')]}
                     cursor={{ fill: chartColors.primaryFaint }}
                   />
                   <Area type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} fill="url(#salesGradient)" />
@@ -207,15 +232,16 @@ export function DashboardPage() {
         {/* Top reps */}
         <Card>
           <CardHeader>
-            <CardTitle>أفضل المندوبين</CardTitle>
-            <CardDescription>هذا الشهر</CardDescription>
+            <CardTitle>{t('dashboard.topSalesReps')}</CardTitle>
+            <CardDescription>{t('dashboard.thisMonth')}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {topRepsData.map((rep, i) => {
                 const pct = (rep.sales / topRepsData[0].sales) * 100;
+                const repName = t(`dashboard.demoReps.${rep.nameKey}`);
                 return (
-                  <div key={rep.name} className="space-y-1.5">
+                  <div key={rep.nameKey} className="space-y-1.5">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <span className={
@@ -224,13 +250,13 @@ export function DashboardPage() {
                         }>
                           {i + 1}
                         </span>
-                        <span className="font-medium">{rep.name}</span>
+                        <span className="font-medium">{repName}</span>
                       </div>
                       <span className="num-display text-muted-foreground">{formatIQD(rep.sales)}</span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
                       <div
-                        className="h-full rounded-full bg-gradient-to-l from-primary to-primary/60 transition-all duration-500"
+                        className={`h-full rounded-full bg-gradient-to-${isRtl ? 'l' : 'r'} from-primary to-primary/60 transition-all duration-500`}
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -249,11 +275,11 @@ export function DashboardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>أحدث الفواتير</CardTitle>
-                <CardDescription>آخر 4 فواتير</CardDescription>
+                <CardTitle>{t('dashboard.recentInvoices')}</CardTitle>
+                <CardDescription>{t('dashboard.lastFourInvoices')}</CardDescription>
               </div>
               <Link to="/invoices" className="text-xs text-primary hover:underline">
-                عرض الكل ←
+                {t('dashboard.viewAll')} {isRtl ? '←' : '→'}
               </Link>
             </div>
           </CardHeader>
@@ -261,17 +287,17 @@ export function DashboardPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>رقم الفاتورة</th>
-                  <th>العميل</th>
-                  <th>المبلغ</th>
-                  <th>الحالة</th>
+                  <th>{t('dashboard.tableHeaders.invoiceNumber')}</th>
+                  <th>{t('dashboard.tableHeaders.customer')}</th>
+                  <th>{t('dashboard.tableHeaders.amount')}</th>
+                  <th>{t('dashboard.tableHeaders.status')}</th>
                 </tr>
               </thead>
               <tbody>
                 {recentInvoices.map(inv => (
                   <tr key={inv.id}>
                     <td><span className="num-display text-xs text-muted-foreground">{inv.id}</span></td>
-                    <td className="font-medium">{inv.customer}</td>
+                    <td className="font-medium">{t(`dashboard.demoCustomers.${inv.customerKey}`)}</td>
                     <td><span className="num-display">{formatIQD(inv.amount)}</span></td>
                     <td><StatusBadge status={inv.status} /></td>
                   </tr>
@@ -286,22 +312,27 @@ export function DashboardPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-warning" />
-              <CardTitle>مخزون منخفض</CardTitle>
+              <CardTitle>{t('dashboard.lowStock')}</CardTitle>
             </div>
-            <CardDescription>{lowStockItems.length} مواد تحتاج تجديد</CardDescription>
+            <CardDescription>{t('dashboard.lowStockCount', { count: lowStockItems.length })}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {lowStockItems.map(item => (
-              <div key={item.name} className="flex items-center justify-between rounded-md border border-warning/20 bg-warning/5 px-3 py-2.5">
+              <div key={item.nameKey} className="flex items-center justify-between rounded-md border border-warning/20 bg-warning/5 px-3 py-2.5">
                 <div>
-                  <p className="text-sm font-medium">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">متبقي {item.remaining} {item.unit}</p>
+                  <p className="text-sm font-medium">{t(`dashboard.demoStock.${item.nameKey}`)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('dashboard.remaining', {
+                      count: item.remaining,
+                      unit: t(`dashboard.demoStock.${item.unitKey}`),
+                    })}
+                  </p>
                 </div>
                 <Package className="h-4 w-4 text-warning" />
               </div>
             ))}
             <Link to="/inventory?lowStock=true" className="mt-2 block text-center text-xs text-primary hover:underline">
-              مشاهدة كل المخزون المنخفض ←
+              {t('dashboard.viewAllLowStock')} {isRtl ? '←' : '→'}
             </Link>
           </CardContent>
         </Card>

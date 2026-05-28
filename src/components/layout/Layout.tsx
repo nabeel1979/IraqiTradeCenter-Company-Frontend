@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 
@@ -14,6 +15,7 @@ import { TopBar } from './TopBar';
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const { t } = useTranslation();
 
   // أغلق الـ Drawer تلقائياً عند الانتقال لصفحة جديدة (تجربة طبيعية على الموبايل).
   useEffect(() => {
@@ -47,7 +49,7 @@ export function Layout() {
       {sidebarOpen && (
         <button
           type="button"
-          aria-label="إغلاق القائمة"
+          aria-label={t('topbar.closeMenu')}
           onClick={() => setSidebarOpen(false)}
           className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
         />
@@ -55,7 +57,8 @@ export function Layout() {
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      <div className="flex h-[100dvh] flex-col lg:mr-72">
+      {/* ms-72 = margin-inline-start: يتبع dir تلقائياً (يمين في RTL، يسار في LTR) */}
+      <div className="flex h-[100dvh] flex-col lg:ms-72">
         <TopBar onOpenSidebar={() => setSidebarOpen(true)} />
         <main className="flex-1 min-h-0 overflow-hidden px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6 animate-fade-in">
           <div className="h-full overflow-y-auto">

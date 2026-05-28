@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   X, Save, ArrowLeftRight, ArrowDown, ArrowUp, Wallet, Banknote, AlertTriangle,
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { cn, extractApiError, formatAmount } from '@/lib/utils';
+import { useLocale, localizedName, localizedAccountName, type AppLocale } from '@/lib/i18n';
 import { accountingApi } from '@/lib/api/accounting';
 import {
   cashBoxesApi,
@@ -97,8 +99,12 @@ export function CashBoxTransferDialog({
   initialCurrency = null,
   editTransfer = null,
 }: CashBoxTransferDialogProps) {
+  const { t } = useTranslation();
+  const { locale, direction } = useLocale();
   const qc = useQueryClient();
   const isEdit = !!editTransfer;
+  const boxName = (b: CashBoxDto | undefined) =>
+    b ? localizedName(locale, b.nameAr, b.nameEn) : '—';
 
   const activeBoxes = useMemo(() => boxes.filter(b => b.isActive), [boxes]);
 
@@ -205,13 +211,13 @@ export function CashBoxTransferDialog({
   const sameBox = fromBoxId != null && toBoxId != null && fromBoxId === toBoxId;
   const amountError =
     amount.trim() === ''
-      ? 'المبلغ مطلوب'
+      ? t('cashBoxes.transferDialog.amountRequired')
       : amountNum <= 0
-      ? 'المبلغ يجب أن يكون أكبر من صفر'
+      ? t('cashBoxes.transferDialog.amountPositive')
       : null;
   const transitError =
     transitAccountId != null && cashBoxAccountIds.has(transitAccountId)
-      ? 'الحساب المختار مرتبط بصندوق — اختر حساباً وسيطاً مستقلاً'
+      ? t('cashBoxes.transferDialog.transitLinkedError')
       : null;
 
   const transitAccount = useMemo(
@@ -265,8 +271,8 @@ export function CashBoxTransferDialog({
       }
       toast.success(
         isEdit
-          ? 'تم تعديل المناقلة وإعادة توليد قيد الإرسال.'
-          : 'تمَّ توليد قيد الإرسال — بانتظار موافقة الصندوق المستلم.'
+          ? t('cashBoxes.transferDialog.editSuccess')
+          : t('cashBoxes.transferDialog.createSuccess'),
       );
       qc.invalidateQueries({ queryKey: ['cash-boxes'] });
       qc.invalidateQueries({ queryKey: ['cash-box-balances'] });
@@ -275,7 +281,7 @@ export function CashBoxTransferDialog({
       onSaved();
     },
     onError: (e: any) =>
-      toast.error(extractApiError(e, isEdit ? 'تعذّر تعديل المناقلة' : 'تعذّر إنشاء المناقلة')),
+      toast.error(extractApiError(e, isEdit ? t('cashBoxes.transferDialog.editFailed') : t('cashBoxes.transferDialog.createFailed'))),
   });
 
   // ‎إلغاء المناقلة من نفس النافذة (في وضع التعديل فقط)
@@ -290,14 +296,14 @@ export function CashBoxTransferDialog({
       });
     },
     onSuccess: () => {
-      toast.success('تم إلغاء المناقلة وعكس قيد الإرسال.');
+      toast.success(t('cashBoxes.transferDialog.cancelSuccess'));
       qc.invalidateQueries({ queryKey: ['cash-boxes'] });
       qc.invalidateQueries({ queryKey: ['cash-box-balances'] });
       qc.invalidateQueries({ queryKey: ['cash-box-transfers'] });
       qc.invalidateQueries({ queryKey: ['journal-entries'] });
       onSaved();
     },
-    onError: (e: any) => toast.error(extractApiError(e, 'تعذَّر إلغاء المناقلة')),
+    onError: (e: any) => toast.error(extractApiError(e, t('cashBoxes.transferDialog.cancelFailed'))),
   });
 
   const canSave =
@@ -318,12 +324,14 @@ export function CashBoxTransferDialog({
     >
       <div
         className="w-full max-w-3xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl"
-        dir="rtl"
+        dir={direction}
       >
         <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-4 py-2">
           <h2 className="flex items-center gap-2 text-sm font-bold">
             {isEdit ? <Pencil className="h-4 w-4 text-primary" /> : <ArrowLeftRight className="h-4 w-4 text-primary" />}
-            {isEdit ? `تعديل المناقلة ${editTransfer!.transferNumber}` : 'مناقلة بين الصناديق'}
+            {isEdit
+              ? t('cashBoxes.transferDialog.editTitle', { number: editTransfer!.transferNumber })
+              : t('cashBoxes.transferDialog.createTitle')}
           </h2>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
@@ -334,7 +342,9 @@ export function CashBoxTransferDialog({
           {/* الصندوقَان */}
           <div className="grid gap-3 sm:grid-cols-2">
             <BoxSelector
-              label="من صندوق"
+              label={t('cashBoxes.transferDialog.fromBox')}
+              selectPlaceholder={t('cashBoxes.transferDialog.selectBox')}
+              locale={locale}
               icon={<ArrowUp className="h-3.5 w-3.5 text-rose-500" />}
               boxes={activeBoxes}
               value={fromBoxId}
@@ -343,7 +353,9 @@ export function CashBoxTransferDialog({
               disabled={isEdit}
             />
             <BoxSelector
-              label="إلى صندوق"
+              label={t('cashBoxes.transferDialog.toBox')}
+              selectPlaceholder={t('cashBoxes.transferDialog.selectBox')}
+              locale={locale}
               icon={<ArrowDown className="h-3.5 w-3.5 text-emerald-500" />}
               boxes={activeBoxes}
               value={toBoxId}
@@ -355,25 +367,28 @@ export function CashBoxTransferDialog({
           {isEdit && (
             <Banner
               type="info"
-              message="الصندوقَان والعملة لا يُعدَّلان من هنا — لتغييرهما ألغِ المناقلة وأنشئ مناقلة جديدة."
+              message={t('cashBoxes.transferDialog.editLockedHint')}
             />
           )}
 
           {sameBox && (
-            <Banner type="error" message="لا يمكن المناقلة بين الصندوق ونفسه — اختر صندوقاً مختلفاً." />
+            <Banner type="error" message={t('cashBoxes.transferDialog.sameBoxError')} />
           )}
 
           {fromBoxId && toBoxId && !sameBox && sharedCurrencies.length === 0 && (
             <Banner
               type="error"
-              message={`لا توجد عملات مشتركة فعّالة بين "${fromBox?.nameAr}" و"${toBox?.nameAr}".`}
+              message={t('cashBoxes.transferDialog.noSharedCurrencies', {
+                from: boxName(fromBox),
+                to: boxName(toBox),
+              })}
             />
           )}
 
           {/* العملة + المبلغ */}
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="mb-1 block text-[11px] text-muted-foreground">العملة *</label>
+              <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.transferDialog.currency')} *</label>
               <select
                 value={currency}
                 onChange={e => setCurrency(e.target.value)}
@@ -383,7 +398,7 @@ export function CashBoxTransferDialog({
                   isEdit && 'cursor-not-allowed opacity-70'
                 )}
               >
-                <option value="">— اختر —</option>
+                <option value="">{t('cashBoxes.dialog.selectCurrency')}</option>
                 {sharedCurrencies.map(c => (
                   <option key={c} value={c}>
                     {c}
@@ -392,7 +407,7 @@ export function CashBoxTransferDialog({
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="mb-1 block text-[11px] text-muted-foreground">المبلغ *</label>
+              <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.transferDialog.amount')} *</label>
               <Input
                 type="number"
                 inputMode="decimal"
@@ -412,7 +427,7 @@ export function CashBoxTransferDialog({
           {currency && (fromBalance || toBalance) && (
             <div className="grid gap-2 sm:grid-cols-2">
               <BalanceMiniCard
-                title={`رصيد ${fromBox?.nameAr ?? '—'}`}
+                title={t('cashBoxes.transferDialog.balanceTitle', { name: boxName(fromBox) })}
                 currency={currency}
                 before={fromBalance?.balance ?? 0}
                 after={projectedFromAfter}
@@ -421,7 +436,7 @@ export function CashBoxTransferDialog({
                 tone="from"
               />
               <BalanceMiniCard
-                title={`رصيد ${toBox?.nameAr ?? '—'}`}
+                title={t('cashBoxes.transferDialog.balanceTitle', { name: boxName(toBox) })}
                 currency={currency}
                 before={toBalance?.balance ?? 0}
                 after={projectedToAfter}
@@ -435,7 +450,7 @@ export function CashBoxTransferDialog({
           {/* تاريخ الإرسال — تاريخ الاستلام يُحدَّد عند الموافقة */}
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">
-              تاريخ ووقت الإرسال *
+              {t('cashBoxes.transferDialog.sendDate')} *
             </label>
             <Input
               type="datetime-local"
@@ -444,7 +459,7 @@ export function CashBoxTransferDialog({
               className="h-9 text-sm"
             />
             <p className="mt-1 text-[10px] text-muted-foreground/80">
-              تاريخ الاستلام لا يُحدَّد هنا — يُسجَّل لاحقاً عند موافقة أمين الصندوق المستلم على الاستلام.
+              {t('cashBoxes.transferDialog.receiveDateHint')}
             </p>
           </div>
 
@@ -453,12 +468,10 @@ export function CashBoxTransferDialog({
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[11px] font-semibold text-primary">
-                  الحساب الوسيط (Cash in Transit) *
+                  {t('cashBoxes.transferDialog.transitAccount')} *
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  حساب فرعي مستقلّ يُستخدم لتسجيل المبلغ "تحت التحويل" حتى يستلمه
-                  الصندوق الثاني. سيظهر مديناً في قيد الإرسال ودائناً في قيد الاستلام
-                  (الذي يُولَّد بعد الموافقة).
+                  {t('cashBoxes.transferDialog.transitHint')}
                 </p>
               </div>
             </div>
@@ -466,11 +479,13 @@ export function CashBoxTransferDialog({
               accounts={transitCandidates}
               value={transitAccountId}
               initialLabel={
-                transitAccount ? `${transitAccount.code} - ${transitAccount.nameAr}` : undefined
+                transitAccount
+                  ? `${transitAccount.code} - ${localizedAccountName(locale, transitAccount.nameAr, transitAccount.nameEn)}`
+                  : undefined
               }
               onChange={id => setTransitAccountId(id)}
               allowClear
-              placeholder="ابحث عن حساب وسيط..."
+              placeholder={t('cashBoxes.transferDialog.transitPlaceholder')}
               inputHeight={9}
             />
             {transitError && (
@@ -481,22 +496,22 @@ export function CashBoxTransferDialog({
           {/* ملاحظات + مرجع */}
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="sm:col-span-2">
-              <label className="mb-1 block text-[11px] text-muted-foreground">البيان (اختياري)</label>
+              <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.transferDialog.description')}</label>
               <Input
                 value={description}
                 onChange={e => setDescription(e.target.value.slice(0, 500))}
-                placeholder="مثال: تغذية صندوق الفرع من الصندوق الرئيسي"
+                placeholder={t('cashBoxes.transferDialog.descriptionPlaceholder')}
                 className="h-9 text-sm"
               />
             </div>
             <div>
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                مرجع خارجي (اختياري)
+                {t('cashBoxes.transferDialog.reference')}
               </label>
               <Input
                 value={referenceNumber}
                 onChange={e => setReferenceNumber(e.target.value.slice(0, 50))}
-                placeholder="رقم خارجي / وصل"
+                placeholder={t('cashBoxes.transferDialog.referencePlaceholder')}
                 className="h-9 text-sm"
               />
             </div>
@@ -509,7 +524,7 @@ export function CashBoxTransferDialog({
               onChange={e => setPostImmediately(e.target.checked)}
               className="h-4 w-4 accent-primary"
             />
-            <span>ترحيل قيد الإرسال فوراً (يظهر مباشرةً في القيود اليومية)</span>
+            <span>{t('cashBoxes.transferDialog.postSendImmediately')}</span>
           </label>
 
           {/* معاينة قيد الإرسال — قيد الاستلام يُولَّد لاحقاً عند موافقة المستلم */}
@@ -517,28 +532,33 @@ export function CashBoxTransferDialog({
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-[11px]">
               <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-primary">
                 <Banknote className="h-3.5 w-3.5" />
-                معاينة قيد الإرسال
+                {t('cashBoxes.transferDialog.previewSend')}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <PreviewEntry
-                  title="قيد الإرسال"
+                  title={t('cashBoxes.transferDialog.sendEntry')}
                   date={sendDate}
                   rows={[
                     {
-                      label: transitAccount.nameAr,
+                      label: localizedAccountName(locale, transitAccount.nameAr, transitAccount.nameEn),
                       debit: amountNum,
                       credit: 0,
-                      hint: 'حساب وسيط',
+                      hint: t('cashBoxes.transferDialog.transitHintRow'),
                     },
-                    { label: fromBox.nameAr, debit: 0, credit: amountNum, hint: 'صندوق مُرسِل' },
+                    {
+                      label: boxName(fromBox),
+                      debit: 0,
+                      credit: amountNum,
+                      hint: t('cashBoxes.transferDialog.senderBoxHint'),
+                    },
                   ]}
                   currency={currency}
                 />
                 <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-amber-500/40 bg-amber-500/5 p-3 text-center text-amber-600">
                   <Banknote className="mb-1 h-5 w-5 opacity-70" />
-                  <div className="text-[11px] font-bold">قيد الاستلام لاحقاً</div>
+                  <div className="text-[11px] font-bold">{t('cashBoxes.transferDialog.receiveEntryLater')}</div>
                   <p className="mt-1 text-[10px] leading-relaxed text-amber-600/80">
-                    يُولَّد عندما يضغط أمين الصندوق المستلم زر <b>"استلام"</b> ويُحدِّد التاريخ والوقت الفعلي.
+                    {t('cashBoxes.transferDialog.receiveEntryHint')}
                   </p>
                 </div>
               </div>
@@ -551,16 +571,15 @@ export function CashBoxTransferDialog({
           <div className="border-t border-rose-500/40 bg-rose-500/5 px-4 py-3">
             <div className="mb-2 flex items-center gap-1.5 text-[12px] font-bold text-rose-500">
               <AlertTriangle className="h-3.5 w-3.5" />
-              تأكيد إلغاء المناقلة
+              {t('cashBoxes.transferDialog.cancelConfirmTitle')}
             </div>
             <p className="mb-2 text-[11px] text-muted-foreground">
-              سيُولَّد قيد عكس لقيد الإرسال يُعيد المبلغ إلى الصندوق المُرسِل، ولا يمكن
-              التراجع عن هذه العملية. أدخل سبب الإلغاء (اختياري) وأكِّد:
+              {t('cashBoxes.transferDialog.cancelConfirmHint')}
             </p>
             <Input
               value={cancelReason}
               onChange={e => setCancelReason(e.target.value.slice(0, 500))}
-              placeholder="مثال: تعديل قيمة المناقلة"
+              placeholder={t('cashBoxes.transferDialog.cancelReasonPlaceholder')}
               className="h-9 text-xs"
             />
             <div className="mt-2 flex items-center justify-end gap-2">
@@ -570,7 +589,7 @@ export function CashBoxTransferDialog({
                 onClick={() => setShowCancelConfirm(false)}
                 disabled={cancelM.isPending}
               >
-                تراجع
+                {t('cashBoxes.actionDialog.back')}
               </Button>
               <Button
                 size="sm"
@@ -579,7 +598,7 @@ export function CashBoxTransferDialog({
                 className="gap-1.5 bg-rose-500 text-white hover:bg-rose-600"
               >
                 <Ban className="h-3.5 w-3.5" />
-                {cancelM.isPending ? 'جارٍ الإلغاء...' : 'تأكيد إلغاء المناقلة'}
+                {cancelM.isPending ? t('cashBoxes.transferDialog.cancelling') : t('cashBoxes.transferDialog.confirmCancel')}
               </Button>
             </div>
           </div>
@@ -597,20 +616,20 @@ export function CashBoxTransferDialog({
                 className="gap-1.5 border-rose-500/40 text-rose-500 hover:bg-rose-500/10"
               >
                 <Ban className="h-3.5 w-3.5" />
-                إلغاء المناقلة
+                {t('cashBoxes.transferDialog.cancelTransfer')}
               </Button>
             )}
           </div>
 
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" type="button" onClick={onClose}>
-              {isEdit ? 'إغلاق' : 'إلغاء'}
+              {isEdit ? t('cashBoxes.transferDialog.close') : t('common.cancel')}
             </Button>
             <Button size="sm" onClick={() => saveM.mutate()} disabled={!canSave} className="gap-1.5">
               <Save className="h-3.5 w-3.5" />
               {saveM.isPending
-                ? isEdit ? 'جارٍ الحفظ...' : 'جارٍ الإنشاء...'
-                : isEdit ? 'حفظ التعديلات' : 'إنشاء المناقلة'}
+                ? isEdit ? t('cashBoxes.transferDialog.saving') : t('cashBoxes.transferDialog.creating')
+                : isEdit ? t('cashBoxes.transferDialog.saveEdit') : t('cashBoxes.transferDialog.createTransfer')}
             </Button>
           </div>
         </div>
@@ -631,6 +650,8 @@ function BoxSelector({
   onChange,
   excludeId,
   disabled,
+  selectPlaceholder,
+  locale,
 }: {
   label: string;
   icon: React.ReactNode;
@@ -639,6 +660,8 @@ function BoxSelector({
   onChange: (id: number | null) => void;
   excludeId: number | null;
   disabled?: boolean;
+  selectPlaceholder: string;
+  locale: AppLocale;
 }) {
   return (
     <div>
@@ -655,12 +678,12 @@ function BoxSelector({
           disabled && 'cursor-not-allowed opacity-70'
         )}
       >
-        <option value="">— اختر —</option>
+        <option value="">{selectPlaceholder}</option>
         {boxes
           .filter(b => b.id !== excludeId)
           .map(b => (
             <option key={b.id} value={b.id}>
-              {b.code} — {b.nameAr}
+              {b.code} — {localizedName(locale, b.nameAr, b.nameEn)}
             </option>
           ))}
       </select>
@@ -685,6 +708,7 @@ function BalanceMiniCard({
   creditLimit?: number | null;
   tone: 'from' | 'to';
 }) {
+  const { t } = useTranslation();
   const exceedsDebit = debitLimit != null && after > debitLimit;
   const exceedsCredit = creditLimit != null && after < -creditLimit;
   const warn = exceedsDebit || exceedsCredit;
@@ -708,11 +732,11 @@ function BalanceMiniCard({
       </div>
       <div className="mt-1 grid grid-cols-2 gap-1 num-display">
         <div>
-          <div className="text-[10px] text-muted-foreground">قبل</div>
+          <div className="text-[10px] text-muted-foreground">{t('cashBoxes.transferDialog.before')}</div>
           <div className="text-xs font-bold">{formatAmount(before)}</div>
         </div>
         <div>
-          <div className="text-[10px] text-muted-foreground">بعد</div>
+          <div className="text-[10px] text-muted-foreground">{t('cashBoxes.transferDialog.after')}</div>
           <div
             className={cn(
               'text-xs font-bold',
@@ -726,7 +750,7 @@ function BalanceMiniCard({
       {warn && (
         <div className="mt-1 flex items-center gap-1 text-[10px] text-destructive">
           <AlertTriangle className="h-3 w-3" />
-          تجاوز السقف
+          {t('cashBoxes.transferDialog.exceedsLimit')}
         </div>
       )}
     </div>
@@ -744,14 +768,17 @@ function PreviewEntry({
   rows: { label: string; debit: number; credit: number; hint: string }[];
   currency: string;
 }) {
+  const { t } = useTranslation();
+  const { isRtl } = useLocale();
   const dt = date ? new Date(date) : null;
+  const dateLocale = isRtl ? 'ar-IQ-u-nu-latn' : 'en-GB';
   return (
     <div className="rounded border border-border bg-card p-2">
       <div className="mb-1 flex items-center justify-between">
         <span className="font-semibold">{title}</span>
         <span className="text-[10px] text-muted-foreground">
           {dt
-            ? dt.toLocaleString('ar-IQ', {
+            ? dt.toLocaleString(dateLocale, {
                 timeZone: 'Asia/Baghdad',
                 year: 'numeric',
                 month: '2-digit',
@@ -765,15 +792,15 @@ function PreviewEntry({
       <table className="w-full text-[11px]">
         <thead className="text-muted-foreground">
           <tr>
-            <th className="p-0.5 text-right">الحساب</th>
-            <th className="p-0.5 text-center">مدين</th>
-            <th className="p-0.5 text-center">دائن</th>
+            <th className="p-0.5 text-end">{t('cashBoxes.transferDialog.colAccount')}</th>
+            <th className="p-0.5 text-center">{t('cashBoxes.transferDialog.colDebit')}</th>
+            <th className="p-0.5 text-center">{t('cashBoxes.transferDialog.colCredit')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-t border-border/40">
-              <td className="p-0.5 text-right">
+              <td className="p-0.5 text-end">
                 <span className="font-medium">{r.label}</span>
                 <span className="ms-1 text-[9px] text-muted-foreground">({r.hint})</span>
               </td>

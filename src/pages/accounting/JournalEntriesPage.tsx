@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   BookOpen,
   Search,
@@ -19,7 +20,11 @@ import {
   RotateCcw,
   Eye,
   FileText,
+  History,
+  Archive,
+  MoreVertical,
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -29,33 +34,42 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
 import { JournalEntryViewDialog } from '@/components/accounting/JournalEntryViewDialog';
+import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
+import { VoucherAttachmentsDialog } from '@/components/accounting/VoucherAttachmentsDialog';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
+import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { useAuthStore } from '@/lib/auth/auth-store';
 import { formatAmount, formatDate, cn } from '@/lib/utils';
 import { printJournalEntriesList, printSingleJournalEntry } from '@/lib/printUtils';
+import { auditApi } from '@/lib/api/audit';
+import { useLocale } from '@/lib/i18n/useLocale';
+import { localizedAccountName, localizedVoucherTypeName, localizedEntryDescription } from '@/lib/i18n';
 import type { JournalEntryDto } from '@/types/api';
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100, 1000] as const;
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; variant: any }> = {
-    Posted: { label: 'مرحَّل', variant: 'success' },
-    Draft: { label: 'غير مرحَّل', variant: 'muted' },
-    Reversed: { label: 'معكوس', variant: 'destructive' },
+  const { t } = useTranslation();
+  const variantMap: Record<string, any> = {
+    Posted: 'success',
+    Draft: 'muted',
+    Reversed: 'destructive',
   };
-  const cfg = map[status] ?? { label: status, variant: 'muted' };
-  return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
+  const variant = variantMap[status] ?? 'muted';
+  const label = t(`journalEntries.status.${status}`, { defaultValue: status });
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function TypeBadge({ type }: { type?: string }) {
+  const { t } = useTranslation();
   if (!type || type === 'Normal') return null;
   return (
     <span className="rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300">
-      افتتاحي
+      {t('journalEntries.entry.opening')}
     </span>
   );
 }
@@ -64,14 +78,6 @@ function TypeBadge({ type }: { type?: string }) {
 // نظام ترتيب وعرض أعمدة جدول البنود (drag & drop + resize + persist)
 // ════════════════════════════════════════════════════════════
 type LineColKey = 'idx' | 'account' | 'desc' | 'debit' | 'credit';
-
-const LINE_COL_LABEL: Record<LineColKey, string> = {
-  idx: '#',
-  account: 'الحساب',
-  desc: 'البيان',
-  debit: 'المدين',
-  credit: 'الدائن',
-};
 
 const LINE_COL_DEFAULT: LineColKey[] = ['idx', 'account', 'desc', 'debit', 'credit'];
 const LINE_COL_DEFAULT_WIDTH: Record<LineColKey, number> = {
@@ -169,6 +175,8 @@ function LineColHeader({
   setDropTarget: (k: LineColKey | null) => void;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
+  const { isRtl } = useLocale();
   return (
     <th
       style={{ width, minWidth: width, maxWidth: width }}
@@ -200,13 +208,13 @@ function LineColHeader({
         isDropTarget && 'bg-primary/15',
         className
       )}
-      title="اسحب لإعادة الترتيب · اسحب الحافة لتغيير العرض"
+      title={t('journalEntries.entry.dragReorderTip')}
     >
       <div className="flex items-center gap-1">
         <GripVertical className="h-3 w-3 shrink-0 opacity-40" />
         {children}
       </div>
-      {/* مقبض تغيير العرض - على الحافة اليسرى (لـ RTL) */}
+      {/* مقبض تغيير العرض - الحافة المعاكسة لاتجاه القراءة (يسار في RTL، يمين في LTR) */}
       <span
         onMouseDown={(e) => {
           e.preventDefault();
@@ -215,8 +223,11 @@ function LineColHeader({
         }}
         onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
         draggable={false}
-        className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent transition-colors hover:bg-primary/40 group-hover:bg-primary/20"
-        title="اسحب لتغيير عرض العمود"
+        className={cn(
+          'absolute top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent transition-colors hover:bg-primary/40 group-hover:bg-primary/20',
+          isRtl ? 'left-0' : 'right-0',
+        )}
+        title={t('journalEntries.entry.resizeColTip')}
       />
     </th>
   );
@@ -225,8 +236,14 @@ function LineColHeader({
 function renderLineCell(
   col: LineColKey,
   line: import('@/types/api').JournalLineDto,
-  idx: number
+  idx: number,
+  locale: 'ar' | 'en',
+  descContext?: Record<string, string>,
 ) {
+  const nameAr = (line.accountNameAr ?? line.accountName ?? '') as string;
+  const nameEn = (line.accountNameEn ?? null) as string | null;
+  const accountLabel = localizedAccountName(locale, nameAr, nameEn) || (line.accountName ?? `#${line.accountId}`);
+
   switch (col) {
     case 'idx':
       return (
@@ -237,13 +254,13 @@ function renderLineCell(
     case 'account':
       return (
         <td className="border-l border-border/30 px-3 py-2">
-          <span className="font-medium">{line.accountName ?? `#${line.accountId}`}</span>
+          <span className="font-medium">{accountLabel}</span>
         </td>
       );
     case 'desc':
       return (
         <td className="border-l border-border/30 px-3 py-2 text-sm text-muted-foreground">
-          {line.description || '—'}
+          {localizedEntryDescription(locale, line.description ?? '', descContext) || '—'}
         </td>
       );
     case 'debit':
@@ -269,18 +286,28 @@ function renderLineCell(
   }
 }
 
-function renderTotalCell(col: LineColKey, totalD: number, totalC: number, balanced: boolean) {
+function renderTotalCell(
+  col: LineColKey,
+  totalD: number,
+  totalC: number,
+  balanced: boolean,
+  t: (k: string) => string,
+  isRtl: boolean,
+) {
   switch (col) {
     case 'idx':
       return <td className="border-l border-t-2 border-border/60 px-3 py-2"></td>;
     case 'account':
       return (
-        <td className="border-l border-t-2 border-border/60 px-3 py-2 text-right">
-          الإجمالي
+        <td className={cn('border-l border-t-2 border-border/60 px-3 py-2', isRtl ? 'text-right' : 'text-left')}>
+          {t('journalEntries.entry.total')}
           {!balanced && (
-            <span className="mr-2 inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive">
+            <span className={cn(
+              'inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive',
+              isRtl ? 'mr-2' : 'ml-2',
+            )}>
               <AlertTriangle className="h-3 w-3" />
-              غير متوازن
+              {t('journalEntries.entry.unbalanced')}
             </span>
           )}
         </td>
@@ -302,11 +329,176 @@ function renderTotalCell(col: LineColKey, totalD: number, totalC: number, balanc
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// قائمة الإجراءات المنسدلة لكل بطاقة قيد
+// ════════════════════════════════════════════════════════════════════════
+interface EntryActionsMenuProps {
+  onPrint: () => void;
+  onMonitor: () => void;
+  onArchive: () => void;
+  onView: () => void;
+  onViewSource: () => void;
+  outsideActiveFY?: boolean;
+  isRtl: boolean;
+}
+
+function EntryActionsMenu({
+  onPrint, onMonitor, onArchive, onView, onViewSource, outsideActiveFY, isRtl,
+}: EntryActionsMenuProps) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  const computePos = () => {
+    const btn = triggerRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const menuW = 220;
+    const margin = 8;
+    let left = isRtl ? rect.right - menuW : rect.left;
+    left = Math.min(Math.max(left, margin), window.innerWidth - menuW - margin);
+    const top = rect.bottom + 4;
+    setPos({ top, left });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    computePos();
+    window.addEventListener('resize', computePos);
+    window.addEventListener('scroll', computePos, true);
+    return () => {
+      window.removeEventListener('resize', computePos);
+      window.removeEventListener('scroll', computePos, true);
+    };
+  }, [open, isRtl]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const target = ('touches' in e ? e.touches[0]?.target : e.target) as Node | null;
+      if (target && menuRef.current?.contains(target)) return;
+      if (target && triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown as EventListener);
+    document.addEventListener('touchstart', onDown as EventListener, { passive: true });
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDown as EventListener);
+      document.removeEventListener('touchstart', onDown as EventListener);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  const action = (fn: () => void) => () => { setOpen(false); fn(); };
+
+  const menuItems = [
+    {
+      icon: <Eye className="h-4 w-4 text-primary" />,
+      label: t('journalEntries.entry.viewTip'),
+      hint: t('journalEntries.entry.viewEntryHint', { defaultValue: 'عرض تفاصيل القيد' }),
+      onClick: action(onView),
+      disabled: false,
+      color: 'hover:bg-primary/10 hover:text-primary',
+    },
+    {
+      icon: <FileText className="h-4 w-4 text-violet-400" />,
+      label: t('journalEntries.entry.viewSourceTip'),
+      hint: outsideActiveFY ? t('journalEntries.entry.outsideFYTip') : undefined,
+      onClick: action(onViewSource),
+      disabled: !!outsideActiveFY,
+      color: outsideActiveFY
+        ? 'cursor-not-allowed text-muted-foreground/40'
+        : 'hover:bg-violet-500/10 hover:text-violet-300',
+    },
+    {
+      icon: <Printer className="h-4 w-4 text-blue-400" />,
+      label: t('journalEntries.entry.printTip'),
+      hint: undefined,
+      onClick: action(onPrint),
+      disabled: false,
+      color: 'hover:bg-blue-500/10 hover:text-blue-300',
+    },
+    {
+      icon: <History className="h-4 w-4 text-violet-400" />,
+      label: t('audit.openButtonTip'),
+      hint: undefined,
+      onClick: action(onMonitor),
+      disabled: false,
+      color: 'hover:bg-violet-500/10 hover:text-violet-300',
+    },
+    {
+      icon: <Archive className="h-4 w-4 text-amber-400" />,
+      label: t('attachments.openButtonTip'),
+      hint: undefined,
+      onClick: action(onArchive),
+      disabled: false,
+      color: 'hover:bg-amber-500/10 hover:text-amber-300',
+    },
+  ];
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+          'text-muted-foreground hover:bg-secondary/80 hover:text-foreground',
+          open && 'bg-secondary/80 text-foreground'
+        )}
+        title={t('journalEntries.entry.actionsMenuTip', { defaultValue: 'الإجراءات' })}
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          dir={isRtl ? 'rtl' : 'ltr'}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: 220, zIndex: 9999 }}
+          className="overflow-hidden rounded-lg border border-border bg-popover/95 shadow-2xl backdrop-blur-sm"
+        >
+          {menuItems.map((item, i) => (
+            <div key={i}>
+              {i > 0 && <div className="h-px bg-border/40" />}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={item.onClick}
+                disabled={item.disabled}
+                title={item.hint}
+                className={cn(
+                  'flex w-full items-center gap-3 px-3 py-2.5 text-xs text-foreground transition-colors',
+                  isRtl ? 'text-right' : 'text-left',
+                  item.color,
+                  item.disabled && 'pointer-events-none'
+                )}
+              >
+                <span className="shrink-0">{item.icon}</span>
+                <span className="font-medium">{item.label}</span>
+              </button>
+            </div>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 function EntryCard({
   entry,
   onView,
   onViewSource,
   onPrint,
+  onMonitor,
+  onArchive,
   colOrder,
   setColOrder,
   colWidths,
@@ -315,11 +507,16 @@ function EntryCard({
   isOpen,
   onToggle,
   outsideActiveFY = false,
+  extraDescriptionContext,
 }: {
   entry: JournalEntryDto;
   onView: () => void;
   onViewSource: () => void;
   onPrint: () => void;
+  /** فتح نافذة سجل المراقبة الخاص بهذا القيد/السند. */
+  onMonitor: () => void;
+  /** فتح نافذة أرشيف مرفقات هذا السند. */
+  onArchive: () => void;
   colOrder: LineColKey[];
   setColOrder: (o: LineColKey[]) => void;
   colWidths: Record<LineColKey, number>;
@@ -329,7 +526,12 @@ function EntryCard({
   onToggle: () => void;
   /** هل تاريخ هذا القيد خارج السنة المالية النشطة؟ يُعطّل زر "أصل القيد" بصرياً. */
   outsideActiveFY?: boolean;
+  /** خريطة سياق إضافية (nameAr → nameEn) — تُستخدم لترجمة وصف القيد المُنشأ تلقائياً
+   *  كأسماء الصناديق المخصّصة (مثلاً "صندوق نبيل" → "Nabeel Box"). */
+  extraDescriptionContext?: Record<string, string>;
 }) {
+  const { t } = useTranslation();
+  const { locale, isRtl } = useLocale();
   const totalD = entry.lines?.reduce((s, l) => s + (l.isDebit ? l.amount : 0), 0) ?? entry.totalDebit;
   const totalC = entry.lines?.reduce((s, l) => s + (!l.isDebit ? l.amount : 0), 0) ?? entry.totalCredit;
   const balanced = Math.abs(totalD - totalC) < 0.01;
@@ -337,13 +539,36 @@ function EntryCard({
 
   const [dropTarget, setDropTarget] = useState<LineColKey | null>(null);
 
+  const headerAlignCls = isRtl ? 'text-right' : 'text-left';
   const headerAlign: Record<LineColKey, string> = {
-    idx: 'text-right',
-    account: 'text-right',
-    desc: 'text-right',
-    debit: 'text-right',
-    credit: 'text-right',
+    idx: headerAlignCls,
+    account: headerAlignCls,
+    desc: headerAlignCls,
+    debit: headerAlignCls,
+    credit: headerAlignCls,
   };
+
+  const lineColLabel = (k: LineColKey) => t(`journalEntries.cols.${k}`);
+  const voucherDisplayName = localizedVoucherTypeName(
+    locale,
+    entry.voucherTypeName ?? '',
+    entry.voucherTypeNameEn,
+  );
+  // ‎اجمع خريطة nameAr → nameEn من سطور القيد لاستخدامها كسياق في ترجمة الوصف.
+  // ‎هذا يضمن ترجمة أسماء الصناديق/الحسابات المخصّصة (مثل "صندوق نبيل") إن كان
+  // ‎الـ NameEn معبَّأ في قاعدة البيانات لها.
+  const entryContextMap: Record<string, string> = { ...(extraDescriptionContext ?? {}) };
+  for (const ln of entry.lines ?? []) {
+    const ar = (ln.accountNameAr ?? ln.accountName ?? '').trim();
+    const en = (ln.accountNameEn ?? '').trim();
+    if (ar && en) entryContextMap[ar] = en;
+  }
+  if (entry.voucherTypeName && entry.voucherTypeNameEn) {
+    entryContextMap[entry.voucherTypeName] = entry.voucherTypeNameEn;
+  }
+  const entryDescription =
+    localizedEntryDescription(locale, entry.description ?? '', entryContextMap) ||
+    entry.description;
 
   return (
     <Card className="overflow-hidden border-border/60">
@@ -351,13 +576,13 @@ function EntryCard({
       <div
         className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-secondary/30 px-4 py-3 cursor-pointer transition-colors hover:bg-secondary/40"
         onClick={onToggle}
-        title={isOpen ? 'انقر لإغلاق التفاصيل' : 'انقر لفتح التفاصيل'}
+        title={isOpen ? t('journalEntries.entry.closeDetailsTip') : t('journalEntries.entry.openDetailsTip')}
       >
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-          title={isOpen ? 'إغلاق' : 'فتح'}
+          title={isOpen ? t('journalEntries.entry.close') : t('journalEntries.entry.open')}
         >
           <ChevronDown
             className={cn(
@@ -374,14 +599,14 @@ function EntryCard({
             </span>
             <span
               className="num-display text-[11px] text-muted-foreground"
-              title={`رقم القيد الداخلي: ${entry.entryNumber}`}
+              title={t('journalEntries.entry.internalNumberTip', { number: entry.entryNumber })}
             >
               #{entry.entryNumber}
             </span>
           </div>
         ) : (
           <div className="flex items-baseline gap-1.5">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">قيد رقم</span>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('journalEntries.entry.entryNumberLabel')}</span>
             <span className="num-display text-base font-bold text-primary">{entry.entryNumber}</span>
           </div>
         )}
@@ -390,50 +615,68 @@ function EntryCard({
           <CalendarRange className="h-3.5 w-3.5" />
           {formatDate(entry.entryDate)}
         </div>
+        {/*
+          الرقم اليدوي (إن وُجد): شارة صغيرة تُسهّل تمييز السندات المرتبطة
+          بشيكات / إيصالات خارجية. مرئيّ بجانب التاريخ ويظهر في tooltip بقيمته
+          كاملةً.
+        */}
+        {entry.manualNumber && (
+          <>
+            <span className="h-4 w-px bg-border" />
+            <span
+              className="num-display inline-flex items-center gap-1 rounded-md border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300"
+              title={t('journalEntries.entry.manualNumberTip', { number: entry.manualNumber, defaultValue: 'Manual no.: {{number}}' })}
+              dir="ltr"
+            >
+              <span className="opacity-70">#</span>
+              {entry.manualNumber}
+            </span>
+          </>
+        )}
         <span className="h-4 w-px bg-border" />
         <div className="flex flex-1 items-center gap-2 min-w-[160px]">
-          <span className="font-semibold truncate" title={entry.description}>
-            {entry.description}
+          <span className="font-semibold truncate" title={entryDescription ?? undefined}>
+            {entryDescription}
           </span>
           <TypeBadge type={entry.entryType} />
-          {entry.voucherTypeId && (entry.voucherTypeName || entry.voucherTypeCode) && !entry.voucherNumber && (
+          {entry.voucherTypeId && (voucherDisplayName || entry.voucherTypeCode) && !entry.voucherNumber && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
-              title={entry.voucherTypeName ?? undefined}
+              title={voucherDisplayName || undefined}
             >
               {entry.voucherTypeCode && (
                 <span className="num-display text-[9px] opacity-80">{entry.voucherTypeCode}</span>
               )}
-              <span>{entry.voucherTypeName ?? entry.voucherTypeCode}</span>
+              <span>{voucherDisplayName || entry.voucherTypeCode}</span>
             </span>
           )}
-          {entry.voucherTypeId && entry.voucherTypeName && entry.voucherNumber && (
+          {entry.voucherTypeId && voucherDisplayName && entry.voucherNumber && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-[10px] text-primary/80"
-              title={entry.voucherTypeName}
+              title={voucherDisplayName}
             >
-              {entry.voucherTypeName}
+              {voucherDisplayName}
             </span>
           )}
         </div>
         {/* الإجماليات في الـ header (تظهر دائماً) */}
         <div className="flex items-center gap-3 text-xs">
           <div className="flex items-baseline gap-1">
-            <span className="text-muted-foreground">مدين:</span>
+            <span className="text-muted-foreground">{t('journalEntries.entry.debit')}</span>
             <span className="num-display font-semibold text-emerald-400">{formatAmount(totalD)}</span>
           </div>
           <div className="flex items-baseline gap-1">
-            <span className="text-muted-foreground">دائن:</span>
+            <span className="text-muted-foreground">{t('journalEntries.entry.credit')}</span>
             <span className="num-display font-semibold text-amber-400">{formatAmount(totalC)}</span>
           </div>
           {!balanced && (
             <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive">
               <AlertTriangle className="h-3 w-3" />
-              غير متوازن
+              {t('journalEntries.entry.unbalanced')}
             </span>
           )}
           <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-            {lineCount} {lineCount === 1 ? 'بند' : 'بنود'}
+            {lineCount} {lineCount === 1 ? t('journalEntries.entry.lineSingle') : t('journalEntries.entry.linePlural')}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -442,40 +685,16 @@ function EntryCard({
           </span>
           <StatusBadge status={entry.status} />
         </div>
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          <button
-            onClick={onPrint}
-            title="طباعة القيد"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-blue-500/10 hover:text-blue-500"
-          >
-            <Printer className="h-4 w-4" />
-          </button>
-          {/* ───── أيقونتا العرض (بديل زر التعديل) ───── */}
-          <button
-            type="button"
-            onClick={onView}
-            title="عرض القيد (معاينة سريعة)"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onViewSource}
-            title={
-              outsideActiveFY
-                ? 'القيد خارج السنة المالية النشطة — لا يمكن فتح الأصل'
-                : 'أصل القيد (فتح في نافذة المصدر)'
-            }
-            className={cn(
-              'rounded-md p-1.5 transition-colors',
-              outsideActiveFY
-                ? 'cursor-not-allowed text-muted-foreground/40 hover:bg-rose-500/5 hover:text-rose-400/60'
-                : 'text-muted-foreground hover:bg-violet-500/10 hover:text-violet-400'
-            )}
-          >
-            <FileText className="h-4 w-4" />
-          </button>
+        <div onClick={(e) => e.stopPropagation()}>
+          <EntryActionsMenu
+            onPrint={onPrint}
+            onMonitor={onMonitor}
+            onArchive={onArchive}
+            onView={onView}
+            onViewSource={onViewSource}
+            outsideActiveFY={outsideActiveFY}
+            isRtl={isRtl}
+          />
         </div>
       </div>
 
@@ -506,7 +725,7 @@ function EntryCard({
                       headerAlign[col]
                     )}
                   >
-                    {LINE_COL_LABEL[col]}
+                    {lineColLabel(col)}
                   </LineColHeader>
                 ))}
               </tr>
@@ -516,7 +735,7 @@ function EntryCard({
                 <tr key={line.id} className="border-b border-border/30 hover:bg-secondary/20">
                   {colOrder.map(col => (
                     <Fragment key={col}>
-                      {renderLineCell(col, line, idx)}
+                      {renderLineCell(col, line, idx, locale, entryContextMap)}
                     </Fragment>
                   ))}
                 </tr>
@@ -526,7 +745,7 @@ function EntryCard({
               <tr className="bg-secondary/30 font-semibold">
                 {colOrder.map(col => (
                   <Fragment key={col}>
-                    {renderTotalCell(col, totalD, totalC, balanced)}
+                    {renderTotalCell(col, totalD, totalC, balanced, t, isRtl)}
                   </Fragment>
                 ))}
               </tr>
@@ -550,6 +769,8 @@ interface JournalEntriesPageProps {
 
 export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProps = {}) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { locale, isRtl } = useLocale();
   const isLocked = !!lockedVoucherCode;
   const lockedCodeUpper = lockedVoucherCode?.toUpperCase() ?? '';
   const [search, setSearch] = useState('');
@@ -562,6 +783,11 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const [viewEntryId, setViewEntryId] = useState<number | null>(null);
+  // ‎كيان مفتوح في نافذة "مراقبة": نُخزّن نوع الكيان (Voucher / JournalEntry)
+  // ‎و المعرّف لجلب سجله من /audit/entity.
+  const [monitorTarget, setMonitorTarget] = useState<{ entityType: string; entityId: number; subtitle?: string } | null>(null);
+  // ‎الكيان المفتوح عليه أرشيف المرفقات (null = لا شيء مفتوح).
+  const [archiveTarget, setArchiveTarget] = useState<{ entityId: number; subtitle?: string } | null>(null);
   const userNs = useAuthStore(s => s.user?.id ?? '__guest__');
 
   // ‎جلب السنوات المالية لتعيين الفترة الافتراضية
@@ -570,6 +796,23 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     queryFn: fiscalYearsApi.getAll,
     staleTime: 5 * 60 * 1000,
   });
+
+  // ‎جلب الصناديق كي نقدر نترجم وصف القيد المُنشأ تلقائياً (سند قبض — صندوق X).
+  // ‎نستعملها كخريطة سياق إضافية في `localizedEntryDescription`.
+  const cashBoxesQuery = useQuery({
+    queryKey: ['cash-boxes', 'all-for-translation'],
+    queryFn: () => cashBoxesApi.getAll(false),
+    staleTime: 5 * 60 * 1000,
+  });
+  const cashBoxNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const cb of cashBoxesQuery.data ?? []) {
+      const ar = (cb.nameAr ?? '').trim();
+      const en = (cb.nameEn ?? '').trim();
+      if (ar && en) map[ar] = en;
+    }
+    return map;
+  }, [cashBoxesQuery.data]);
 
   // ‎السنة المالية النشطة — لمنع فتح/تعديل قيود من خارج نطاقها
   const { activeFiscalYear } = useActiveFiscalYear();
@@ -745,8 +988,22 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
         status: status || undefined,
         search: search || undefined,
       }, company ?? null);
+      // ‎سجّل عملية طباعة قائمة القيود — لا entityId محدد فنستعمل "*"
+      void auditApi.logPrint({
+        entityType: 'JournalEntriesList',
+        entityId: '*',
+        summary: `طباعة قائمة القيود (${all.items.length})`,
+        details: {
+          search: search || null,
+          status: status || null,
+          fromDate: fromDate || null,
+          toDate: toDate || null,
+          voucherTypeId: voucherTypeFilter || null,
+          count: all.items.length,
+        },
+      });
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'تعذّر تحميل البيانات للطباعة');
+      toast.error(e?.response?.data?.message || t('journalEntries.loadPrintFailed'));
     }
   };
 
@@ -757,6 +1014,21 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     } catch {
       printSingleJournalEntry(entry, company ?? null);
     }
+    // ‎سجل طباعة هذا القيد/السند بشكل مفصول — entityType يتبع نوع الكيان
+    void auditApi.logPrint({
+      entityType: entry.voucherTypeId ? 'Voucher' : 'JournalEntry',
+      entityId: entry.id,
+      summary: entry.voucherNumber
+        ? `طباعة سند ${entry.voucherNumber} — ${entry.description}`
+        : `طباعة قيد ${entry.entryNumber} — ${entry.description}`,
+      details: {
+        entryNumber: entry.entryNumber,
+        voucherNumber: entry.voucherNumber,
+        manualNumber: entry.manualNumber,
+        totalDebit: entry.totalDebit,
+        totalCredit: entry.totalCredit,
+      },
+    });
   };
 
   const resetFilters = () => {
@@ -776,19 +1048,19 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     return (
       <EmptyState
         icon={AlertTriangle}
-        title="نوع السند غير موجود"
-        description={`لا يوجد نوع سند مفعَّل بالكود "${lockedCodeUpper}". تحقّق من إدارة أنواع السندات.`}
+        title={t('journalEntries.voucherTypeNotFound')}
+        description={t('journalEntries.voucherTypeNotFoundDesc', { code: lockedCodeUpper })}
       />
     );
   }
 
-  if (isLoading || (isLocked && !lockedVoucherType)) return <LoadingSpinner text="جاري تحميل القيود..." />;
+  if (isLoading || (isLocked && !lockedVoucherType)) return <LoadingSpinner text={t('journalEntries.loadingEntries')} />;
   if (isError || !data) {
     return (
       <EmptyState
         icon={BookOpen}
-        title="تعذّر تحميل القيود"
-        description="حدث خطأ في الاتصال بالخادم"
+        title={t('journalEntries.loadFailed')}
+        description={t('journalEntries.connectionError')}
       />
     );
   }
@@ -815,10 +1087,10 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
           />
           <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[220px] flex-1">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className={cn('absolute top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground', isRtl ? 'right-3' : 'left-3')} />
             <Input
-              placeholder="رقم القيد أو البيان..."
-              className="h-9 pr-10"
+              placeholder={t('journalEntries.filters.searchPlaceholder')}
+              className={cn('h-9', isRtl ? 'pr-10' : 'pl-10')}
               value={search}
               onChange={e => { setSearch(e.target.value); setPageNumber(1); }}
             />
@@ -829,10 +1101,10 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
             value={status}
             onChange={e => { setStatus(e.target.value); setPageNumber(1); }}
           >
-            <option value="">كل الحالات</option>
-            <option value="Posted">مرحَّل</option>
-            <option value="Draft">غير مرحَّل</option>
-            <option value="Reversed">معكوس</option>
+            <option value="">{t('journalEntries.filters.allStatuses')}</option>
+            <option value="Posted">{t('journalEntries.status.Posted')}</option>
+            <option value="Draft">{t('journalEntries.status.Draft')}</option>
+            <option value="Reversed">{t('journalEntries.status.Reversed')}</option>
           </select>
 
           {!isLocked && voucherTypes.length > 0 && (
@@ -844,25 +1116,27 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
                 setVoucherTypeFilter(v === '' ? '' : Number(v));
                 setPageNumber(1);
               }}
-              title="فلترة حسب نوع السند"
+              title={t('journalEntries.filters.filterByVoucherType')}
             >
-              <option value="">كل الأنواع</option>
+              <option value="">{t('journalEntries.filters.allTypes')}</option>
               {voucherTypes.map(v => (
-                <option key={v.id} value={v.id}>{v.nameAr}</option>
+                <option key={v.id} value={v.id}>
+                  {localizedVoucherTypeName(locale, v.nameAr, v.nameEn)}
+                </option>
               ))}
             </select>
           )}
 
           <div className="flex items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2">
             <CalendarRange className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">من</span>
+            <span className="text-xs text-muted-foreground">{t('journalEntries.filters.from')}</span>
             <Input
               type="date"
               className="h-7 w-36 border-0 bg-transparent px-1 text-xs focus-visible:ring-0"
               value={fromDate}
               onChange={e => { userTouchedDatesRef.current = true; setFromDate(e.target.value); setPageNumber(1); }}
             />
-            <span className="text-xs text-muted-foreground">إلى</span>
+            <span className="text-xs text-muted-foreground">{t('journalEntries.filters.to')}</span>
             <Input
               type="date"
               className="h-7 w-36 border-0 bg-transparent px-1 text-xs focus-visible:ring-0"
@@ -872,9 +1146,9 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
           </div>
 
           {(search || status || fromDate || toDate || (!isLocked && voucherTypeFilter !== '')) && (
-            <Button variant="ghost" size="sm" onClick={resetFilters} className="h-9 gap-1" title="مسح الفلاتر">
+            <Button variant="ghost" size="sm" onClick={resetFilters} className="h-9 gap-1" title={t('journalEntries.filters.clearFilters')}>
               <X className="h-3.5 w-3.5" />
-              مسح
+              {t('journalEntries.filters.clear')}
             </Button>
           )}
 
@@ -884,10 +1158,10 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               size="sm"
               onClick={resetLayout}
               className="h-9 gap-1"
-              title="استرجاع التخطيط الافتراضي للأعمدة"
+              title={t('journalEntries.filters.resetLayoutTip')}
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              تخطيط الأعمدة
+              {t('journalEntries.filters.resetLayout')}
             </Button>
           )}
 
@@ -897,17 +1171,17 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               size="sm"
               onClick={openIds.size === data.items.length ? collapseAll : expandAll}
               className="h-9 gap-1"
-              title={openIds.size === data.items.length ? 'إغلاق كل القيود' : 'فتح كل القيود'}
+              title={openIds.size === data.items.length ? t('journalEntries.filters.collapseAllTip') : t('journalEntries.filters.expandAllTip')}
             >
               {openIds.size === data.items.length ? (
                 <>
                   <ChevronsUp className="h-3.5 w-3.5" />
-                  إغلاق الكل
+                  {t('journalEntries.filters.collapseAll')}
                 </>
               ) : (
                 <>
                   <ChevronsDown className="h-3.5 w-3.5" />
-                  فتح الكل
+                  {t('journalEntries.filters.expandAll')}
                 </>
               )}
             </Button>
@@ -919,10 +1193,10 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               size="sm"
               onClick={() => navigate('/accounting/journal')}
               className="h-9 gap-1.5 text-muted-foreground hover:text-foreground"
-              title="عرض كل القيود (الدفتر العام)"
+              title={t('journalEntries.filters.viewAllEntriesTip')}
             >
               <BookOpen className="h-3.5 w-3.5" />
-              عرض كل القيود
+              {t('journalEntries.filters.viewAllEntries')}
             </Button>
           )}
 
@@ -932,10 +1206,10 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
             onClick={handlePrintList}
             className="h-9 gap-2"
             disabled={data.items.length === 0}
-            title="طباعة التقرير"
+            title={t('journalEntries.filters.printTip')}
           >
             <Printer className="h-4 w-4" />
-            طباعة
+            {t('journalEntries.filters.print')}
           </Button>
 
           {/*
@@ -957,7 +1231,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               className="h-9 gap-2"
             >
               <Plus className="h-4 w-4" />
-              {`${lockedVoucherType.nameAr} جديد`}
+              {t('journalEntries.filters.newVoucher', { name: localizedVoucherTypeName(locale, lockedVoucherType.nameAr, lockedVoucherType.nameEn) })}
             </Button>
           )}
           </div>
@@ -967,8 +1241,8 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
       {data.items.length === 0 ? (
         <EmptyState
           icon={BookOpen}
-          title="لا قيود"
-          description="لم تُسجَّل قيود مطابقة للمعايير المحددة"
+          title={t('journalEntries.noEntries')}
+          description={t('journalEntries.noEntriesDesc')}
         />
       ) : (
         <div className="space-y-3">
@@ -990,8 +1264,11 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
                 //   "الفترة المغلقة" بحيث لا يصل المستخدم إطلاقاً إلى نموذج
                 //   تعديل قيد لا يخصّ السنة الحالية.
                 if (activeFiscalYear && !isDateInFiscalYear(e.entryDate, activeFiscalYear)) {
-                  toast.error('تعذّر فتح أصل القيد', {
-                    description: `تاريخ القيد (${formatDate(e.entryDate)}) خارج السنة المالية النشطة "${activeFiscalYear.name}". يمكنك معاينة القيد فقط بزر العرض، أو فعّل سنة مالية أخرى لتعديله.`,
+                  toast.error(t('journalEntries.openSourceFailed'), {
+                    description: t('journalEntries.outsideFYReason', {
+                      date: formatDate(e.entryDate),
+                      fy: activeFiscalYear.name,
+                    }),
                     duration: 6000,
                   });
                   return;
@@ -1004,7 +1281,10 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
                 }
                 // ‎نمرّر returnTo/returnLabel ليرجع المستخدم إلى صفحة السند بعد الحفظ/الإلغاء
                 const returnState = isLocked && lockedVoucherType
-                  ? { returnTo: `/accounting/vouchers/${lockedVoucherType.code}`, returnLabel: lockedVoucherType.nameAr }
+                  ? {
+                      returnTo: `/accounting/vouchers/${lockedVoucherType.code}`,
+                      returnLabel: localizedVoucherTypeName(locale, lockedVoucherType.nameAr, lockedVoucherType.nameEn),
+                    }
                   : undefined;
                 if (e.voucherTypeId && e.voucherTypeCode) {
                   const vt = voucherTypes.find(v => v.id === e.voucherTypeId);
@@ -1026,6 +1306,23 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
                 navigate(`/accounting/journal/${e.id}/view`, { state: returnState });
               }}
               onPrint={() => handlePrintSingle(e)}
+              onMonitor={() =>
+                setMonitorTarget({
+                  entityType: e.voucherTypeId ? 'Voucher' : 'JournalEntry',
+                  entityId: e.id,
+                  subtitle: e.voucherNumber
+                    ? `${e.voucherNumber} · #${e.entryNumber}`
+                    : `#${e.entryNumber}`,
+                })
+              }
+              onArchive={() =>
+                setArchiveTarget({
+                  entityId: e.id,
+                  subtitle: e.voucherNumber
+                    ? `${e.voucherNumber} · #${e.entryNumber}`
+                    : `#${e.entryNumber}`,
+                })
+              }
               colOrder={colOrder}
               setColOrder={(o) => { setColOrder(o); saveLineColOrder(userNs, o); }}
               colWidths={colWidths}
@@ -1036,6 +1333,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               outsideActiveFY={
                 !!activeFiscalYear && !isDateInFiscalYear(e.entryDate, activeFiscalYear)
               }
+              extraDescriptionContext={cashBoxNameMap}
             />
           ))}
         </div>
@@ -1045,7 +1343,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-3">
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">عرض:</span>
+            <span className="text-muted-foreground">{t('journalEntries.pagination.show')}</span>
             <select
               className="h-8 rounded-md border border-input bg-secondary/40 px-2 text-xs"
               value={pageSize}
@@ -1055,13 +1353,13 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>
-            <span className="text-muted-foreground">قيد لكل صفحة</span>
+            <span className="text-muted-foreground">{t('journalEntries.pagination.perPage')}</span>
           </div>
 
           <div className="text-xs text-muted-foreground">
-            إجمالي{' '}
+            {t('journalEntries.pagination.totalLabel')}{' '}
             <span className="font-semibold text-foreground">{data.totalCount.toLocaleString('en-US')}</span>{' '}
-            قيد
+            {t('journalEntries.pagination.totalSuffix')}
             {isFetching && <span className="ms-2 text-amber-400">⟳</span>}
           </div>
 
@@ -1073,7 +1371,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               disabled={pageNumber === 1}
               className="h-8 px-2"
             >
-              «
+              {isRtl ? '»' : '«'}
             </Button>
             <Button
               variant="outline"
@@ -1082,8 +1380,8 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               disabled={pageNumber === 1}
               className="h-8 gap-1"
             >
-              <ChevronRight className="h-3.5 w-3.5" />
-              السابق
+              {isRtl ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+              {t('journalEntries.pagination.previous')}
             </Button>
             <span className="px-3 text-xs">
               <span className="font-semibold text-foreground">{pageNumber}</span>
@@ -1096,8 +1394,8 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               disabled={pageNumber >= totalPages}
               className="h-8 gap-1"
             >
-              التالي
-              <ChevronLeft className="h-3.5 w-3.5" />
+              {t('journalEntries.pagination.next')}
+              {isRtl ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
             </Button>
             <Button
               variant="outline"
@@ -1106,7 +1404,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               disabled={pageNumber >= totalPages}
               className="h-8 px-2"
             >
-              »
+              {isRtl ? '«' : '»'}
             </Button>
           </div>
         </CardContent>
@@ -1118,6 +1416,27 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
         onClose={() => setViewEntryId(null)}
         allowEdit={false}
       />
+
+      {/* مودال "مراقبة" — سجل العمليات على السند/القيد الحالي */}
+      {monitorTarget && (
+        <EntityAuditDialog
+          open={!!monitorTarget}
+          onClose={() => setMonitorTarget(null)}
+          entityType={monitorTarget.entityType}
+          entityId={monitorTarget.entityId}
+          subtitle={monitorTarget.subtitle}
+        />
+      )}
+
+      {/* مودال "الأرشيف" — مرفقات السند/القيد الحالي */}
+      {archiveTarget && (
+        <VoucherAttachmentsDialog
+          open={!!archiveTarget}
+          onClose={() => setArchiveTarget(null)}
+          entryId={archiveTarget.entityId}
+          subtitle={archiveTarget.subtitle}
+        />
+      )}
     </div>
   );
 }

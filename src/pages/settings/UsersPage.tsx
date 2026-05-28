@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ import type {
 type Tab = 'basic' | 'roles' | 'permissions' | 'cashboxes';
 
 export function UsersPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { can } = usePermissions();
   const [search, setSearch] = useState('');
@@ -42,7 +44,7 @@ export function UsersPage() {
   const removeM = useMutation({
     mutationFn: (id: string) => usersApi.remove(id),
     onSuccess: () => {
-      toast.success('تم حذف المستخدم');
+      toast.success(t('common.success'));
       qc.invalidateQueries({ queryKey: ['users'] });
     },
     onError: (e: unknown) => toast.error(extractApiError(e)),
@@ -57,9 +59,9 @@ export function UsersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-semibold">المستخدمون</h1>
+          <h1 className="font-display text-2xl font-semibold">{t('users.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            أنشئ حسابات النظام، اربطها بأدوار، خصِّص صلاحيات وصناديق لكل مستخدم.
+            {t('settings.sections.users.description')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -67,14 +69,14 @@ export function UsersPage() {
             <Button asChild variant="outline" className="gap-1.5">
               <Link to="/settings/roles">
                 <Shield className="h-4 w-4" />
-                الأدوار والصلاحيات
+                {t('settings.sections.roles.title')}
               </Link>
             </Button>
           )}
           {can(PERMS.System.Users.Create) && (
             <Button onClick={() => setCreatingNew(true)} className="gap-1.5">
               <Plus className="h-4 w-4" />
-              مستخدم جديد
+              {t('common.new')} {t('users.title')}
             </Button>
           )}
         </div>
@@ -83,14 +85,14 @@ export function UsersPage() {
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Users className="h-4 w-4 text-primary" />
-          <CardTitle>قائمة المستخدمين</CardTitle>
+          <CardTitle>{t('users.listTitle')}</CardTitle>
           <div className="ms-auto flex items-center gap-2">
             <div className="relative">
               <Search className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="بحث بالاسم أو اسم المستخدم..."
+                placeholder={t('users.searchPlaceholder')}
                 className="h-8 w-56 pr-7 text-sm"
               />
             </div>
@@ -103,18 +105,18 @@ export function UsersPage() {
           {usersQuery.isLoading ? (
             <LoadingSpinner />
           ) : (usersQuery.data?.length ?? 0) === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">لا يوجد مستخدمون.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">{t('users.empty')}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/60 text-right text-muted-foreground">
-                    <th className="px-3 py-2 font-medium">الاسم</th>
-                    <th className="px-3 py-2 font-medium">اسم المستخدم</th>
-                    <th className="px-3 py-2 font-medium">الأدوار</th>
-                    <th className="px-3 py-2 font-medium text-center">صناديق</th>
-                    <th className="px-3 py-2 font-medium text-center">الحالة</th>
-                    <th className="px-3 py-2 font-medium text-left">إجراءات</th>
+                    <th className="px-3 py-2 font-medium">{t('users.cols.name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('users.cols.username')}</th>
+                    <th className="px-3 py-2 font-medium">{t('users.cols.roles')}</th>
+                    <th className="px-3 py-2 font-medium text-center">{t('users.cols.cashboxes')}</th>
+                    <th className="px-3 py-2 font-medium text-center">{t('users.cols.status')}</th>
+                    <th className="px-3 py-2 font-medium text-left">{t('users.cols.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -206,6 +208,7 @@ interface DialogProps {
 }
 
 function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('basic');
   const [showPassword, setShowPassword] = useState(false);
 
@@ -322,10 +325,10 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
 
         {/* التبويبات */}
         <div className="flex flex-wrap items-center gap-1 border-b border-border/60 px-3 py-2">
-          <TabButton active={tab === 'basic'}       onClick={() => setTab('basic')}       icon={<Info className="h-3.5 w-3.5" />} label="معلومات أساسية" />
-          <TabButton active={tab === 'roles'}       onClick={() => setTab('roles')}       icon={<Shield className="h-3.5 w-3.5" />} label="الأدوار" />
-          <TabButton active={tab === 'permissions'} onClick={() => setTab('permissions')} icon={<KeySquare className="h-3.5 w-3.5" />} label="استثناءات الصلاحيات" />
-          <TabButton active={tab === 'cashboxes'}   onClick={() => setTab('cashboxes')}   icon={<Wallet className="h-3.5 w-3.5" />} label="الصناديق المسموحة" />
+          <TabButton active={tab === 'basic'}       onClick={() => setTab('basic')}       icon={<Info className="h-3.5 w-3.5" />} label={t('users.tabs.basic')} />
+          <TabButton active={tab === 'roles'}       onClick={() => setTab('roles')}       icon={<Shield className="h-3.5 w-3.5" />} label={t('users.tabs.roles')} />
+          <TabButton active={tab === 'permissions'} onClick={() => setTab('permissions')} icon={<KeySquare className="h-3.5 w-3.5" />} label={t('users.tabs.permissions')} />
+          <TabButton active={tab === 'cashboxes'}   onClick={() => setTab('cashboxes')}   icon={<Wallet className="h-3.5 w-3.5" />} label={t('users.tabs.cashboxes')} />
           {mode === 'edit' && detailQuery.data?.isSuperAdmin && (
             <span className="ms-auto inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-400">
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -338,11 +341,11 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
           {tab === 'basic' && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
               <div className="md:col-span-6">
-                <Label>الاسم الكامل *</Label>
+                <Label>{t('users.form.fullName')}</Label>
                 <Input value={fullName} onChange={e => setFullName(e.target.value)} className="mt-1" />
               </div>
               <div className="md:col-span-6">
-                <Label>اسم المستخدم *</Label>
+                <Label>{t('users.form.username')}</Label>
                 <Input
                   value={phone}
                   onChange={e => setPhone(e.target.value)}
@@ -352,7 +355,7 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
                   autoCorrect="off"
                   spellCheck={false}
                   dir="ltr"
-                  placeholder="مثل: nabeel أو 07901234567"
+                  placeholder={t('users.form.usernamePlaceholder')}
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   هذا ما سيكتبه المستخدم في شاشة الدخول. يقبل اسم لاتيني أو رقم هاتف.
@@ -385,7 +388,7 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
                     onChange={e => setIsActive(e.target.checked)}
                     className="h-4 w-4"
                   />
-                  <span>الحساب فعّال</span>
+                  <span>{t('users.accountActive')}</span>
                 </label>
               </div>
             </div>
@@ -418,10 +421,10 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-background/40 px-5 py-3">
-          <Button variant="ghost" onClick={onClose}>إلغاء</Button>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button disabled={!canSave || saveM.isPending} onClick={() => saveM.mutate()} className="gap-1.5">
             <Save className="h-4 w-4" />
-            {saveM.isPending ? '...' : 'حفظ'}
+            {saveM.isPending ? '...' : t('common.save')}
           </Button>
         </div>
       </div>
@@ -584,6 +587,7 @@ interface CashBoxesPickerProps {
 }
 
 function CashBoxesPicker({ all, selected, onChange }: CashBoxesPickerProps) {
+  const { t } = useTranslation();
   const setEntry = (id: number, patch: Partial<{ canReceive: boolean; canPay: boolean }>) => {
     const next = new Map(selected);
     const cur = next.get(id) ?? { canReceive: true, canPay: true };
@@ -598,24 +602,23 @@ function CashBoxesPicker({ all, selected, onChange }: CashBoxesPickerProps) {
   };
 
   if (all.length === 0) {
-    return <p className="text-sm text-muted-foreground">لا توجد صناديق مُعرَّفة. أنشئها من صفحة الصناديق أولاً.</p>;
+    return <p className="text-sm text-muted-foreground">{t('users.cashboxes.empty')}</p>;
   }
 
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        المستخدم يستطيع استخدام الصناديق المُحدَّدة فقط. أنواع العمليات المسموحة لكل صندوق:
-        <strong> قبض</strong> = إدخال مال، <strong>صرف</strong> = إخراج مال.
+        {t('users.cashboxes.hint')}
       </p>
       <div className="overflow-x-auto rounded-lg border border-border/60">
         <table className="w-full text-sm">
           <thead className="bg-secondary/40 text-xs text-muted-foreground">
             <tr className="text-right">
-              <th className="px-3 py-2 font-medium">مُربوط</th>
-              <th className="px-3 py-2 font-medium">الكود</th>
-              <th className="px-3 py-2 font-medium">الاسم</th>
-              <th className="px-3 py-2 font-medium text-center">يسمح بالقبض</th>
-              <th className="px-3 py-2 font-medium text-center">يسمح بالصرف</th>
+              <th className="px-3 py-2 font-medium">{t('users.cashboxes.colAssigned')}</th>
+              <th className="px-3 py-2 font-medium">{t('common.code')}</th>
+              <th className="px-3 py-2 font-medium">{t('common.name')}</th>
+              <th className="px-3 py-2 font-medium text-center">{t('users.cashboxes.colReceive')}</th>
+              <th className="px-3 py-2 font-medium text-center">{t('users.cashboxes.colPay')}</th>
             </tr>
           </thead>
           <tbody>

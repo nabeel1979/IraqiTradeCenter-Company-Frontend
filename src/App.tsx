@@ -13,10 +13,12 @@ import { IncomingOrdersListPage } from '@/pages/orders/IncomingOrdersListPage';
 import { AccountsTreePage } from '@/pages/accounting/AccountsTreePage';
 import { AccountsTrashPage } from '@/pages/accounting/AccountsTrashPage';
 import { TrashPage } from '@/pages/system/TrashPage';
+import { AuditPage } from '@/pages/system/AuditPage';
 import { JournalEntriesPage } from '@/pages/accounting/JournalEntriesPage';
 import { CreateJournalEntryPage } from '@/pages/accounting/CreateJournalEntryPage';
 import { TrialBalancePage } from '@/pages/accounting/TrialBalancePage';
 import { AccountStatementPage } from '@/pages/accounting/AccountStatementPage';
+import { AccountBalancesPage } from '@/pages/accounting/AccountBalancesPage';
 import { FiscalYearsPage } from '@/pages/accounting/FiscalYearsPage';
 import { CurrencyRateBulletinsPage } from '@/pages/accounting/CurrencyRateBulletinsPage';
 import { JournalVoucherTypesPage } from '@/pages/accounting/JournalVoucherTypesPage';
@@ -84,10 +86,12 @@ export default function App() {
         <Route path="accounting/accounts" element={<AccountsTreePage />} />
         <Route path="accounting/accounts/trash" element={<AccountsTrashPage />} />
         <Route path="system/trash" element={<TrashPage />} />
+        <Route path="system/audit" element={<AuditPage />} />
         <Route path="accounting/journal" element={<JournalEntriesPage />} />
         <Route path="accounting/journal/new" element={<CreateJournalEntryRoute />} />
         <Route path="accounting/journal/:id/edit" element={<CreateJournalEntryRoute />} />
         <Route path="accounting/journal/:id/view" element={<CreateJournalEntryRoute viewOnly />} />
+        <Route path="accounting/account-balances" element={<AccountBalancesPage />} />
         <Route path="accounting/trial-balance" element={<TrialBalancePage />} />
         <Route path="accounting/account-statement" element={<AccountStatementPage />} />
         <Route path="accounting/fiscal-years" element={<FiscalYearsPage />} />

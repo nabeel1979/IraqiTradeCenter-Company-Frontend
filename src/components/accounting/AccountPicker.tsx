@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useLocale, localizedAccountName, accountSearchHaystack } from '@/lib/i18n';
 import type { AccountDto } from '@/types/api';
 
 export interface AccountPickerProps {
@@ -31,6 +32,7 @@ export function AccountPicker({
   className,
   inputHeight = 9,
 }: AccountPickerProps) {
+  const { locale } = useLocale();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
@@ -38,13 +40,17 @@ export function AccountPicker({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedLabel = useMemo(() => {
-    if (initialLabel) return initialLabel;
     if (value) {
+      // ‎البيانات الحديثة من قائمة الحسابات تتقدّم على القيمة الممرَّرة
+      // ‎من الخارج (تُستعمل كـ fallback فقط حين لا يكون الحساب ضمن القائمة،
+      // ‎مثل حالة حساب «أب» قادم من شاشة أرصدة بينما الـ picker يعرض الأوراق فقط).
       const a = accounts.find(x => x.id === value);
-      return a ? `${a.code} - ${a.nameAr}` : '';
+      if (a) return `${a.code} - ${localizedAccountName(locale, a.nameAr, a.nameEn)}`;
+      if (initialLabel) return initialLabel;
+      return '';
     }
     return '';
-  }, [value, accounts, initialLabel]);
+  }, [value, accounts, initialLabel, locale]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -57,11 +63,11 @@ export function AccountPicker({
 
     for (const a of accounts) {
       const code = (a.code ?? '').toLowerCase();
-      const name = (a.nameAr ?? '').toLowerCase();
+      const hay = accountSearchHaystack(a.code, a.nameAr, a.nameEn);
       if (code === q) exact.push(a);
       else if (code.startsWith(q)) startsCode.push(a);
-      else if (name.startsWith(q)) startsName.push(a);
-      else if (code.includes(q) || name.includes(q)) contains.push(a);
+      else if (hay.startsWith(q)) startsName.push(a);
+      else if (hay.includes(q)) contains.push(a);
     }
     return [...exact, ...startsCode, ...startsName, ...contains].slice(0, 80);
   }, [accounts, query]);
@@ -86,7 +92,7 @@ export function AccountPicker({
   }, [query, open]);
 
   const select = (a: AccountDto) => {
-    onChange(a.id, `${a.code} - ${a.nameAr}`);
+    onChange(a.id, `${a.code} - ${localizedAccountName(locale, a.nameAr, a.nameEn)}`);
     setOpen(false);
     setQuery('');
     inputRef.current?.blur();
@@ -201,7 +207,9 @@ export function AccountPicker({
                   <span className="num-display text-xs text-muted-foreground shrink-0 min-w-[60px]">
                     {a.code}
                   </span>
-                  <span className="flex-1 truncate">{a.nameAr}</span>
+                  <span className="flex-1 truncate">
+                    {localizedAccountName(locale, a.nameAr, a.nameEn)}
+                  </span>
                 </button>
               ))
             )}

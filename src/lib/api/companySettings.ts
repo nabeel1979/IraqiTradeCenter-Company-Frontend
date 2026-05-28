@@ -6,6 +6,8 @@ export interface CompanySettingsDto {
   nameAr: string;
   nameEn?: string | null;
   address?: string | null;
+  /** العنوان بالإنجليزية (اختياري) — يُعرض في الواجهة الإنجليزية. */
+  addressEn?: string | null;
   phone?: string | null;
   email?: string | null;
   website?: string | null;

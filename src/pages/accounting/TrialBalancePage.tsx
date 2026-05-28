@@ -20,6 +20,7 @@
  */
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Calculator, Download, Layers, Coins, TrendingUp, TrendingDown,
   Info, AlertTriangle, Printer, FileText,
@@ -36,7 +37,9 @@ import { currenciesApi } from '@/lib/api/currencies';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { printTrialBalance } from '@/lib/printUtils';
+import { auditApi } from '@/lib/api/audit';
 import { formatAmount, cn } from '@/lib/utils';
+import { useLocale, localizedAccountName } from '@/lib/i18n';
 
 const MAX_LEVELS = 5;
 
@@ -48,14 +51,6 @@ function toISODate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** ترجمات أنواع الحسابات للعرض */
-const TYPE_LABELS: Record<string, string> = {
-  Asset: 'أصول',
-  Liability: 'خصوم',
-  Equity: 'حقوق ملكية',
-  Revenue: 'إيرادات',
-  Expense: 'مصاريف',
-};
 
 const TYPE_COLORS: Record<string, string> = {
   Asset: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
@@ -72,6 +67,8 @@ function fmt(n: number): string {
 }
 
 export function TrialBalancePage() {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   // ── العملات (للفلتر) + العملة الأساسية
   const currenciesQuery = useQuery({
     queryKey: ['currencies', 'enabled'],
@@ -126,12 +123,20 @@ export function TrialBalancePage() {
   const [maxLevel, setMaxLevel] = useState<number | ''>('');
   const [leavesOnly, setLeavesOnly] = useState<boolean>(true);
   const [includeDraft, setIncludeDraft] = useState<boolean>(false);
+  const [hideZero, setHideZero] = useState<boolean>(true);
 
   // إعدادات الشركة (للوكو/الترويسة على نافذة الطباعة)
   const companyQuery = useQuery({
     queryKey: ['company-settings'],
     queryFn: companySettingsApi.get,
     staleTime: 10 * 60 * 1000,
+  });
+
+  // ‎شجرة الحسابات — لاستخراج قاموس (code → nameEn) يُستخدم في طباعة الميزان بالإنجليزية
+  const treeQuery = useQuery({
+    queryKey: ['accounts', 'tree'],
+    queryFn: accountingApi.getTree,
+    staleTime: 5 * 60 * 1000,
   });
 
   // ضبط الفترة الافتراضية على السنة المالية عند تحميلها:
@@ -174,32 +179,67 @@ export function TrialBalancePage() {
     ? Math.abs(data.totalClosingDebit - data.totalClosingCredit) < 0.01
     : false;
 
+  /** خريطة code → { nameAr, nameEn } مأخوذة من شجرة الحسابات لاستخدامها في عرض الأسماء بحسب اللغة. */
+  const accountNamesByCode = useMemo(() => {
+    const map = new Map<string, { nameAr: string; nameEn?: string | null }>();
+    const walk = (nodes: any[]) => {
+      for (const n of nodes ?? []) {
+        if (n?.code) map.set(n.code, { nameAr: n.nameAr ?? n.name ?? '', nameEn: n.nameEn });
+        if (Array.isArray(n?.children) && n.children.length > 0) walk(n.children);
+      }
+    };
+    walk(treeQuery.data ?? []);
+    return map;
+  }, [treeQuery.data]);
+
+  /** اسم الحساب بحسب اللغة الحالية مع fallback. */
+  const displayAccountName = (code: string, fallbackAr: string): string => {
+    const found = accountNamesByCode.get(code);
+    return localizedAccountName(locale, found?.nameAr ?? fallbackAr, found?.nameEn);
+  };
+
   // الوحدة المعروضة (للعنوان والإجماليات)
   const displayUnit = useMemo(() => {
     if (currency) return currency;
     if (valuated) return baseCurrency?.code ?? data?.baseCurrency ?? 'IQD';
-    return 'متعددة';
-  }, [currency, valuated, baseCurrency, data]);
+    return t('trialBalance.filters.multiCurrencyDisplay');
+  }, [currency, valuated, baseCurrency, data, t]);
+
+  // ── فلترة الصفوف ذات الرصيد الصفري
+  const displayRows = useMemo(() => {
+    const src = data?.rows ?? [];
+    if (!hideZero) return src;
+    return src.filter(r => {
+      return (
+        Math.abs(r.openingDebit ?? 0) > 0 ||
+        Math.abs(r.openingCredit ?? 0) > 0 ||
+        Math.abs(r.periodDebit ?? 0) > 0 ||
+        Math.abs(r.periodCredit ?? 0) > 0 ||
+        Math.abs(r.closingDebit ?? 0) > 0 ||
+        Math.abs(r.closingCredit ?? 0) > 0
+      );
+    });
+  }, [data?.rows, hideZero]);
 
   const exportCsv = () => {
     if (!data?.rows?.length) return;
     const header = [
-      'الكود', 'الحساب', 'النوع', 'المستوى',
-      'مدين سابق', 'دائن سابق',
-      'مدين حالي', 'دائن حالي',
-      'رصيد مدين', 'رصيد دائن',
+      t('trialBalance.csv.code'), t('trialBalance.csv.account'), t('trialBalance.csv.type'), t('trialBalance.csv.level'),
+      t('trialBalance.csv.openingDebit'), t('trialBalance.csv.openingCredit'),
+      t('trialBalance.csv.periodDebit'), t('trialBalance.csv.periodCredit'),
+      t('trialBalance.csv.closingDebit'), t('trialBalance.csv.closingCredit'),
     ];
     const lines = [
       header,
-      ...data.rows.map(r => [
-        r.accountCode, r.accountName,
-        TYPE_LABELS[r.accountType] ?? r.accountType,
+      ...displayRows.map(r => [
+        r.accountCode, displayAccountName(r.accountCode, r.accountName),
+        t(`trialBalance.types.${r.accountType}`, { defaultValue: r.accountType }),
         r.level,
         r.openingDebit, r.openingCredit,
         r.periodDebit, r.periodCredit,
         r.closingDebit, r.closingCredit,
       ]),
-      ['', 'الإجمالي', '', '',
+      ['', t('trialBalance.csv.total'), '', '',
         data.totalOpeningDebit, data.totalOpeningCredit,
         data.totalPeriodDebit, data.totalPeriodCredit,
         data.totalClosingDebit, data.totalClosingCredit,
@@ -217,7 +257,22 @@ export function TrialBalancePage() {
 
   const printPage = () => {
     if (!data?.rows?.length) return;
-    printTrialBalance(data, companyQuery.data ?? null);
+    // ‎اجمع قاموس code → nameEn من شجرة الحسابات لاستخدامه في الطباعة الإنجليزية.
+    const accountNamesEn: Record<string, string> = {};
+    const walk = (nodes: any[]) => {
+      for (const n of nodes ?? []) {
+        if (n?.code && n?.nameEn) accountNamesEn[n.code] = n.nameEn;
+        if (Array.isArray(n?.children) && n.children.length > 0) walk(n.children);
+      }
+    };
+    walk(treeQuery.data ?? []);
+    printTrialBalance(data, companyQuery.data ?? null, undefined, { accountNamesEn });
+    void auditApi.logPrint({
+      entityType: 'TrialBalance',
+      entityId: '*',
+      summary: 'طباعة ميزان المراجعة',
+      details: { rowCount: data?.rows?.length ?? 0 },
+    });
   };
 
   return (
@@ -237,41 +292,40 @@ export function TrialBalancePage() {
           {/* صف 2: التواريخ + الفلاتر الأخرى */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_140px_140px_auto]">
             <div>
-              <Label className="mb-1 text-[11px] text-muted-foreground">من تاريخ</Label>
+              <Label className="mb-1 text-[11px] text-muted-foreground">{t('trialBalance.filters.fromDate')}</Label>
               <Input type="date" value={from} onChange={e => setFrom(e.target.value)} className="h-8 text-sm" />
             </div>
             <div>
-              <Label className="mb-1 text-[11px] text-muted-foreground">إلى تاريخ</Label>
+              <Label className="mb-1 text-[11px] text-muted-foreground">{t('trialBalance.filters.toDate')}</Label>
               <Input type="date" value={to} onChange={e => setTo(e.target.value)} className="h-8 text-sm" />
             </div>
             <div>
               <Label className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Coins className="h-3 w-3" /> العملة
+                <Coins className="h-3 w-3" /> {t('trialBalance.filters.currency')}
               </Label>
               <select
                 className="h-8 w-full rounded-md border border-input bg-secondary/40 px-2 text-sm"
                 value={currency}
                 onChange={e => setCurrency(e.target.value)}
               >
-                <option value="">كل العملات</option>
+                <option value="">{t('trialBalance.filters.allCurrencies')}</option>
                 {enabledCurrencies.map(c => (
                   <option key={c.code} value={c.code}>
-                    {c.code} — {c.nameAr}
+                    {c.code} — {locale === 'en' ? (c.nameEn || c.nameAr) : c.nameAr}
                   </option>
                 ))}
               </select>
             </div>
             <div>
               <Label className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Layers className="h-3 w-3" /> مستوى الشجرة
+                <Layers className="h-3 w-3" /> {t('trialBalance.filters.treeLevel')}
                 <span className="ms-1 text-[9px] text-muted-foreground/70">
-                  ({maxLevel === '' ? 'الكل' : `≤ ${maxLevel}`})
+                  ({maxLevel === '' ? t('trialBalance.filters.allLevels') : `≤ ${maxLevel}`})
                 </span>
               </Label>
-              {/* أزرار سريعة بدل dropdown — أكثر وضوحاً وأسرع في الاستخدام */}
               <div
                 role="radiogroup"
-                aria-label="مستوى عمق الشجرة"
+                aria-label={t('trialBalance.filters.treeLevel')}
                 className="flex h-8 items-stretch overflow-hidden rounded-md border border-input bg-secondary/40 text-xs"
               >
                 <button
@@ -279,7 +333,7 @@ export function TrialBalancePage() {
                   role="radio"
                   aria-checked={maxLevel === ''}
                   onClick={() => setMaxLevel('')}
-                  title="عرض جميع المستويات بدون تقييد عمق الشجرة"
+                  title={t('trialBalance.filters.allLevels')}
                   className={cn(
                     'flex flex-1 items-center justify-center px-2 font-medium transition',
                     maxLevel === ''
@@ -287,7 +341,7 @@ export function TrialBalancePage() {
                       : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
                   )}
                 >
-                  الكل
+                  {t('trialBalance.filters.allLevels')}
                 </button>
                 {Array.from({ length: MAX_LEVELS }, (_, i) => i + 1).map(lv => (
                   <button
@@ -296,7 +350,7 @@ export function TrialBalancePage() {
                     role="radio"
                     aria-checked={maxLevel === lv}
                     onClick={() => setMaxLevel(lv)}
-                    title={`عرض الحسابات حتى المستوى ${lv} (تجميع الحسابات الأعمق ضمن آبائها)`}
+                    title={t('trialBalance.filters.levelUpTo', { level: lv })}
                     className={cn(
                       'flex w-7 items-center justify-center border-r border-input/60 font-semibold tabular-nums transition',
                       maxLevel === lv
@@ -310,7 +364,7 @@ export function TrialBalancePage() {
               </div>
             </div>
             <div className="flex flex-col gap-1">
-              <Label className="mb-0 text-[11px] text-muted-foreground">خيارات</Label>
+              <Label className="mb-0 text-[11px] text-muted-foreground">{t('trialBalance.filters.options')}</Label>
               <label className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 text-xs">
                 <input
                   type="checkbox"
@@ -318,7 +372,16 @@ export function TrialBalancePage() {
                   onChange={e => setLeavesOnly(e.target.checked)}
                   className="h-3.5 w-3.5"
                 />
-                الأبناء فقط
+                {t('trialBalance.filters.leavesOnly')}
+              </label>
+              <label className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={hideZero}
+                  onChange={e => setHideZero(e.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                {t('trialBalance.filters.hideZero', { defaultValue: 'إخفاء الأرصدة الصفرية' })}
               </label>
             </div>
             <div className="flex items-end gap-2">
@@ -326,7 +389,7 @@ export function TrialBalancePage() {
                 <Download className="h-3.5 w-3.5" /> CSV
               </Button>
               <Button variant="outline" size="sm" onClick={printPage} className="h-8 gap-1.5" disabled={!data?.rows?.length}>
-                <Printer className="h-3.5 w-3.5" /> طباعة
+                <Printer className="h-3.5 w-3.5" /> {t('trialBalance.filters.print')}
               </Button>
             </div>
           </div>
@@ -341,7 +404,7 @@ export function TrialBalancePage() {
                   : 'border-border bg-secondary/40 text-muted-foreground hover:bg-secondary',
                 currency && 'cursor-not-allowed opacity-50'
               )}
-              title={currency ? 'التقويم متاح فقط مع "كل العملات"' : 'حوّل المبالغ إلى العملة الأساسية باستخدام نشرة الأسعار'}
+              title={currency ? t('trialBalance.filters.valuatedOnlyAll') : t('trialBalance.filters.valuatedHint')}
             >
               <input
                 type="checkbox"
@@ -350,12 +413,12 @@ export function TrialBalancePage() {
                 disabled={!!currency}
                 className="h-3.5 w-3.5"
               />
-              مبالغ مُقوَّمة بـ {baseCurrency?.code ?? 'IQD'}
+              {t('trialBalance.filters.valuated', { currency: baseCurrency?.code ?? 'IQD' })}
             </label>
 
             <label
               className="flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-secondary/40 px-3 text-xs text-muted-foreground hover:bg-secondary"
-              title="إظهار القيود التي لم تُرحَّل بعد (Draft) ضمن أرصدة الفترة"
+              title={t('trialBalance.filters.includeDraft')}
             >
               <input
                 type="checkbox"
@@ -363,12 +426,12 @@ export function TrialBalancePage() {
                 onChange={e => setIncludeDraft(e.target.checked)}
                 className="h-3.5 w-3.5"
               />
-              تضمين القيود غير المرحَّلة
+              {t('trialBalance.filters.includeDraft')}
             </label>
 
             {data?.fxBulletinName && (
               <span className="ms-auto rounded-md bg-secondary/60 px-2 py-1 text-[10px] text-muted-foreground">
-                نشرة الأسعار: <span className="font-semibold text-foreground">{data.fxBulletinName}</span>
+                {t('trialBalance.filters.bulletinLabel')} <span className="font-semibold text-foreground">{data.fxBulletinName}</span>
                 {data.fxBulletinEffectiveAt && (
                   <span className="text-[10px] text-muted-foreground/80"> · {data.fxBulletinEffectiveAt.slice(0, 10)}</span>
                 )}
@@ -379,7 +442,7 @@ export function TrialBalancePage() {
           {data?.fxUsedFallback && (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-300">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>عملة واحدة على الأقل لا تملك سعر صرف في النشرة المنشورة — استُعمل مضاعف 1 لها (قد لا تكون الأرقام دقيقة).</span>
+              <span>{t('trialBalance.filters.fxFallback')}</span>
             </div>
           )}
         </CardContent>
@@ -389,18 +452,18 @@ export function TrialBalancePage() {
            المحتوى: حالة التحميل/الخطأ/الجدول
          ════════════════════════════════════════ */}
       {isLoading ? (
-        <LoadingSpinner text="جاري حساب الميزان..." />
+        <LoadingSpinner text={t('trialBalance.loading')} />
       ) : isError ? (
         <EmptyState
           icon={Calculator}
-          title="تعذّر تحميل الميزان"
-          description={(error as Error)?.message ?? 'حدث خطأ في الاتصال بالخادم'}
+          title={t('trialBalance.loadFailed')}
+          description={(error as Error)?.message ?? ''}
         />
       ) : !data || data.rows.length === 0 ? (
         <EmptyState
           icon={Calculator}
-          title="لا حركات في الفترة المختارة"
-          description="جرّب تغيير الفترة أو إلغاء فلاتر العملة/المستوى/الأبناء فقط"
+          title={t('trialBalance.noMovements')}
+          description={t('trialBalance.noMovementsDesc')}
         />
       ) : (
         <>
@@ -410,26 +473,26 @@ export function TrialBalancePage() {
               <div>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Calculator className="h-4 w-4 text-primary" />
-                  ميزان المراجعة
+                  {t('trialBalance.table.title')}
                 </CardTitle>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  من <span className="num-display">{from}</span> إلى <span className="num-display">{to}</span>
+                  {t('trialBalance.table.dateRange', { from, to })}
                   {' · '}
-                  <span className="num-display">{data.rows.length}</span> حساب
+                  {t('trialBalance.table.accountsCount', { count: displayRows.length })}
                   {' · '}
-                  العملة: <span className="font-medium text-foreground">{displayUnit}</span>
-                  {data.leavesOnly && ' · الأبناء فقط'}
-                  {data.maxLevel != null && ` · حتى مستوى ${data.maxLevel}`}
+                  {t('trialBalance.table.currencyLabel')} <span className="font-medium text-foreground">{displayUnit}</span>
+                  {data.leavesOnly && ` · ${t('trialBalance.table.leavesOnlyBadge')}`}
+                  {data.maxLevel != null && ` · ${t('trialBalance.table.maxLevelBadge', { level: data.maxLevel })}`}
                 </p>
               </div>
               <div>
                 {isBalanced ? (
                   <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
-                    ✓ متوازن
+                    {t('trialBalance.table.balanced')}
                   </span>
                 ) : (
                   <span className="rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-300">
-                    × غير متوازن
+                    {t('trialBalance.table.unbalanced')}
                   </span>
                 )}
               </div>
@@ -438,30 +501,30 @@ export function TrialBalancePage() {
               <table className="data-table w-full text-xs">
                 <thead>
                   <tr className="border-b-2 border-border/60">
-                    <th rowSpan={2} className="sticky right-0 z-10 bg-card text-center align-middle">الكود</th>
-                    <th rowSpan={2} className="text-right align-middle">الحساب</th>
-                    <th rowSpan={2} className="text-center align-middle">النوع</th>
+                    <th rowSpan={2} className="sticky right-0 z-10 bg-card text-center align-middle">{t('trialBalance.table.code')}</th>
+                    <th rowSpan={2} className="text-right align-middle">{t('trialBalance.table.account')}</th>
+                    <th rowSpan={2} className="text-center align-middle">{t('trialBalance.table.type')}</th>
                     <th colSpan={2} className="border-r border-border/40 bg-secondary/30 text-center">
-                      الفترة السابقة (الافتتاحي)
+                      {t('trialBalance.table.previousPeriod')}
                     </th>
                     <th colSpan={2} className="border-r border-border/40 bg-primary/10 text-center">
-                      حركة الفترة الحالية
+                      {t('trialBalance.table.currentPeriod')}
                     </th>
                     <th colSpan={2} className="border-r border-border/40 bg-amber-500/10 text-center">
-                      الرصيد النهائي
+                      {t('trialBalance.table.closingBalance')}
                     </th>
                   </tr>
                   <tr className="border-b border-border/60 text-[10px] text-muted-foreground">
-                    <th className="border-r border-border/40 bg-secondary/30 text-center">مدين</th>
-                    <th className="bg-secondary/30 text-center">دائن</th>
-                    <th className="border-r border-border/40 bg-primary/10 text-center">مدين</th>
-                    <th className="bg-primary/10 text-center">دائن</th>
-                    <th className="border-r border-border/40 bg-amber-500/10 text-center">مدين</th>
-                    <th className="bg-amber-500/10 text-center">دائن</th>
+                    <th className="border-r border-border/40 bg-secondary/30 text-center">{t('trialBalance.table.debit')}</th>
+                    <th className="bg-secondary/30 text-center">{t('trialBalance.table.credit')}</th>
+                    <th className="border-r border-border/40 bg-primary/10 text-center">{t('trialBalance.table.debit')}</th>
+                    <th className="bg-primary/10 text-center">{t('trialBalance.table.credit')}</th>
+                    <th className="border-r border-border/40 bg-amber-500/10 text-center">{t('trialBalance.table.debit')}</th>
+                    <th className="bg-amber-500/10 text-center">{t('trialBalance.table.credit')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.rows.map(r => (
+                  {displayRows.map(r => (
                     <tr key={r.accountId} className={cn(
                       !r.isLeaf && 'font-semibold bg-secondary/20',
                     )}>
@@ -470,7 +533,7 @@ export function TrialBalancePage() {
                       </td>
                       <td>
                         <span style={{ paddingInlineStart: `${(r.level - 1) * 12}px` }}>
-                          {r.accountName}
+                          {displayAccountName(r.accountCode, r.accountName)}
                         </span>
                       </td>
                       <td className="text-center">
@@ -478,7 +541,7 @@ export function TrialBalancePage() {
                           'inline-block rounded-md border px-1.5 py-0.5 text-[9px] font-medium',
                           TYPE_COLORS[r.accountType] ?? 'text-muted-foreground bg-secondary/40 border-border'
                         )}>
-                          {TYPE_LABELS[r.accountType] ?? r.accountType}
+                          {t(`trialBalance.types.${r.accountType}`, { defaultValue: r.accountType })}
                         </span>
                       </td>
                       <td className="border-r border-border/40 num-display text-left">{fmt(r.openingDebit)}</td>
@@ -492,7 +555,7 @@ export function TrialBalancePage() {
                 </tbody>
                 <tfoot className="border-t-2 border-primary/40 bg-secondary/50 text-sm font-bold">
                   <tr>
-                    <td colSpan={3} className="sticky right-0 z-10 bg-inherit text-center">الإجمالي</td>
+                    <td colSpan={3} className="sticky right-0 z-10 bg-inherit text-center">{t('trialBalance.table.total')}</td>
                     <td className="border-r border-border/40 num-display text-left">{fmt(data.totalOpeningDebit)}</td>
                     <td className="num-display text-left">{fmt(data.totalOpeningCredit)}</td>
                     <td className="border-r border-border/40 num-display text-left">{fmt(data.totalPeriodDebit)}</td>
@@ -535,68 +598,54 @@ function ProfitCalculationCard({
   netIncome: number;
   unit: string;
 }) {
+  const { t } = useTranslation();
   const isProfit = netIncome >= 0;
   return (
     <Card className="border-primary/30">
       <CardHeader className="flex flex-row items-center justify-between border-b border-border/60 pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <FileText className="h-4 w-4 text-primary" />
-          طريقة احتساب الأرباح
+          {t('trialBalance.profit.title')}
         </CardTitle>
         <span className="rounded-md bg-secondary/60 px-2 py-1 text-[10px] text-muted-foreground">
-          الوحدة: <span className="font-semibold text-foreground">{unit}</span>
+          {t('trialBalance.profit.unit')} <span className="font-semibold text-foreground">{unit}</span>
         </span>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
-        {/* تفسير */}
         <div className="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-500/5 p-3 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
           <div className="leading-6">
-            <div className="mb-1 font-semibold text-foreground">المعادلة:</div>
+            <div className="mb-1 font-semibold text-foreground">{t('trialBalance.profit.formulaTitle')}</div>
             <div className="font-mono text-[11px] text-foreground/90">
-              صافي الربح = إجمالي الإيرادات − إجمالي المصاريف
+              {t('trialBalance.profit.formulaLine')}
             </div>
             <ul className="mt-2 list-disc space-y-1 ps-5 text-[11px]">
-              <li>
-                <span className="font-semibold text-emerald-300">إجمالي الإيرادات</span> ـ
-                مجموع <span className="font-mono">(دائن − مدين)</span> لحسابات الإيرادات في الفترة الحالية فقط
-                (لا يشمل الافتتاحي).
-              </li>
-              <li>
-                <span className="font-semibold text-rose-300">إجمالي المصاريف</span> ـ
-                مجموع <span className="font-mono">(مدين − دائن)</span> لحسابات المصاريف في الفترة الحالية فقط.
-              </li>
-              <li>
-                إذا كانت النتيجة موجبة → <span className="font-semibold text-emerald-300">ربح صافٍ</span>،
-                وإذا سالبة → <span className="font-semibold text-rose-300">خسارة</span>.
-              </li>
-              <li>
-                هذه النتيجة قبل التسويات والإقفال. لإقفال الفترة وترحيل الربح إلى حقوق الملكية،
-                استخدم سند تسوية يأخذ صافي الربح إلى حساب "أرباح محتجزة" (أو الموزَّعة).
-              </li>
+              <li>{t('trialBalance.profit.revenueNote')}</li>
+              <li>{t('trialBalance.profit.expenseNote')}</li>
+              <li>{t('trialBalance.profit.profitNote')}</li>
+              <li>{t('trialBalance.profit.closingNote')}</li>
             </ul>
           </div>
         </div>
 
-        {/* بطاقات الأرقام */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Box
             icon={<TrendingUp className="h-5 w-5 text-emerald-400" />}
-            label="إجمالي الإيرادات"
+            label={t('trialBalance.profit.totalRevenue')}
             value={totalRevenue}
             unit={unit}
             tone="emerald"
           />
           <Box
             icon={<TrendingDown className="h-5 w-5 text-rose-400" />}
-            label="إجمالي المصاريف"
+            label={t('trialBalance.profit.totalExpenses')}
             value={totalExpense}
             unit={unit}
             tone="rose"
           />
           <Box
             icon={<Calculator className={cn('h-5 w-5', isProfit ? 'text-emerald-400' : 'text-rose-400')} />}
-            label={isProfit ? 'صافي الربح' : 'صافي الخسارة'}
+            label={isProfit ? t('trialBalance.profit.netProfit') : t('trialBalance.profit.netLoss')}
             value={Math.abs(netIncome)}
             unit={unit}
             tone={isProfit ? 'emerald' : 'rose'}

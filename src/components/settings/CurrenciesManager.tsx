@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -30,6 +31,7 @@ import { currenciesApi, type CurrencyDto, type UpsertCurrencyPayload } from '@/l
  *  - رفض تغيير الرئيسية لو كانت مستخدمة في قيود (يأتي الرفض من الـ Backend)
  */
 export function CurrenciesManager() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [showOnly, setShowOnly] = useState<'all' | 'enabled'>('all');
@@ -62,23 +64,23 @@ export function CurrenciesManager() {
     mutationFn: ({ code, isEnabled }: { code: string; isEnabled: boolean }) =>
       currenciesApi.toggle(code, isEnabled),
     onSuccess: (_d, vars) => {
-      toast.success(vars.isEnabled ? `تم تفعيل ${vars.code}` : `تم تعطيل ${vars.code}`);
+      toast.success(vars.isEnabled ? t('currencies.enabled', { code: vars.code }) : t('currencies.disabled', { code: vars.code }));
       qc.invalidateQueries({ queryKey: ['currencies'] });
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message || 'تعذّر تحديث حالة العملة');
+      toast.error(e?.response?.data?.message || t('currencies.toggleFailed'));
     },
   });
 
   const setBaseM = useMutation({
     mutationFn: (code: string) => currenciesApi.setBase(code),
     onSuccess: (_d, code) => {
-      toast.success(`تم تعيين ${code} كعملة رئيسية`);
+      toast.success(t('currencies.baseSet', { code }));
       qc.invalidateQueries({ queryKey: ['currencies'] });
       qc.invalidateQueries({ queryKey: ['company-settings'] });
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message || 'تعذّر تغيير العملة الرئيسية');
+      toast.error(e?.response?.data?.message || t('currencies.baseSetFailed'));
     },
   });
 
@@ -89,7 +91,7 @@ export function CurrenciesManager() {
       qc.invalidateQueries({ queryKey: ['currencies'] });
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message || 'تعذّر تحريك العملة');
+      toast.error(e?.response?.data?.message || t('currencies.moveFailed'));
     },
   });
 
@@ -99,14 +101,14 @@ export function CurrenciesManager() {
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs">
           <Star className="h-3.5 w-3.5 fill-primary text-primary" />
-          <span className="text-muted-foreground">العملة الرئيسية:</span>
+          <span className="text-muted-foreground">{t('currencies.baseCurrency')}:</span>
           <span className="font-bold text-primary">
-            {baseCurrency ? `${baseCurrency.code} — ${baseCurrency.nameAr}` : 'غير محددة'}
+            {baseCurrency ? `${baseCurrency.code} — ${baseCurrency.nameAr}` : t('currencies.notSet')}
           </span>
         </div>
         <div className="flex items-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2.5 py-1 text-xs">
           <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-          <span>المُفعّلة: <span className="font-bold">{enabledCount}</span> / {currencies.length}</span>
+          <span>{t('currencies.enabledCount', { count: enabledCount, total: currencies.length })}</span>
         </div>
       </div>
 
@@ -117,7 +119,7 @@ export function CurrenciesManager() {
           <Input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="ابحث بكود أو رقم أو اسم العملة..."
+            placeholder={t('currencies.searchPlaceholder')}
             className="h-8 pr-8 text-xs"
           />
         </div>
@@ -132,7 +134,7 @@ export function CurrenciesManager() {
                 : 'text-muted-foreground hover:bg-secondary/50'
             )}
           >
-            الكل ({currencies.length})
+            {t('common.all')} ({currencies.length})
           </button>
           <button
             type="button"
@@ -144,7 +146,7 @@ export function CurrenciesManager() {
                 : 'text-muted-foreground hover:bg-secondary/50'
             )}
           >
-            المُفعّلة ({enabledCount})
+            {t('currencies.enabledFilter')} ({enabledCount})
           </button>
         </div>
         <Button
@@ -153,20 +155,20 @@ export function CurrenciesManager() {
           variant="outline"
           onClick={() => setCreatingNew(true)}
           className="h-8 gap-1.5 text-xs"
-          title="إضافة عملة جديدة (غير مدرجة)"
+          title={t('currencies.addTip')}
         >
           <Plus className="h-3.5 w-3.5" />
-          إضافة عملة
+          {t('currencies.add')}
         </Button>
       </div>
 
       {/* القائمة */}
       <div className="overflow-hidden rounded-md border border-border">
         {isLoading ? (
-          <div className="py-8 text-center text-xs text-muted-foreground">جاري التحميل...</div>
+          <div className="py-8 text-center text-xs text-muted-foreground">{t('common.loading')}</div>
         ) : filtered.length === 0 ? (
           <div className="py-8 text-center text-xs text-muted-foreground">
-            لا توجد نتائج {search && `لـ "${search}"`}
+            {search ? t('currencies.noResultsFor', { query: search }) : t('currencies.noResults')}
           </div>
         ) : (
           <ul className="max-h-[420px] divide-y divide-border/60 overflow-y-auto">
@@ -185,7 +187,7 @@ export function CurrenciesManager() {
                   onSetBase={() => {
                     if (c.isBase) return;
                     if (!c.isEnabled) {
-                      toast.info('سيتم تفعيل العملة تلقائياً قبل تعيينها كرئيسية');
+                      toast.info(t('currencies.willAutoEnable'));
                     }
                     setBaseM.mutate(c.code);
                   }}
@@ -202,8 +204,7 @@ export function CurrenciesManager() {
       <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-[11px] leading-relaxed">
         <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
         <span className="text-muted-foreground">
-          ملاحظة: لا يمكن تعطيل عملة مرتبطة بقيود محاسبية أو تغيير العملة الرئيسية إذا كانت مستخدمة في قيود.
-          عليك أولاً حذف/تفريغ تلك القيود ثم إعادة المحاولة.
+          {t('currencies.noteDisableRestriction')}
         </span>
       </div>
 
@@ -245,6 +246,7 @@ function CurrencyRow({
   onEdit: () => void;
   disabled: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <li
       className={cn(
@@ -260,10 +262,10 @@ function CurrencyRow({
         disabled={disabled || currency.isBase}
         title={
           currency.isBase
-            ? 'لا يمكن تعطيل العملة الرئيسية'
+            ? t('currencies.cannotDisableBase')
             : currency.isEnabled
-              ? 'تعطيل'
-              : 'تفعيل'
+              ? t('common.disable')
+              : t('common.enable')
         }
         className={cn(
           'grid h-7 w-7 shrink-0 place-items-center rounded-md border transition-colors',
@@ -282,12 +284,12 @@ function CurrencyRow({
         {currency.numericCode ? (
           <span
             className="rounded border border-border/60 bg-background px-1 py-0.5 text-[10px] tnum text-muted-foreground"
-            title="الرقم العالمي ISO 4217"
+            title={t('currencies.isoNumericTip')}
           >
             {currency.numericCode}
           </span>
         ) : (
-          <span className="text-[10px] text-muted-foreground/50" title="الرقم العالمي غير محدد">—</span>
+          <span className="text-[10px] text-muted-foreground/50" title={t('currencies.isoNumericUnset')}>—</span>
         )}
         {currency.symbol && (
           <span className="text-xs text-muted-foreground">{currency.symbol}</span>
@@ -299,7 +301,7 @@ function CurrencyRow({
         <div className="truncate text-sm">
           {currency.nameAr}
           <span className="ms-2 text-[10px] text-muted-foreground">
-            ({currency.decimalPlaces} عشري{currency.decimalPlaces === 1 ? '' : 'ة'})
+            {t('currencies.decimals', { count: currency.decimalPlaces })}
           </span>
         </div>
         {currency.nameEn && (
@@ -315,8 +317,8 @@ function CurrencyRow({
           type="button"
           onClick={() => canMoveUp && onMove('up')}
           disabled={disabled || !canMoveUp}
-          title="تقديم في الترتيب"
-          aria-label={`تقديم ${currency.code}`}
+          title={t('currencies.moveUp')}
+          aria-label={t('currencies.moveUpLabel', { code: currency.code })}
           className={cn(
             'grid h-3.5 w-7 place-items-center rounded border transition-colors',
             canMoveUp && !disabled
@@ -330,8 +332,8 @@ function CurrencyRow({
           type="button"
           onClick={() => canMoveDown && onMove('down')}
           disabled={disabled || !canMoveDown}
-          title="تأخير في الترتيب"
-          aria-label={`تأخير ${currency.code}`}
+          title={t('currencies.moveDown')}
+          aria-label={t('currencies.moveDownLabel', { code: currency.code })}
           className={cn(
             'grid h-3.5 w-7 place-items-center rounded border transition-colors',
             canMoveDown && !disabled
@@ -348,7 +350,7 @@ function CurrencyRow({
         type="button"
         onClick={onEdit}
         disabled={disabled}
-        title="تعديل بيانات العملة"
+        title={t('currencies.editTip')}
         className={cn(
           'grid h-7 w-7 shrink-0 place-items-center rounded-md border transition-colors',
           'border-input text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary',
@@ -365,8 +367,8 @@ function CurrencyRow({
         disabled={disabled || currency.isBase}
         title={
           currency.isBase
-            ? 'هذه العملة الرئيسية حالياً'
-            : 'تعيين كعملة رئيسية'
+            ? t('currencies.isBaseNow')
+            : t('currencies.setAsBase')
         }
         className={cn(
           'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
@@ -380,13 +382,13 @@ function CurrencyRow({
         {currency.isBase ? (
           <>
             <Star className="h-3 w-3 fill-primary" />
-            <span>الرئيسية</span>
+            <span>{t('currencies.base')}</span>
             <Lock className="h-2.5 w-2.5 ms-0.5" />
           </>
         ) : (
           <>
             <StarOff className="h-3 w-3" />
-            <span>تعيين كرئيسية</span>
+            <span>{t('currencies.setAsBase')}</span>
           </>
         )}
       </button>
@@ -408,6 +410,7 @@ function CurrencyEditDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const isNew = !currency;
   const [code, setCode] = useState(currency?.code ?? '');
   const [numericCode, setNumericCode] = useState(currency?.numericCode ?? '');
@@ -439,27 +442,27 @@ function CurrencyEditDialog({
       return currenciesApi.upsert(finalCode, payload);
     },
     onSuccess: () => {
-      toast.success(isNew ? 'تم إضافة العملة' : 'تم تحديث بيانات العملة');
+      toast.success(isNew ? t('currencies.addSuccess') : t('currencies.updateSuccess'));
       onSaved();
     },
     onError: (e: any) => {
-      toast.error(e?.response?.data?.message || 'تعذّر حفظ العملة');
+      toast.error(e?.response?.data?.message || t('currencies.saveFailed'));
     },
   });
 
   const codeError = (() => {
     if (!isNew) return null;
     const c = code.trim().toUpperCase();
-    if (!c) return 'كود العملة مطلوب';
-    if (c.length > 10) return 'الكود طويل (1–10 أحرف)';
-    if (existingCodes.map(x => x.toUpperCase()).includes(c)) return 'هذا الكود مستخدم بالفعل';
+    if (!c) return t('currencies.codeRequired');
+    if (c.length > 10) return t('currencies.codeTooLong');
+    if (existingCodes.map(x => x.toUpperCase()).includes(c)) return t('currencies.codeDuplicate');
     return null;
   })();
 
   const numericError = (() => {
     const n = numericCode.trim();
     if (!n) return null;
-    if (n.length > 3 || !/^\d{1,3}$/.test(n)) return 'يجب أن يكون 1–3 أرقام فقط';
+    if (n.length > 3 || !/^\d{1,3}$/.test(n)) return t('currencies.numericCodeInvalid');
     return null;
   })();
 
@@ -480,7 +483,7 @@ function CurrencyEditDialog({
         <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-4 py-2">
           <h2 className="flex items-center gap-2 text-sm font-bold">
             {isNew ? <Plus className="h-4 w-4 text-primary" /> : <Pencil className="h-4 w-4 text-primary" />}
-            {isNew ? 'إضافة عملة جديدة' : `تعديل عملة: ${currency?.code}`}
+            {isNew ? t('currencies.addNew') : t('currencies.editTitle', { code: currency?.code })}
           </h2>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
@@ -491,29 +494,29 @@ function CurrencyEditDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                الكود الحرفي (ISO 4217) *
+                {t('currencies.form.alphaCode')}
               </label>
               <Input
                 value={code}
                 onChange={e => isNew && setCode(e.target.value.toUpperCase().slice(0, 10))}
                 disabled={!isNew}
-                placeholder="مثل: USD"
+                placeholder={t('currencies.form.alphaCodePlaceholder')}
                 className={cn('h-8 text-xs uppercase', codeError && 'border-destructive')}
                 dir="ltr"
               />
               {codeError && <p className="mt-0.5 text-[10px] text-destructive">{codeError}</p>}
               {!isNew && (
-                <p className="mt-0.5 text-[10px] text-muted-foreground">لا يمكن تغيير الكود لعملة قائمة</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">{t('currencies.codeReadOnly')}</p>
               )}
             </div>
             <div>
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                الرقم العالمي (ISO 4217 Numeric)
+                {t('currencies.form.numericCode')}
               </label>
               <Input
                 value={numericCode}
                 onChange={e => setNumericCode(e.target.value.replace(/\D/g, '').slice(0, 3))}
-                placeholder="مثل: 840"
+                placeholder={t('currencies.form.numericCodePlaceholder')}
                 className={cn('h-8 text-xs tnum', numericError && 'border-destructive')}
                 dir="ltr"
                 maxLength={3}
@@ -524,17 +527,17 @@ function CurrencyEditDialog({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-[11px] text-muted-foreground">الاسم بالعربية *</label>
+              <label className="mb-1 block text-[11px] text-muted-foreground">{t('currencies.form.nameAr')}</label>
               <Input
                 value={nameAr}
                 onChange={e => setNameAr(e.target.value.slice(0, 100))}
-                placeholder="الدولار الأمريكي"
+                placeholder={t('currencies.form.nameArPlaceholder')}
                 className="h-8 text-xs"
                 maxLength={100}
               />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] text-muted-foreground">الاسم بالإنجليزية</label>
+              <label className="mb-1 block text-[11px] text-muted-foreground">{t('currencies.form.nameEn')}</label>
               <Input
                 value={nameEn}
                 onChange={e => setNameEn(e.target.value.slice(0, 100))}
@@ -548,7 +551,7 @@ function CurrencyEditDialog({
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="mb-1 block text-[11px] text-muted-foreground">الرمز</label>
+              <label className="mb-1 block text-[11px] text-muted-foreground">{t('currencies.form.symbol')}</label>
               <Input
                 value={symbol}
                 onChange={e => setSymbol(e.target.value.slice(0, 10))}
@@ -559,7 +562,7 @@ function CurrencyEditDialog({
             </div>
             <div>
               <label className="mb-1 block text-[11px] text-muted-foreground">
-                المراتب العشرية
+                {t('currencies.form.decimalPlaces')}
               </label>
               <div className="flex items-center gap-2">
                 <Input
@@ -574,10 +577,10 @@ function CurrencyEditDialog({
                   className="h-8 text-center text-xs tnum"
                 />
               </div>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">0–6 (مثلاً 0 لـ IQD، 3 لـ KWD)</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">{t('currencies.form.decimalHint')}</p>
             </div>
             <div>
-              <label className="mb-1 block text-[11px] text-muted-foreground">ترتيب العرض</label>
+              <label className="mb-1 block text-[11px] text-muted-foreground">{t('currencies.form.displayOrder')}</label>
               <Input
                 type="number"
                 value={displayOrder}
@@ -598,13 +601,13 @@ function CurrencyEditDialog({
                 onChange={e => setIsEnabled(e.target.checked)}
                 className="h-4 w-4 rounded border-input accent-primary"
               />
-              <span>تفعيل العملة فور إنشائها</span>
+              <span>{t('currencies.form.enableOnCreate')}</span>
             </label>
           )}
 
           {/* معاينة المراتب العشرية */}
           <div className="rounded-md border border-border/60 bg-secondary/20 p-2.5">
-            <div className="text-[10.5px] text-muted-foreground">معاينة الأرقام:</div>
+            <div className="text-[10.5px] text-muted-foreground">{t('currencies.form.preview')}</div>
             <div className="mt-1 flex items-center gap-3 text-sm tnum">
               <span>{(1234.5678).toLocaleString('en-US', {
                 minimumFractionDigits: decimalPlaces,
@@ -619,7 +622,7 @@ function CurrencyEditDialog({
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/10 px-4 py-2">
-          <Button variant="ghost" size="sm" type="button" onClick={onClose}>إلغاء</Button>
+          <Button variant="ghost" size="sm" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             type="button"
             size="sm"
@@ -628,7 +631,7 @@ function CurrencyEditDialog({
             className="gap-1.5"
           >
             <Save className="h-3.5 w-3.5" />
-            {saveM.isPending ? 'جارٍ الحفظ...' : (isNew ? 'إضافة' : 'حفظ التعديلات')}
+            {saveM.isPending ? t('common.saving') : (isNew ? t('common.add') : t('common.saveChanges'))}
           </Button>
         </div>
       </div>

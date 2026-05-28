@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings2, Plus, Sparkles } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
+import { Settings2, Plus, Sparkles, Wallet, TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { cn, formatAmount } from '@/lib/utils';
 import { useShortcutsPrefs } from '@/lib/shortcutsPreferences';
 import { useAvailableNavItems, type AvailableNavItem } from '@/lib/nav/useAvailableNavItems';
 import { ShortcutsSettingsDialog } from './ShortcutsSettingsDialog';
+import { cashBoxesApi, type CashBoxBalanceDto } from '@/lib/api/cashBoxes';
+import { usePermissions } from '@/lib/auth/usePermissions';
+import { localizedAccountName } from '@/lib/i18n';
+import { useLocale } from '@/lib/i18n/useLocale';
 
 interface Props {
   className?: string;
@@ -15,7 +21,7 @@ const MAX_SHORTCUTS = 32;
 // عدد المختصرات لكل كارت — كلما امتلأ كارت يُفتح كارت جديد تلقائياً
 const ITEMS_PER_CARD = 8;
 
-const CARD_CLS = 'rounded-xl border border-border/60 bg-card/40 p-3.5 sm:p-4';
+const CARD_CLS = 'rounded-xl border border-border bg-card p-3.5 shadow-sm sm:p-4';
 const GRID_CLS =
   'grid gap-2 sm:gap-2.5 grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8';
 
@@ -29,15 +35,14 @@ function NavTile({ item }: { item: AvailableNavItem }) {
     <Link
       to={item.to}
       className={cn(
-        'group relative flex flex-col items-center justify-start gap-2 overflow-hidden rounded-lg border border-border/60 bg-card/70 px-2 py-3 text-center transition-all',
-        'hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/[0.06] hover:shadow-md'
+        'surface-tile group relative flex flex-col items-center justify-start gap-2 overflow-hidden rounded-lg px-2 py-3 text-center'
       )}
       title={`${item.groupTitle} — ${item.label}`}
     >
       <span
         className={cn(
-          'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors sm:h-10 sm:w-10',
-          'group-hover:bg-primary/15'
+          'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary ring-1 ring-primary/20 transition-colors sm:h-10 sm:w-10',
+          'group-hover:bg-primary/25 group-hover:ring-primary/35'
         )}
       >
         <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -50,6 +55,7 @@ function NavTile({ item }: { item: AvailableNavItem }) {
 }
 
 function AddTile({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -58,16 +64,137 @@ function AddTile({ onClick }: { onClick: () => void }) {
         'group flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border/60 bg-card/30 px-2 py-3 text-center transition-all',
         'hover:border-primary/40 hover:bg-primary/[0.04] hover:text-primary'
       )}
-      title="إضافة مختصر"
-      aria-label="إضافة مختصر"
+      title={t('shortcuts.addShortcut')}
+      aria-label={t('shortcuts.addShortcut')}
     >
       <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-dashed border-border/60 bg-transparent text-muted-foreground transition-colors group-hover:border-primary/40 group-hover:text-primary sm:h-10 sm:w-10">
         <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
       </span>
       <span className="text-[11px] font-medium leading-tight text-muted-foreground transition-colors group-hover:text-primary sm:text-xs">
-        إضافة
+        {t('shortcuts.add')}
       </span>
     </button>
+  );
+}
+
+// ─── قسم أرصدة الصناديق ─────────────────────────────────────────────────────
+
+function CashBoxBalancesSection() {
+  const { t } = useTranslation();
+  const { locale } = useLocale();
+  const { cashBoxIds, isSuper } = usePermissions();
+
+  const balancesQuery = useQuery({
+    queryKey: ['cash-box-balances-dashboard'],
+    queryFn: () => cashBoxesApi.getBalances(),
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  // جلب قائمة الصناديق للحصول على nameAr/nameEn
+  const boxListQuery = useQuery({
+    queryKey: ['cash-boxes', 'active'],
+    queryFn: () => cashBoxesApi.getAll(true),
+    staleTime: 60_000,
+  });
+
+  const rows = useMemo<CashBoxBalanceDto[]>(() => {
+    if (!balancesQuery.data) return [];
+    let src = balancesQuery.data;
+    // فلترة بحسب صلاحيات المستخدم
+    if (!isSuper && cashBoxIds.length > 0) {
+      const allowed = new Set(cashBoxIds);
+      src = src.filter(b => allowed.has(b.cashBoxId));
+    }
+    // ترتيب: بحسب cashBoxId ثم currency
+    return [...src].sort((a, b) =>
+      a.cashBoxId !== b.cashBoxId ? a.cashBoxId - b.cashBoxId : a.currency.localeCompare(b.currency)
+    );
+  }, [balancesQuery.data, cashBoxIds, isSuper]);
+
+  // تجميع الأسطر بحسب الصندوق
+  const grouped = useMemo(() => {
+    const map = new Map<number, CashBoxBalanceDto[]>();
+    for (const row of rows) {
+      const list = map.get(row.cashBoxId) ?? [];
+      list.push(row);
+      map.set(row.cashBoxId, list);
+    }
+    return [...map.entries()];
+  }, [rows]);
+
+  if (grouped.length === 0) return null;
+
+  const getBoxName = (cashBoxId: number): string => {
+    const box = boxListQuery.data?.find(b => b.id === cashBoxId);
+    if (!box) {
+      // fallback: من nameAr في الصف الأول
+      const row = rows.find(r => r.cashBoxId === cashBoxId);
+      return row?.nameAr ?? String(cashBoxId);
+    }
+    return localizedAccountName(locale, box.nameAr, box.nameEn ?? '');
+  };
+
+  return (
+    <section className={CARD_CLS} aria-label={t('dashboard.cashBoxBalances', { defaultValue: 'أرصدة الصناديق' })}>
+      <header className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
+            <Wallet className="h-3.5 w-3.5" />
+          </span>
+          <h2 className="font-display text-sm font-semibold text-foreground sm:text-base">
+            {t('dashboard.cashBoxBalances', { defaultValue: 'أرصدة الصناديق' })}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => balancesQuery.refetch()}
+          disabled={balancesQuery.isFetching}
+          className="rounded-lg border border-border/60 bg-card/60 p-1.5 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+          title={t('common.refresh', { defaultValue: 'تحديث' })}
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', balancesQuery.isFetching && 'animate-spin')} />
+        </button>
+      </header>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {grouped.map(([cashBoxId, balances]) => (
+          <div
+            key={cashBoxId}
+            className="rounded-lg border border-border/50 bg-background/40 px-3 py-2.5"
+          >
+            <div className="mb-1.5 text-xs font-semibold text-foreground/80 truncate" title={getBoxName(cashBoxId)}>
+              {getBoxName(cashBoxId)}
+            </div>
+            <div className="space-y-1">
+              {balances.map(b => {
+                const isPos = b.balance > 0;
+                const isNeg = b.balance < 0;
+                return (
+                  <div key={b.currency} className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground num-display">{b.currency}</span>
+                    <div className="flex items-center gap-1">
+                      {isPos
+                        ? <TrendingUp className="h-3 w-3 text-emerald-400 shrink-0" />
+                        : isNeg
+                          ? <TrendingDown className="h-3 w-3 text-rose-400 shrink-0" />
+                          : <Minus className="h-3 w-3 text-muted-foreground/50 shrink-0" />}
+                      <span className={cn(
+                        'num-display text-sm font-bold',
+                        isPos ? 'text-emerald-400' : isNeg ? 'text-rose-400' : 'text-muted-foreground'
+                      )}>
+                        {isNeg && <span className="text-rose-400">−</span>}
+                        {formatAmount(Math.abs(b.balance))}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -82,6 +209,7 @@ function AddTile({ onClick }: { onClick: () => void }) {
  * - أي مختصر فقدت صلاحيته يُتخطّى دون حذفه من الإعدادات.
  */
 export function ShortcutsBar({ className }: Props) {
+  const { t } = useTranslation();
   const { prefs } = useShortcutsPrefs();
   const available = useAvailableNavItems();
   const [open, setOpen] = useState(false);
@@ -126,19 +254,19 @@ export function ShortcutsBar({ className }: Props) {
     <>
       <div className={cn('space-y-2.5', className)}>
         {/* ─── الكارت الرئيسي (دائماً موجود) ─── */}
-        <section className={CARD_CLS} aria-label="المختصرات السريعة">
+        <section className={CARD_CLS} aria-label={t('shortcuts.title')}>
           <header className="mb-3 flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
                 <Sparkles className="h-3.5 w-3.5" />
               </span>
               <h2 className="truncate font-display text-sm font-semibold text-foreground sm:text-base">
-                المختصرات السريعة
+                {t('shortcuts.title')}
               </h2>
               {hasItems && (
                 <span
                   className="num-display shrink-0 rounded-md bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                  title={`${items.length} مختصر`}
+                  title={t('shortcuts.itemsCount', { count: items.length })}
                 >
                   {items.length}
                 </span>
@@ -146,9 +274,9 @@ export function ShortcutsBar({ className }: Props) {
               {totalCards > 1 && (
                 <span
                   className="hidden text-[10px] text-muted-foreground/70 sm:inline"
-                  title={`${totalCards} كروت`}
+                  title={t('shortcuts.cardsCount', { count: totalCards })}
                 >
-                  · {totalCards} كروت
+                  {t('shortcuts.cardsCountDot', { count: totalCards })}
                 </span>
               )}
             </div>
@@ -159,11 +287,11 @@ export function ShortcutsBar({ className }: Props) {
                 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border/60 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-all',
                 'hover:border-primary/40 hover:bg-primary/5 hover:text-primary'
               )}
-              title="إعداد المختصرات"
-              aria-label="إعداد المختصرات"
+              title={t('shortcuts.settingsTitle')}
+              aria-label={t('shortcuts.settingsTitle')}
             >
               <Settings2 className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">إعداد</span>
+              <span className="hidden sm:inline">{t('shortcuts.settings')}</span>
             </button>
           </header>
 
@@ -183,10 +311,10 @@ export function ShortcutsBar({ className }: Props) {
                 <Plus className="h-5 w-5" />
               </span>
               <span className="text-sm font-semibold text-foreground">
-                إعداد المختصرات السريعة
+                {t('shortcuts.empty.title')}
               </span>
               <span className="max-w-md text-xs leading-relaxed text-muted-foreground">
-                اختر الصفحات التي تستخدمها أكثر للوصول إليها بنقرة واحدة من لوحة القيادة
+                {t('shortcuts.empty.description')}
               </span>
             </button>
           )}
@@ -198,7 +326,7 @@ export function ShortcutsBar({ className }: Props) {
             <section
               key={`shortcuts-card-${idx + 1}`}
               className={CARD_CLS}
-              aria-label={`المختصرات السريعة — كارت ${idx + 2}`}
+              aria-label={t('shortcuts.cardAriaLabel', { n: idx + 2 })}
             >
               <div className={GRID_CLS}>{chunk.map(renderTile)}</div>
             </section>
@@ -206,6 +334,9 @@ export function ShortcutsBar({ className }: Props) {
       </div>
 
       {open && <ShortcutsSettingsDialog onClose={() => setOpen(false)} />}
+
+      {/* ─── أرصدة الصناديق ─── */}
+      <CashBoxBalancesSection />
     </>
   );
 }

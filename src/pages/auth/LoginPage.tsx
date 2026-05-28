@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { User, Lock, ArrowLeft, Loader2, Eye, EyeOff } from 'lucide-react';
+import {
+  User, Lock, ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, Languages,
+} from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +13,8 @@ import { authApi } from '@/lib/api/auth';
 import { setToken } from '@/lib/api/client';
 import { useAuthStore } from '@/lib/auth/auth-store';
 import { primeSidebarPrefsFromServer } from '@/lib/sidebarPreferences';
+import { useLocale } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 // مفتاح حفظ بيانات الدخول للمرة القادمة (مشفّر بسيطاً بـ Base64)
 const REMEMBER_KEY = 'iqtc_remember';
@@ -50,6 +55,8 @@ function clearRemembered() {
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const { locale, toggleLocale, isRtl } = useLocale();
   const setUser = useAuthStore(s => s.setUser);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -78,7 +85,7 @@ export function LoginPage() {
         } else {
           clearRemembered();
         }
-        toast.success(`أهلاً ${res.data.user.fullName}`);
+        toast.success(t('login.welcomeUser', { name: res.data.user.fullName }));
         // ‎جلب تفضيلات الـ Sidebar من الخادم وحفظها محلياً قبل التوجيه،
         // حتى يستخدم الـ Sidebar حالة الطي/الفتح المحفوظة من أول render
         // ‎(بدلاً من ومضة الافتراضي → الفعلي بعد ms قليلة).
@@ -93,11 +100,11 @@ export function LoginPage() {
     e.preventDefault();
     const u = username.trim();
     if (u.length < 3) {
-      toast.error('اسم المستخدم قصير جداً');
+      toast.error(t('login.errors.usernameTooShort'));
       return;
     }
     if (password.length < 4) {
-      toast.error('كلمة المرور قصيرة جداً');
+      toast.error(t('login.errors.passwordTooShort'));
       return;
     }
     loginMutation.mutate();
@@ -112,6 +119,23 @@ export function LoginPage() {
         <div className="pattern-meso absolute inset-0 opacity-30" />
       </div>
 
+      {/* ‎زر تبديل اللغة العائم — يبقى ظاهراً في صفحة تسجيل الدخول */}
+      <button
+        type="button"
+        onClick={toggleLocale}
+        title={locale === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}
+        aria-label={locale === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}
+        className={cn(
+          'absolute top-4 z-20 flex h-9 items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2.5 text-muted-foreground backdrop-blur-md transition-colors hover:bg-card hover:text-primary',
+          isRtl ? 'left-4' : 'right-4',
+        )}
+      >
+        <Languages className="h-4 w-4" />
+        <span className="text-xs font-semibold uppercase tracking-wider">
+          {locale === 'ar' ? 'EN' : 'ع'}
+        </span>
+      </button>
+
       <div className="relative flex min-h-screen items-center justify-center px-4 py-6">
         <div className="w-full max-w-[420px]">
           {/* Brand */}
@@ -119,16 +143,16 @@ export function LoginPage() {
             <div className="mb-3 inline-flex">
               <img
                 src="/logo.png?v=3"
-                alt="مركز التجارة العراقي"
+                alt={t('app.name')}
                 className="h-28 w-28 object-contain"
                 draggable={false}
               />
             </div>
             <h1 className="font-display text-2xl font-semibold tracking-tight">
-              مركز التجارة العراقي
+              {t('app.name')}
             </h1>
             <p className="mt-1 text-[10px] uppercase tracking-[0.22em] text-primary/70">
-              Iraqi Trade Center · Wholesale Dashboard
+              {t('app.wholesale')}
             </p>
             <div className="mx-auto mt-2.5 h-px w-10 bg-gradient-to-r from-transparent via-primary to-transparent" />
           </div>
@@ -136,24 +160,27 @@ export function LoginPage() {
           {/* Card */}
           <div className="rounded-xl border border-border/60 bg-card/40 p-5 backdrop-blur-xl shadow-2xl shadow-black/20 animate-slide-up">
             <div className="mb-4">
-              <h2 className="font-display text-lg font-medium">أهلاً بعودتك</h2>
+              <h2 className="font-display text-lg font-medium">{t('login.welcome')}</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                سجّل دخول لإدارة شركتك
+                {t('login.subtitle')}
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-3.5">
               <div className="space-y-1.5">
-                <Label htmlFor="username">اسم المستخدم</Label>
+                <Label htmlFor="username">{t('login.username')}</Label>
                 <div className="relative">
-                  <User className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <User className={cn(
+                    'absolute top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground',
+                    isRtl ? 'right-3' : 'left-3',
+                  )} />
                   <Input
                     id="username"
                     type="text"
-                    placeholder="اسم المستخدم"
+                    placeholder={t('login.usernamePlaceholder')}
                     value={username}
                     onChange={e => setUsername(e.target.value)}
-                    className="pr-10"
+                    className={isRtl ? 'pr-10' : 'pl-10'}
                     autoComplete="username"
                     autoCapitalize="off"
                     autoCorrect="off"
@@ -165,29 +192,35 @@ export function LoginPage() {
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="password">كلمة المرور</Label>
+                  <Label htmlFor="password">{t('login.password')}</Label>
                   <button type="button" className="text-xs text-primary/80 hover:text-primary">
-                    نسيت كلمة المرور؟
+                    {t('login.forgotPassword')}
                   </button>
                 </div>
                 <div className="relative">
-                  <Lock className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Lock className={cn(
+                    'absolute top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground',
+                    isRtl ? 'right-3' : 'left-3',
+                  )} />
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    className="pr-10 pl-10"
+                    className={isRtl ? 'pl-10 pr-10' : 'pr-10 pl-10'}
                     autoComplete="current-password"
                     disabled={loginMutation.isPending}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(s => !s)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-                    aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-                    title={showPassword ? 'إخفاء' : 'إظهار'}
+                    className={cn(
+                      'absolute top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground',
+                      isRtl ? 'left-3' : 'right-3',
+                    )}
+                    aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
+                    title={showPassword ? t('login.hide') : t('login.show')}
                     tabIndex={-1}
                     disabled={loginMutation.isPending}
                   >
@@ -223,7 +256,7 @@ export function LoginPage() {
                     <polyline points="3 8 7 12 13 4" />
                   </svg>
                 </span>
-                <span>تذكّرني على هذا الجهاز</span>
+                <span>{t('login.rememberMe')}</span>
               </label>
 
               <Button
@@ -235,12 +268,13 @@ export function LoginPage() {
                 {loginMutation.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    جاري التحقق...
+                    {t('login.submitting')}
                   </>
                 ) : (
                   <>
-                    <ArrowLeft className="h-4 w-4" />
-                    دخول
+                    {/* ‎السهم يشير ناحية تدفّق الدخول: في RTL إلى اليسار، LTR إلى اليمين. */}
+                    {isRtl ? <ArrowLeft className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+                    {t('login.submit')}
                   </>
                 )}
               </Button>
@@ -248,14 +282,14 @@ export function LoginPage() {
 
             <div className="mt-4 flex items-center gap-3 text-[11px] text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
-              <span>محمي بـ JWT + bcrypt</span>
+              <span>{t('login.secured')}</span>
               <div className="h-px flex-1 bg-border" />
             </div>
           </div>
 
           {/* Footer */}
           <p className="mt-3 text-center text-[11px] text-muted-foreground">
-            بحاجة لحساب جديد؟ تواصل مع مدير المنصة
+            {t('login.needAccount')}
           </p>
         </div>
       </div>

@@ -1,10 +1,13 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { ArrowDownLeft, ArrowUpRight, BookOpen, Receipt } from 'lucide-react';
 import { NAV_GROUPS, type NavGroup } from '@/components/layout/Sidebar';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
+import { useLocale } from '@/lib/i18n/useLocale';
+import { localizedVoucherTypeName } from '@/lib/i18n';
 
 // ════════════════════════════════════════════════════════════════════
 // Available nav items (for shortcut picker, command palette, etc.)
@@ -23,6 +26,8 @@ export interface AvailableNavItem {
 
 export function useAvailableNavItems(): AvailableNavItem[] {
   const { can, canAny } = usePermissions();
+  const { t } = useTranslation();
+  const { locale } = useLocale();
   const voucherTypesQuery = useQuery({
     queryKey: ['voucher-types', 'enabled'],
     queryFn: () => journalVoucherTypesApi.getAll(true),
@@ -30,28 +35,36 @@ export function useAvailableNavItems(): AvailableNavItem[] {
   });
 
   return useMemo(() => {
-    // ابنِ المجموعات بما فيها مجموعة "السندات" الديناميكية
+    // ابنِ المجموعات بما فيها مجموعة "السندات" الديناميكية.
+    // ‎نحمل الاسمين العربي والإنجليزي معاً في الـ DynamicItem حتى نتمكّن
+    // ‎لاحقاً من إعادة تقييم اللغة دون قفل الاسم المعروض على لغة بعينها.
+    type DynamicItem = NavGroup['items'][number] & {
+      dynamicLabelAr?: string;
+      dynamicLabelEn?: string | null;
+    };
     const groups: NavGroup[] = [];
     for (const g of NAV_GROUPS) {
       groups.push(g);
       if (g.key === 'dashboard') {
         const types = voucherTypesQuery.data ?? [];
-        const voucherItems = types
-          .filter(t => t.showInSidebar)
-          .map(t => ({
-            to: `/accounting/vouchers/${t.code}`,
-            label: t.nameAr,
-            icon: t.nature === 'Debit'
+        const voucherItems: DynamicItem[] = types
+          .filter(vt => vt.showInSidebar)
+          .map(vt => ({
+            to: `/accounting/vouchers/${vt.code}`,
+            labelKey: '',
+            dynamicLabelAr: vt.nameAr,
+            dynamicLabelEn: vt.nameEn ?? null,
+            icon: vt.nature === 'Debit'
               ? ArrowDownLeft
-              : t.nature === 'Credit'
+              : vt.nature === 'Credit'
               ? ArrowUpRight
               : BookOpen,
-            permission: PERMS.Accounting.Vouchers.read(t.code),
+            permission: PERMS.Accounting.Vouchers.read(vt.code),
           }));
         if (voucherItems.length > 0) {
           groups.push({
             key: 'vouchers',
-            title: 'السندات',
+            titleKey: 'sidebar.groups.vouchers',
             icon: Receipt,
             mandatory: true,
             items: voucherItems,
@@ -60,7 +73,6 @@ export function useAvailableNavItems(): AvailableNavItem[] {
       }
     }
 
-    // سطّح + فلتر بصلاحية القراءة
     const out: AvailableNavItem[] = [];
     const seen = new Set<string>();
     for (const g of groups) {
@@ -71,15 +83,19 @@ export function useAvailableNavItems(): AvailableNavItem[] {
         if (item.permissionAny && !canAny(...item.permissionAny)) continue;
         if (seen.has(item.to)) continue;
         seen.add(item.to);
+        const dynItem = item as DynamicItem;
+        const label = dynItem.dynamicLabelAr
+          ? localizedVoucherTypeName(locale, dynItem.dynamicLabelAr, dynItem.dynamicLabelEn ?? null)
+          : (item.labelKey ? t(item.labelKey) : '');
         out.push({
           to: item.to,
-          label: item.label,
+          label,
           icon: item.icon,
           groupKey: g.key,
-          groupTitle: g.title,
+          groupTitle: t(g.titleKey),
         });
       }
     }
     return out;
-  }, [voucherTypesQuery.data, can, canAny]);
+  }, [voucherTypesQuery.data, can, canAny, t, locale]);
 }

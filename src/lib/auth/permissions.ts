@@ -38,6 +38,9 @@ export const PERMS = {
       Delete: 'Accounting.Accounts.Delete',
       Print:  'Accounting.Accounts.Print',
     },
+    AccountBalances: {
+      Read:   'Accounting.AccountBalances.Read',
+    },
     TrialBalance: {
       Read:   'Accounting.TrialBalance.Read',
       Print:  'Accounting.TrialBalance.Print',
@@ -153,6 +156,10 @@ export const PERMS = {
     Wallet: {
       Read:  'System.Wallet.Read',
       Topup: 'System.Wallet.Topup',
+    },
+    Audit: {
+      Read:   'System.Audit.Read',
+      Export: 'System.Audit.Export',
     },
   },
 } as const;

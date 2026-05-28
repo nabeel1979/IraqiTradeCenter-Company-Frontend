@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { Eye, FileText, Receipt, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLocale } from '@/lib/i18n/useLocale';
 
 interface Props {
   entryNumber: string;
@@ -29,6 +31,8 @@ export function StatementRowActionsMenu({
   onView,
   onOpenSource,
 }: Props) {
+  const { t } = useTranslation();
+  const { isRtl } = useLocale();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -40,8 +44,7 @@ export function StatementRowActionsMenu({
     const rect = btn.getBoundingClientRect();
     const menuW = 200;
     const margin = 6;
-    // المحاذاة يميناً (لأن الواجهة RTL): نضع الزاوية اليمنى للقائمة عند الزاوية اليمنى للزر
-    let left = rect.right - menuW;
+    let left = isRtl ? rect.right - menuW : rect.left;
     if (left < margin) left = margin;
     if (left + menuW > window.innerWidth - margin) left = window.innerWidth - menuW - margin;
     const top = rect.bottom + 4;
@@ -59,7 +62,7 @@ export function StatementRowActionsMenu({
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll, true);
     };
-  }, [open]);
+  }, [open, isRtl]);
 
   useEffect(() => {
     if (!open) return;
@@ -95,8 +98,8 @@ export function StatementRowActionsMenu({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(o => !o)}
-        title={`خيارات القيد ${entryNumber}`}
-        aria-label="خيارات القيد"
+        title={t('accountStatement.rowActions.menuTitle', { num: entryNumber })}
+        aria-label={t('accountStatement.rowActions.ariaLabel')}
         aria-haspopup="menu"
         aria-expanded={open}
         className={cn(
@@ -113,7 +116,7 @@ export function StatementRowActionsMenu({
         <div
           ref={menuRef}
           role="menu"
-          dir="rtl"
+          dir={isRtl ? 'rtl' : 'ltr'}
           style={{ position: 'fixed', top: pos.top, left: pos.left, width: 200 }}
           className="z-[60] overflow-hidden rounded-md border border-border bg-popover/95 shadow-2xl backdrop-blur"
         >
@@ -121,12 +124,15 @@ export function StatementRowActionsMenu({
             type="button"
             role="menuitem"
             onClick={handleView}
-            className="flex w-full items-center gap-2 px-3 py-2 text-right text-xs text-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            className={cn(
+              'flex w-full items-center gap-2 px-3 py-2 text-xs text-foreground transition-colors hover:bg-primary/10 hover:text-primary',
+              isRtl ? 'text-right' : 'text-left'
+            )}
           >
             <FileText className="h-3.5 w-3.5 text-primary" />
             <div className="flex-1">
-              <div className="font-medium">عرض القيد</div>
-              <div className="text-[10px] text-muted-foreground">للقراءة فقط (نافذة منبثقة)</div>
+              <div className="font-medium">{t('accountStatement.rowActions.viewEntry')}</div>
+              <div className="text-[10px] text-muted-foreground">{t('accountStatement.rowActions.viewEntryHint')}</div>
             </div>
           </button>
           <div className="h-px bg-border" />
@@ -136,7 +142,8 @@ export function StatementRowActionsMenu({
             onClick={handleSource}
             disabled={!sourceHref}
             className={cn(
-              'flex w-full items-center gap-2 px-3 py-2 text-right text-xs transition-colors',
+              'flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors',
+              isRtl ? 'text-right' : 'text-left',
               sourceHref
                 ? 'text-foreground hover:bg-amber-500/10 hover:text-amber-300'
                 : 'cursor-not-allowed text-muted-foreground/40'
@@ -144,7 +151,7 @@ export function StatementRowActionsMenu({
           >
             <Receipt className="h-3.5 w-3.5 text-amber-400" />
             <div className="flex-1">
-              <div className="font-medium">أصل القيد</div>
+              <div className="font-medium">{t('accountStatement.rowActions.openSource')}</div>
               <div className="text-[10px] text-muted-foreground">{sourceLabel}</div>
             </div>
           </button>

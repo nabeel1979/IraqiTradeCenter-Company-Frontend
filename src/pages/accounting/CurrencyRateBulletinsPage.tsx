@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import {
   Plus,
   Trash2,
@@ -83,11 +84,14 @@ import type {
   CurrencyRateOperation,
 } from '@/types/api';
 
-const STATUS_BADGE: Record<CurrencyRateBulletinStatus, { label: string; cls: string }> = {
-  1: { label: 'مسودّة', cls: 'bg-warning/15 text-warning border-warning/30' },
-  2: { label: 'منشورة', cls: 'bg-success/15 text-success border-success/30' },
-  3: { label: 'مؤرشفة', cls: 'bg-muted text-muted-foreground border-border' },
-};
+function useStatusBadge() {
+  const { t } = useTranslation();
+  return {
+    1: { label: t('bulletins.statusDraft'), cls: 'bg-warning/15 text-warning border-warning/30' },
+    2: { label: t('bulletins.statusPublished'), cls: 'bg-success/15 text-success border-success/30' },
+    3: { label: t('bulletins.statusArchived'), cls: 'bg-muted text-muted-foreground border-border' },
+  } as Record<CurrencyRateBulletinStatus, { label: string; cls: string }>;
+}
 
 interface DraftLine {
   key: string;
@@ -136,6 +140,7 @@ function nowBaghdadInput(): string {
 }
 
 export function CurrencyRateBulletinsPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const [includeArchived, setIncludeArchived] = useState(false);
   const [editing, setEditing] = useState<CurrencyRateBulletinDto | null>(null);
@@ -165,31 +170,31 @@ export function CurrencyRateBulletinsPage() {
     mutationFn: (id: number) => currencyRateBulletinsApi.publish(id),
     onSuccess: r => {
       if ((r as any).success) {
-        toast.success('تم نشر النشرة');
+        toast.success(t('bulletins.toast.published'));
         qc.invalidateQueries({ queryKey: ['currency-rate-bulletins'] });
       } else {
-        toast.error((r as any).message || 'تعذّر النشر');
+        toast.error((r as any).message || t('bulletins.toast.publishFailed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'تعذّر النشر'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || t('bulletins.toast.publishFailed')),
   });
 
   const archiveM = useMutation({
     mutationFn: (id: number) => currencyRateBulletinsApi.archive(id),
     onSuccess: () => {
-      toast.success('تمت الأرشفة');
+      toast.success(t('bulletins.toast.archived'));
       qc.invalidateQueries({ queryKey: ['currency-rate-bulletins'] });
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'تعذّرت الأرشفة'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || t('bulletins.toast.archiveFailed')),
   });
 
   const deleteM = useMutation({
     mutationFn: (id: number) => currencyRateBulletinsApi.delete(id),
     onSuccess: () => {
-      toast.success('تم الحذف');
+      toast.success(t('bulletins.toast.deleted'));
       qc.invalidateQueries({ queryKey: ['currency-rate-bulletins'] });
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'تعذّر الحذف'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || t('bulletins.toast.deleteFailed')),
   });
 
   const onCreateNew = () => {
@@ -213,23 +218,23 @@ export function CurrencyRateBulletinsPage() {
   };
 
   return (
-    <div className="-mt-4 space-y-3">
+    <div className="space-y-3 pt-2">
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-2 p-3">
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">العملة الرئيسية للنظام:</span>
+            <span className="text-muted-foreground">{t('bulletins.baseCurrency')}:</span>
             <Badge variant="outline" className="font-semibold">{baseCurrencyDefault}</Badge>
             {defaultBulletin && (
               <span className="ms-3 inline-flex items-center gap-1 rounded-md border border-success/30 bg-success/10 px-2 py-0.5 text-[11px] text-success">
                 <Star className="h-3 w-3" />
-                النشرة الافتراضية: <span className="font-semibold">{defaultBulletin.name}</span>
+                {t('bulletins.defaultBulletin')}: <span className="font-semibold">{defaultBulletin.name}</span>
                 <span className="text-muted-foreground"> — {formatBaghdadDate(defaultBulletin.effectiveAt)} {formatBaghdadTime(defaultBulletin.effectiveAt)}</span>
               </span>
             )}
             {!defaultBulletin && (
               <span className="ms-3 inline-flex items-center gap-1 rounded-md border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] text-warning">
                 <AlertTriangle className="h-3 w-3" />
-                لا توجد نشرة منشورة سارية حالياً
+                {t('bulletins.noDefault')}
               </span>
             )}
           </div>
@@ -241,37 +246,37 @@ export function CurrencyRateBulletinsPage() {
                 onChange={e => setIncludeArchived(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-input"
               />
-              إظهار المؤرشف
+              {t('bulletins.showArchived')}
             </label>
             <Button size="sm" variant="ghost" onClick={() => bulletinsQuery.refetch()} className="h-8 gap-1 text-xs">
               <RefreshCw className="h-3.5 w-3.5" />
-              تحديث
+              {t('common.refresh')}
             </Button>
             <Button
               size="sm"
               variant="outline"
               onClick={() => setShowImport(true)}
               className="h-8 gap-1.5 text-xs"
-              title="استيراد من نشرة سابقة (مؤرشفة أو منشورة)"
+              title={t('bulletins.importTip')}
             >
               <Download className="h-3.5 w-3.5" />
-              استيراد من نشرة
+              {t('bulletins.importBtn')}
             </Button>
             <Button size="sm" onClick={onCreateNew} className="h-8 gap-1.5 text-xs">
               <Plus className="h-3.5 w-3.5" />
-              نشرة جديدة
+              {t('bulletins.newBtn')}
             </Button>
           </div>
         </CardContent>
       </Card>
 
       {bulletinsQuery.isLoading ? (
-        <LoadingSpinner text="جاري التحميل..." />
+        <LoadingSpinner text={t('common.loading')} />
       ) : bulletins.length === 0 ? (
         <EmptyState
           icon={AlertTriangle}
-          title="لا توجد نشرات"
-          description="ابدأ بإنشاء أول نشرة أسعار للعملات"
+          title={t('bulletins.empty.title')}
+          description={t('bulletins.empty.description')}
         />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
@@ -284,7 +289,7 @@ export function CurrencyRateBulletinsPage() {
               onPublish={() => publishM.mutate(b.id)}
               onArchive={() => archiveM.mutate(b.id)}
               onDelete={() => {
-                if (confirm(`هل تريد حذف النشرة "${b.name}"؟`)) deleteM.mutate(b.id);
+                if (confirm(t('bulletins.confirmDelete', { name: b.name }))) deleteM.mutate(b.id);
               }}
               loading={publishM.isPending || archiveM.isPending || deleteM.isPending}
             />
@@ -341,13 +346,15 @@ function BulletinCard({
   onDelete: () => void;
   loading: boolean;
 }) {
+  const { t } = useTranslation();
+  const STATUS_BADGE = useStatusBadge();
   const status = STATUS_BADGE[bulletin.status];
   return (
     <Card className={cn('relative', bulletin.isDefault && 'border-success/40 bg-success/5')}>
       {bulletin.isDefault && (
         <div className="absolute -top-2 end-3 inline-flex items-center gap-1 rounded-full border border-success/30 bg-success px-2 py-0.5 text-[10px] font-bold text-success-foreground shadow">
           <Star className="h-3 w-3" />
-          الافتراضية
+          {t('bulletins.defaultBadge')}
         </div>
       )}
       <CardContent className="p-3.5">
@@ -366,18 +373,18 @@ function BulletinCard({
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
               <span>
-                السريان:{' '}
+                {t('bulletins.effectiveAt')}:{' '}
                 <span className="font-medium text-foreground tnum">
                   {formatBaghdadDate(bulletin.effectiveAt)} {formatBaghdadTime(bulletin.effectiveAt)}
                 </span>
-                <span className="ms-1 text-[9px] text-muted-foreground">(بتوقيت بغداد)</span>
+                <span className="ms-1 text-[9px] text-muted-foreground">({t('bulletins.baghdadTz')})</span>
               </span>
-              <span>الأساس: <span className="font-bold text-foreground">{bulletin.baseCurrency}</span></span>
+              <span>{t('bulletins.base')}: <span className="font-bold text-foreground">{bulletin.baseCurrency}</span></span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {bulletin.status === 1 && (
-              <Button size="sm" variant="ghost" onClick={onEdit} className="h-7 px-1.5" title="تعديل">
+              <Button size="sm" variant="ghost" onClick={onEdit} className="h-7 px-1.5" title={t('common.edit')}>
                 <Edit className="h-3.5 w-3.5" />
               </Button>
             )}
@@ -387,7 +394,7 @@ function BulletinCard({
               onClick={onClone}
               disabled={loading}
               className="h-7 px-1.5 text-primary hover:bg-primary/10"
-              title="نسخ كنشرة جديدة (استيراد)"
+              title={t('bulletins.cloneTip')}
             >
               <Copy className="h-3.5 w-3.5" />
             </Button>
@@ -398,7 +405,7 @@ function BulletinCard({
                 onClick={onPublish}
                 disabled={loading}
                 className="h-7 gap-1 px-1.5 text-success hover:bg-success/15"
-                title="نشر"
+                title={t('bulletins.publish')}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
               </Button>
@@ -410,7 +417,7 @@ function BulletinCard({
                 onClick={onArchive}
                 disabled={loading}
                 className="h-7 px-1.5 text-muted-foreground hover:text-foreground"
-                title="أرشفة"
+                title={t('bulletins.archive')}
               >
                 <Archive className="h-3.5 w-3.5" />
               </Button>
@@ -422,7 +429,7 @@ function BulletinCard({
                 onClick={onDelete}
                 disabled={loading}
                 className="h-7 px-1.5 text-destructive hover:bg-destructive/10"
-                title="حذف"
+                title={t('common.delete')}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -440,17 +447,17 @@ function BulletinCard({
           <table className="w-full text-xs">
             <thead className="bg-secondary/50 text-[10.5px] text-muted-foreground">
               <tr>
-                <th className="px-2 py-1 text-start font-semibold">العملة</th>
-                <th className="px-2 py-1 text-end font-semibold">السعر</th>
-                <th className="px-2 py-1 text-center font-semibold">العملية</th>
-                <th className="px-2 py-1 text-start font-semibold">المعادلة</th>
+                <th className="px-2 py-1 text-start font-semibold">{t('bulletins.col.currency')}</th>
+                <th className="px-2 py-1 text-end font-semibold">{t('bulletins.col.rate')}</th>
+                <th className="px-2 py-1 text-center font-semibold">{t('bulletins.col.operation')}</th>
+                <th className="px-2 py-1 text-start font-semibold">{t('bulletins.col.formula')}</th>
               </tr>
             </thead>
             <tbody>
               {bulletin.lines.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-2 py-2 text-center text-[11px] text-muted-foreground">
-                    لا توجد أسطر
+                    {t('bulletins.noLines')}
                   </td>
                 </tr>
               ) : (
@@ -466,7 +473,7 @@ function BulletinCard({
                             ? 'bg-primary/15 text-primary'
                             : 'bg-warning/20 text-warning'
                         )}
-                        title={l.operation === 1 ? 'ضرب' : 'قسمة'}
+                        title={l.operation === 1 ? t('bulletins.multiply') : t('bulletins.divide')}
                       >
                         {l.operation === 1 ? '×' : '÷'}
                       </span>
@@ -502,10 +509,11 @@ function BulletinFormDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const isEdit = !!bulletin;
   const source = bulletin ?? template ?? null;
   const [name, setName] = useState(
-    bulletin?.name ?? (template ? `نسخة من ${template.name}` : '')
+    bulletin?.name ?? (template ? t('bulletins.form.copyFrom', { name: template.name }) : '')
   );
   // العملة الأساسية للنشرة مقفولة على العملة الرئيسية للنظام:
   //  - عند الإنشاء (جديدة أو نسخ من نشرة): تُؤخذ من إعدادات النظام
@@ -519,7 +527,7 @@ function BulletinFormDialog({
     bulletin ? toLocalInput(bulletin.effectiveAt) : nowBaghdadInput()
   );
   const [notes, setNotes] = useState(
-    bulletin?.notes ?? (template?.notes ? `(منسوخة من: ${template.name}) ${template.notes}` : '')
+    bulletin?.notes ?? (template?.notes ? `(${t('bulletins.form.copiedFrom', { name: template.name })}) ${template.notes}` : '')
   );
   const [publishImmediately, setPublishImmediately] = useState(false);
   const [lines, setLines] = useState<DraftLine[]>(() => {
@@ -564,13 +572,13 @@ function BulletinFormDialog({
       }),
     onSuccess: r => {
       if ((r as any).success) {
-        toast.success('تم إنشاء النشرة');
+        toast.success(t('bulletins.toast.created'));
         onSaved();
       } else {
-        toast.error((r as any).message || 'فشل الإنشاء');
+        toast.error((r as any).message || t('bulletins.toast.createFailed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'فشل الإنشاء'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || t('bulletins.toast.createFailed')),
   });
 
   const updateM = useMutation({
@@ -584,20 +592,20 @@ function BulletinFormDialog({
       }),
     onSuccess: r => {
       if ((r as any).success) {
-        toast.success('تم التحديث');
+        toast.success(t('bulletins.toast.updated'));
         onSaved();
       } else {
-        toast.error((r as any).message || 'فشل التحديث');
+        toast.error((r as any).message || t('bulletins.toast.updateFailed'));
       }
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'فشل التحديث'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || t('bulletins.toast.updateFailed')),
   });
 
   const submit = () => {
-    if (!name.trim()) return toast.error('اسم النشرة مطلوب');
-    if (!baseCurrency.trim()) return toast.error('العملة الرئيسية مطلوبة');
+    if (!name.trim()) return toast.error(t('bulletins.form.nameRequired'));
+    if (!baseCurrency.trim()) return toast.error(t('bulletins.form.baseCurrencyRequired'));
     const payloadLines = buildPayload(lines);
-    if (payloadLines.length === 0) return toast.error('أضف سطراً واحداً على الأقل');
+    if (payloadLines.length === 0) return toast.error(t('bulletins.form.addAtLeastOneLine'));
     if (isEdit) updateM.mutate();
     else createM.mutate();
   };
@@ -614,7 +622,7 @@ function BulletinFormDialog({
       <div className="w-full max-w-3xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-4 py-2">
           <h2 className="text-sm font-bold">
-            {isEdit ? `تعديل النشرة: ${bulletin!.name}` : 'نشرة أسعار جديدة'}
+            {isEdit ? t('bulletins.form.titleEdit', { name: bulletin!.name }) : t('bulletins.form.titleNew')}
           </h2>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
@@ -626,27 +634,27 @@ function BulletinFormDialog({
             <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-[11px]">
               <Download className="h-3.5 w-3.5 text-primary" />
               <span>
-                تم استيراد القيم من النشرة <span className="font-bold text-primary">{template.name}</span>
-                {template.status === 3 && <span className="ms-1 text-muted-foreground">(مؤرشفة)</span>}
-                — يمكنك تعديل أي قيمة قبل الحفظ.
+                {t('bulletins.form.importedFrom')} <span className="font-bold text-primary">{template.name}</span>
+                {template.status === 3 && <span className="ms-1 text-muted-foreground">({t('bulletins.statusArchived')})</span>}
+                — {t('bulletins.form.editBeforeSave')}
               </span>
             </div>
           )}
 
           <div className="grid gap-3 md:grid-cols-12">
             <div className="md:col-span-5">
-              <Label className="mb-1 block text-[11px]">اسم النشرة</Label>
+              <Label className="mb-1 block text-[11px]">{t('bulletins.form.name')}</Label>
               <Input
                 value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder="مثلاً: نشرة 2026/05/18"
+                placeholder={t('bulletins.form.namePlaceholder')}
                 className="h-9"
               />
             </div>
             <div className="md:col-span-3">
               <Label className="mb-1 flex items-center gap-1 text-[11px]">
-                <span>العملة الرئيسية</span>
-                <span className="text-[9px] text-muted-foreground">(من إعدادات النظام)</span>
+                <span>{t('bulletins.form.baseCurrencyLabel')}</span>
+                <span className="text-[9px] text-muted-foreground">({t('bulletins.form.fromSettings')})</span>
               </Label>
               <Input
                 value={baseCurrency}
@@ -654,28 +662,28 @@ function BulletinFormDialog({
                 disabled
                 tabIndex={-1}
                 className="h-9 cursor-not-allowed bg-secondary/40 font-bold uppercase opacity-90"
-                title="العملة الرئيسية محدّدة من إعدادات النظام ولا يمكن تغييرها من النشرة"
+                title={t('bulletins.form.baseCurrencyTip')}
               />
             </div>
             <div className="md:col-span-4">
               <Label className="mb-1 flex items-center gap-1 text-[11px]">
-                <span>تاريخ ووقت السريان</span>
-                <span className="text-[9px] text-muted-foreground">(بتوقيت بغداد)</span>
+                <span>{t('bulletins.form.effectiveAt')}</span>
+                <span className="text-[9px] text-muted-foreground">({t('bulletins.baghdadTz')})</span>
               </Label>
               <Input
                 type="datetime-local"
                 value={effectiveAt}
                 onChange={e => setEffectiveAt(e.target.value)}
                 className="h-9 tnum"
-                title="تاريخ ووقت سريان النشرة بتوقيت بغداد (Asia/Baghdad)"
+                title={t('bulletins.form.effectiveAtTip')}
               />
             </div>
             <div className="md:col-span-12">
-              <Label className="mb-1 block text-[11px]">ملاحظات (اختيارية)</Label>
+              <Label className="mb-1 block text-[11px]">{t('bulletins.form.notes')}</Label>
               <Input
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
-                placeholder="تعليق على هذه النشرة..."
+                placeholder={t('bulletins.form.notesPlaceholder')}
                 className="h-9"
               />
             </div>
@@ -683,20 +691,20 @@ function BulletinFormDialog({
 
           <div className="rounded-md border border-border/60">
             <div className="flex items-center justify-between border-b border-border/60 bg-secondary/30 px-3 py-1.5 text-[11px]">
-              <span className="font-semibold">أسطر العملات</span>
+              <span className="font-semibold">{t('bulletins.form.linesTitle')}</span>
               <Button size="sm" variant="ghost" onClick={addLine} className="h-6 gap-1 text-[10.5px]">
                 <Plus className="h-3 w-3" />
-                إضافة سطر
+                {t('bulletins.form.addLine')}
               </Button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-secondary/20 text-[10.5px] text-muted-foreground">
                   <tr>
-                    <th className="w-56 px-2 py-1.5 text-start font-semibold">العملة</th>
-                    <th className="w-28 px-2 py-1.5 text-start font-semibold">السعر</th>
-                    <th className="w-40 px-2 py-1.5 text-start font-semibold">العملية</th>
-                    <th className="px-2 py-1.5 text-start font-semibold">ملاحظة</th>
+                    <th className="w-56 px-2 py-1.5 text-start font-semibold">{t('bulletins.col.currency')}</th>
+                    <th className="w-28 px-2 py-1.5 text-start font-semibold">{t('bulletins.col.rate')}</th>
+                    <th className="w-40 px-2 py-1.5 text-start font-semibold">{t('bulletins.col.operation')}</th>
+                    <th className="px-2 py-1.5 text-start font-semibold">{t('bulletins.col.note')}</th>
                     <th className="w-10 px-2 py-1.5"></th>
                   </tr>
                 </thead>
@@ -734,10 +742,10 @@ function BulletinFormDialog({
                                 ? 'bg-primary/15 font-semibold text-primary'
                                 : 'text-muted-foreground hover:bg-secondary/40'
                             )}
-                            title="ضرب: BaseAmount = ForeignAmount × Rate"
+                            title={t('bulletins.multiplyFormula')}
                           >
                             <span className="text-base font-bold">×</span>
-                            ضرب
+                            {t('bulletins.multiply')}
                           </button>
                           <span className="h-full w-px bg-border" />
                           <button
@@ -749,10 +757,10 @@ function BulletinFormDialog({
                                 ? 'bg-warning/20 font-semibold text-warning'
                                 : 'text-muted-foreground hover:bg-secondary/40'
                             )}
-                            title="قسمة: BaseAmount = ForeignAmount ÷ Rate"
+                            title={t('bulletins.divideFormula')}
                           >
                             <span className="text-base font-bold">÷</span>
-                            قسمة
+                            {t('bulletins.divide')}
                           </button>
                         </div>
                       </td>
@@ -783,10 +791,10 @@ function BulletinFormDialog({
           </div>
 
           <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5 text-[11px] text-muted-foreground">
-            <p className="font-semibold text-foreground">المعادلة:</p>
+            <p className="font-semibold text-foreground">{t('bulletins.form.formulaTitle')}</p>
             <ul className="mt-1 list-inside list-disc space-y-0.5">
-              <li><span className="font-bold">ضرب (×):</span> القيمة بـ {baseCurrency || 'IQD'} = القيمة بالعملة × السعر</li>
-              <li><span className="font-bold">قسمة (÷):</span> القيمة بـ {baseCurrency || 'IQD'} = القيمة بالعملة ÷ السعر</li>
+              <li><span className="font-bold">{t('bulletins.multiply')} (×):</span> {t('bulletins.form.multiplyDesc', { base: baseCurrency || 'IQD' })}</li>
+              <li><span className="font-bold">{t('bulletins.divide')} (÷):</span> {t('bulletins.form.divideDesc', { base: baseCurrency || 'IQD' })}</li>
             </ul>
           </div>
 
@@ -799,7 +807,7 @@ function BulletinFormDialog({
                 className="h-4 w-4 rounded border-input"
               />
               <span>
-                <span className="font-semibold">نشر فوري:</span> اعتماد النشرة كافتراضية مباشرة بعد الحفظ
+                <span className="font-semibold">{t('bulletins.form.publishImmediately')}:</span> {t('bulletins.form.publishImmediatelyDesc')}
               </span>
             </label>
           )}
@@ -807,11 +815,11 @@ function BulletinFormDialog({
 
         <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/20 px-4 py-2.5">
           <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
-            إلغاء
+            {t('common.cancel')}
           </Button>
           <Button size="sm" onClick={submit} disabled={submitting} className="gap-1.5">
             <Save className="h-3.5 w-3.5" />
-            {isEdit ? 'حفظ التعديل' : 'حفظ النشرة'}
+            {isEdit ? t('common.saveChanges') : t('bulletins.form.saveBulletin')}
           </Button>
         </div>
       </div>
@@ -838,6 +846,7 @@ function CurrencyInput({
   existing: string[];
   enabledCurrencies: CurrencyDto[];
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [popupRect, setPopupRect] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -942,7 +951,7 @@ function CurrencyInput({
     ? search
     : selectedMeta
       ? `${selectedMeta.code} — ${selectedMeta.nameAr}`
-      : value;
+          : value;
 
   return (
     <div ref={containerRef} className="relative">
@@ -960,7 +969,7 @@ function CurrencyInput({
             onChange(v);
             if (!open) setOpen(true);
           }}
-          placeholder="ابحث/اختر عملة..."
+          placeholder={t('bulletins.form.currencyPlaceholder')}
           className={cn(
             'h-8 pe-7 text-xs font-semibold',
             (dup || isBase || notEnabled) && 'border-destructive focus:border-destructive',
@@ -989,13 +998,13 @@ function CurrencyInput({
       </div>
 
       {dup && (
-        <span className="absolute -bottom-3.5 start-0 text-[9px] text-destructive">مكرّرة</span>
+        <span className="absolute -bottom-3.5 start-0 text-[9px] text-destructive">{t('bulletins.form.duplicate')}</span>
       )}
       {isBase && (
-        <span className="absolute -bottom-3.5 start-0 text-[9px] text-destructive">= العملة الأساسية</span>
+        <span className="absolute -bottom-3.5 start-0 text-[9px] text-destructive">= {t('bulletins.form.isBaseCurrency')}</span>
       )}
       {notEnabled && !dup && !isBase && (
-        <span className="absolute -bottom-3.5 start-0 text-[9px] text-destructive">عملة غير مفعّلة</span>
+        <span className="absolute -bottom-3.5 start-0 text-[9px] text-destructive">{t('bulletins.form.notEnabled')}</span>
       )}
 
       {open && popupRect && createPortal(
@@ -1012,19 +1021,19 @@ function CurrencyInput({
           className="overflow-hidden rounded-md border border-border bg-popover shadow-2xl"
         >
           <div className="flex items-center justify-between border-b border-border/60 bg-secondary/40 px-2.5 py-1.5 text-[10.5px]">
-            <span className="text-muted-foreground">
+              <span className="text-muted-foreground">
               <span className="font-semibold text-foreground">{filteredOptions.length}</span>
               {' / '}
-              {enabledCurrencies.length} عملة مفعّلة
+              {enabledCurrencies.length} {t('bulletins.form.enabledCurrencies')}
             </span>
-            <span className="text-[9.5px] text-muted-foreground">يمكنك الكتابة للبحث</span>
+            <span className="text-[9.5px] text-muted-foreground">{t('bulletins.form.typeToSearch')}</span>
           </div>
           <div className="max-h-72 overflow-y-auto">
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
                 {availableOptions.length === 0
-                  ? 'كل العملات المفعّلة مستخدمة بالفعل في النشرة'
-                  : 'لا توجد نتائج مطابقة للبحث'}
+                  ? t('bulletins.form.allUsed')
+                  : t('bulletins.form.noSearchResults')}
               </div>
             ) : (
               <ul className="py-1">
@@ -1103,6 +1112,8 @@ function ImportFromBulletinDialog({
   onClose: () => void;
   onPick: (b: CurrencyRateBulletinDto) => void;
 }) {
+  const { t } = useTranslation();
+  const STATUS_BADGE = useStatusBadge();
   const [filter, setFilter] = useState<'archived' | 'all'>('archived');
   const [search, setSearch] = useState('');
 
@@ -1133,7 +1144,7 @@ function ImportFromBulletinDialog({
         <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-4 py-2">
           <h2 className="flex items-center gap-2 text-sm font-bold">
             <Download className="h-4 w-4 text-primary" />
-            استيراد من نشرة سابقة
+            {t('bulletins.import.title')}
           </h2>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
@@ -1153,7 +1164,7 @@ function ImportFromBulletinDialog({
                     : 'text-muted-foreground hover:bg-secondary/50'
                 )}
               >
-                المؤرشفة فقط
+                {t('bulletins.import.archivedOnly')}
               </button>
               <button
                 type="button"
@@ -1165,13 +1176,13 @@ function ImportFromBulletinDialog({
                     : 'text-muted-foreground hover:bg-secondary/50'
                 )}
               >
-                الكل
+                {t('common.all')}
               </button>
             </div>
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="بحث بالاسم أو العملة..."
+              placeholder={t('bulletins.import.searchPlaceholder')}
               className="h-8 flex-1 text-xs"
             />
           </div>
@@ -1179,10 +1190,10 @@ function ImportFromBulletinDialog({
 
         <div className="max-h-[60vh] overflow-y-auto p-2">
           {allQuery.isLoading ? (
-            <div className="py-10 text-center text-xs text-muted-foreground">جاري التحميل...</div>
+            <div className="py-10 text-center text-xs text-muted-foreground">{t('common.loading')}</div>
           ) : list.length === 0 ? (
             <div className="py-10 text-center text-xs text-muted-foreground">
-              {filter === 'archived' ? 'لا توجد نشرات مؤرشفة' : 'لا توجد نشرات'}
+              {filter === 'archived' ? t('bulletins.import.noArchived') : t('bulletins.import.noBulletins')}
             </div>
           ) : (
             <ul className="space-y-1">
@@ -1206,9 +1217,9 @@ function ImportFromBulletinDialog({
                           </span>
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-muted-foreground">
-                          <span>السريان: {formatBaghdadDate(b.effectiveAt)} {formatBaghdadTime(b.effectiveAt)}</span>
-                          <span>· الأساس: <span className="font-bold text-foreground">{b.baseCurrency}</span></span>
-                          <span>· {b.lines.length} عملة</span>
+                          <span>{t('bulletins.effectiveAt')}: {formatBaghdadDate(b.effectiveAt)} {formatBaghdadTime(b.effectiveAt)}</span>
+                          <span>· {t('bulletins.base')}: <span className="font-bold text-foreground">{b.baseCurrency}</span></span>
+                          <span>· {b.lines.length} {t('bulletins.import.currencies')}</span>
                         </div>
                         {b.lines.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -1238,7 +1249,7 @@ function ImportFromBulletinDialog({
         </div>
 
         <div className="border-t border-border bg-secondary/10 px-3 py-2 text-[10.5px] text-muted-foreground">
-          اختر نشرة لاستيراد أسطرها كنشرة جديدة قابلة للتعديل قبل الحفظ.
+          {t('bulletins.import.hint')}
         </div>
       </div>
     </div>
