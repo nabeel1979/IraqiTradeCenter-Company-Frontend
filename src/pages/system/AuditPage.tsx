@@ -30,6 +30,7 @@ import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
 import { auditApi, AUDIT_ACTIONS, type AuditLogDto } from '@/lib/api/audit';
 import { usersApi } from '@/lib/api/users';
 import { useLocale } from '@/lib/i18n/useLocale';
+import { formatLocalizedAuditPayload } from '@/lib/audit/formatPayload';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
@@ -38,6 +39,7 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 const ENTITY_TYPES = [
   'JournalEntry',
   'Voucher',
+  'VoucherAttachment',
   'CashBox',
   'CashBoxTransfer',
   'Account',
@@ -45,6 +47,7 @@ const ENTITY_TYPES = [
   'CompanySettings',
   'CurrencyRateBulletin',
   'VoucherType',
+  'AttachmentStorageSettings',
   'User',
   'Role',
 ] as const;
@@ -68,7 +71,12 @@ const ACTION_VISUALS: Record<string, { icon: typeof Activity; tone: string }> = 
  * وأنواع رقمية (IP/IDs) على نفس السطر.
  */
 function formatWhen(iso: string): string {
-  const d = new Date(iso);
+  if (!iso) return iso;
+  // ‎الخادم يخزّن الوقت UTC، لكنّ SQL Server/EF يُعيده بـ Kind=Unspecified فيُسلسَل
+  // ‎بلا لاحقة Z؛ لو تركناه يُفسَّر محلياً (على خادم بتوقيت بغداد) لظهر ناقصاً 3 ساعات.
+  // ‎لذا نُلحق Z حين لا يحمل النص أي مؤشّر منطقة زمنية، ثم نعرضه بتوقيت بغداد.
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
+  const d = new Date(hasTz ? iso : iso + 'Z');
   if (Number.isNaN(d.getTime())) return iso;
   return new Intl.DateTimeFormat('en-GB', {
     year: 'numeric',
@@ -390,8 +398,11 @@ export function AuditPage() {
                         <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
                           {t('audit.details.raw')}
                         </summary>
-                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/40 p-2 text-[11px] text-muted-foreground" dir="ltr">
-                          {prettyJson(row.detailsJson)}
+                        <pre
+                          className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/40 p-2 text-[11px] text-muted-foreground"
+                          dir={isRtl ? 'rtl' : 'ltr'}
+                        >
+                          {formatLocalizedAuditPayload(row.detailsJson, t)}
                         </pre>
                       </details>
                     )}
@@ -466,12 +477,4 @@ export function AuditPage() {
       )}
     </div>
   );
-}
-
-function prettyJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }

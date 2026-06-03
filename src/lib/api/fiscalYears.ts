@@ -31,16 +31,26 @@ export interface CloseFiscalYearPayload {
 export interface RolloverPayload {
   sourceFiscalYearId: number;
   targetFiscalYearId: number;
-  /** كود حساب الأرباح (مطلوب في mode=1 فقط). */
+  /** كود حساب الأرباح (مطلوب في mode=2 'مع الربح/الخسارة' فقط). */
   profitAccountCode?: string | null;
-  /** كود حساب الخسائر (مطلوب في mode=1 فقط). */
+  /** كود حساب الخسائر (مطلوب في mode=2 'مع الربح/الخسارة' فقط). */
   lossAccountCode?: string | null;
   /**
-   * 1 = WithProfitLoss: ميزانية + احتساب الربح/الخسارة على الحساب المناسب
-   * 2 = BalanceSheetOnly: ميزانية فقط بدون ربح/خسارة
-   * 3 = AllAccounts: كل الحسابات (ميزانية + إيرادات + مصاريف)
+   * بُعد الحسابات:
+   * 1 = BalanceSheetOnly: تدوير أرصدة الميزانية فقط.
+   * 2 = WithProfitLoss: ميزانية + إقفال الأرباح/الخسائر على الحساب المناسب.
    */
-  mode: 1 | 2 | 3;
+  mode: 1 | 2;
+  /**
+   * بُعد العملة:
+   * 1 = PerCurrency: قيد افتتاحي منفصل لكل عملة بعملتها الأصلية.
+   * 2 = ConvertToBase: قيد واحد محوَّل للعملة الأساسية.
+   */
+  currencyMode: 1 | 2;
+  /** نوع السند الثنائي (Mixed) للقيد الافتتاحي. الافتراضي على الخادم: OV. */
+  openingVoucherTypeId?: number | null;
+  /** تدوير نشرة الأسعار المعتمدة إلى السنة الجديدة (افتراضي true). */
+  rollBulletin?: boolean;
   previewOnly?: boolean;
   openingEntryDate?: string;
 }
@@ -127,8 +137,17 @@ export const fiscalYearsApi = {
     return res.data;
   },
   rollover: async (payload: RolloverPayload) => {
-    const res = await api.post<ApiResponse<FiscalYearRolloverResultDto>>('/fiscal-years/rollover', payload);
-    return res.data;
+    const res = await api.post<ApiResponse<FiscalYearRolloverResultDto>>(
+      '/fiscal-years/rollover',
+      payload,
+      { skipGlobalErrorHandler: true },
+    );
+    const body = res.data;
+    if (!body.success) {
+      const msg = body.message ?? body.errors?.[0] ?? 'فشل تدوير الأرصدة';
+      throw Object.assign(new Error(msg), { response: { data: body } });
+    }
+    return body;
   },
   undoRollover: async (payload: UndoRolloverPayload) => {
     const res = await api.post<ApiResponse<UndoRolloverResultDto>>('/fiscal-years/undo-rollover', payload);

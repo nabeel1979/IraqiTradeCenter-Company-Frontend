@@ -126,6 +126,26 @@ export const PERMS = {
       Create: 'Inventory.Movements.Create',
     },
   },
+  FinancialManagement: {
+    Categories: {
+      Read:   'FinancialManagement.Categories.Read',
+      Create: 'FinancialManagement.Categories.Create',
+      Update: 'FinancialManagement.Categories.Update',
+      Delete: 'FinancialManagement.Categories.Delete',
+    },
+    Parties: {
+      Read:   'FinancialManagement.Parties.Read',
+      Create: 'FinancialManagement.Parties.Create',
+      Update: 'FinancialManagement.Parties.Update',
+      Delete: 'FinancialManagement.Parties.Delete',
+    },
+    AccountSettlements: {
+      Read:   'FinancialManagement.AccountSettlements.Read',
+      Create: 'FinancialManagement.AccountSettlements.Create',
+      Update: 'FinancialManagement.AccountSettlements.Update',
+      Cancel: 'FinancialManagement.AccountSettlements.Cancel',
+    },
+  },
   System: {
     Users: {
       Read:   'System.Users.Read',
@@ -161,6 +181,11 @@ export const PERMS = {
       Read:   'System.Audit.Read',
       Export: 'System.Audit.Export',
     },
+    MediaBackup: {
+      Read:   'System.MediaBackup.Read',
+      Update: 'System.MediaBackup.Update',
+      Run:    'System.MediaBackup.Run',
+    },
   },
 } as const;
 
@@ -179,11 +204,13 @@ export const ACTION_LABELS_AR: Record<string, string> = {
   Apply:    'تطبيق',
   Generate: 'توليد',
   Topup:    'شحن',
+  Run:      'تشغيل',
 };
 
 export const MODULE_LABELS_AR: Record<string, string> = {
-  Accounting: 'المحاسبة',
-  Sales:      'المبيعات',
-  Inventory:  'المخزون',
-  System:     'النظام',
+  Accounting:          'المحاسبة',
+  Sales:               'المبيعات',
+  Inventory:           'المخزون',
+  System:              'النظام',
+  FinancialManagement: 'الإدارة المالية',
 };

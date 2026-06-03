@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Users, Plus, Pencil, Trash2, X, Save, Search, Shield, Wallet, KeySquare,
-  Info, ShieldCheck, Eye, EyeOff,
+  Info, ShieldCheck, Eye, EyeOff, RefreshCw, Upload,
 } from 'lucide-react';
+import { UserAvatar } from '@/components/shared/UserAvatar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +19,7 @@ import { rolesApi } from '@/lib/api/roles';
 import { permissionsApi } from '@/lib/api/permissions';
 import { cashBoxesApi, type CashBoxDto } from '@/lib/api/cashBoxes';
 import { cn, extractApiError } from '@/lib/utils';
+import { generateRandomPassword } from '@/lib/auth/password';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import type {
@@ -27,6 +29,8 @@ import type {
 } from '@/types/api';
 
 type Tab = 'basic' | 'roles' | 'permissions' | 'cashboxes';
+
+const MAX_AVATAR_BYTES = 512 * 1024;
 
 export function UsersPage() {
   const { t } = useTranslation();
@@ -122,7 +126,12 @@ export function UsersPage() {
                 <tbody>
                   {usersQuery.data?.map(u => (
                     <tr key={u.id} className="border-b border-border/30 hover:bg-secondary/30">
-                      <td className="px-3 py-2.5 font-medium">{u.fullName}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <UserAvatar name={u.fullName} size="sm" />
+                          <span className="font-medium">{u.fullName}</span>
+                        </div>
+                      </td>
                       <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{u.phone}</td>
                       <td className="px-3 py-2.5">
                         <div className="flex flex-wrap gap-1">
@@ -142,16 +151,23 @@ export function UsersPage() {
                       </td>
                       <td className="px-3 py-2.5 text-center text-sm">{u.cashBoxCount}</td>
                       <td className="px-3 py-2.5 text-center">
-                        <span
-                          className={cn(
-                            'inline-block rounded px-2 py-0.5 text-xs',
-                            u.isActive
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : 'bg-muted/40 text-muted-foreground'
+                        <div className="flex flex-col items-center gap-1">
+                          <span
+                            className={cn(
+                              'inline-block rounded px-2 py-0.5 text-xs',
+                              u.isActive
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : 'bg-muted/40 text-muted-foreground'
+                            )}
+                          >
+                            {u.isActive ? t('users.statusActive', { defaultValue: 'فعّال' }) : t('users.statusInactive', { defaultValue: 'موقوف' })}
+                          </span>
+                          {u.mustChangePassword && (
+                            <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning">
+                              {t('users.mustChangeBadge', { defaultValue: 'يلزم تغيير كلمة المرور' })}
+                            </span>
                           )}
-                        >
-                          {u.isActive ? 'فعّال' : 'موقوف'}
-                        </span>
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 text-left">
                         <div className="inline-flex gap-1">
@@ -216,7 +232,11 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
   const [fullName, setFullName] = useState(existing?.fullName ?? '');
   const [phone, setPhone] = useState(existing?.phone ?? '');
   const [password, setPassword] = useState('');
+  const [mustChangePassword, setMustChangePassword] = useState(mode === 'create');
+  const [passwordGenerated, setPasswordGenerated] = useState(false);
+  const [avatarBase64, setAvatarBase64] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(existing?.isActive ?? true);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
 
   // الأدوار + الـ overrides + الصناديق (تُحمَّل من الـ detail)
   const [roleIds, setRoleIds] = useState<number[]>([]);
@@ -233,6 +253,11 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
     enabled: mode === 'edit' && !!existing,
   });
 
+  const activeCashBoxIds = useMemo(
+    () => new Set((cashBoxesQuery.data ?? []).map(c => c.id)),
+    [cashBoxesQuery.data],
+  );
+
   useEffect(() => {
     if (!detailQuery.data) return;
     const d = detailQuery.data as UserDetailDto;
@@ -240,15 +265,46 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
     setGrantedOverrides(new Set(d.overrides.filter(o => o.isGranted).map(o => o.permissionCode)));
     setDeniedOverrides(new Set(d.overrides.filter(o => !o.isGranted).map(o => o.permissionCode)));
     const m = new Map<number, { canReceive: boolean; canPay: boolean }>();
-    for (const c of d.cashBoxes) m.set(c.cashBoxId, { canReceive: c.canReceive, canPay: c.canPay });
+    for (const c of d.cashBoxes) {
+      if (activeCashBoxIds.size === 0 || activeCashBoxIds.has(c.cashBoxId)) {
+        m.set(c.cashBoxId, { canReceive: c.canReceive, canPay: c.canPay });
+      }
+    }
     setUserCashBoxes(m);
-  }, [detailQuery.data]);
+    setAvatarBase64(d.avatarBase64 ?? null);
+  }, [detailQuery.data, activeCashBoxIds]);
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onEsc);
     return () => window.removeEventListener('keydown', onEsc);
   }, [onClose]);
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) {
+      toast.error(t('users.avatarNotImage', { defaultValue: 'اختر ملف صورة فقط' }));
+      return;
+    }
+    if (f.size > MAX_AVATAR_BYTES) {
+      toast.error(t('users.avatarTooLarge', { defaultValue: 'حجم الصورة كبير — الحد 512 ك.ب' }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setAvatarBase64(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(f);
+  };
+
+  const handleGeneratePassword = () => {
+    const generated = generateRandomPassword(12);
+    setPassword(generated);
+    setMustChangePassword(true);
+    setShowPassword(false);
+    setPasswordGenerated(true);
+    toast.success(t('users.passwordGeneratedHidden', { defaultValue: 'تم توليد كلمة مرور — لن تُعرض في الشاشة. احفظ ثم أبلغ المستخدم.' }));
+  };
 
   // ── حفظ
   const saveM = useMutation({
@@ -262,6 +318,8 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
           password,
           isActive,
           roleIds,
+          mustChangePassword,
+          avatarBase64,
         });
         if (!res.success || !res.data) throw new Error(res.errors?.[0] ?? 'فشل إنشاء المستخدم');
         userId = res.data.id;
@@ -271,6 +329,8 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
           phone: phone.trim(),
           password: password || undefined,
           isActive,
+          mustChangePassword: password ? mustChangePassword : undefined,
+          avatarBase64,
         });
         if (!upd.success) throw new Error(upd.errors?.[0] ?? 'فشل تعديل المستخدم');
 
@@ -287,10 +347,12 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
       const ro = await usersApi.setOverrides(userId, overrides);
       if (!ro.success) throw new Error(ro.errors?.[0] ?? 'فشل تعديل الاستثناءات');
 
-      // 3) الصناديق
-      const boxes = Array.from(userCashBoxes.entries()).map(([cashBoxId, v]) => ({
-        cashBoxId, canReceive: v.canReceive, canPay: v.canPay,
-      }));
+      // 3) الصناديق — نرسل فقط المعرّفات النشطة (تتجاهل الربط القديم بصناديق محذوفة)
+      const boxes = Array.from(userCashBoxes.entries())
+        .filter(([cashBoxId]) => activeCashBoxIds.has(cashBoxId))
+        .map(([cashBoxId, v]) => ({
+          cashBoxId, canReceive: v.canReceive, canPay: v.canPay,
+        }));
       const rb = await usersApi.setCashBoxes(userId, boxes);
       if (!rb.success) throw new Error(rb.errors?.[0] ?? 'فشل تعديل الصناديق');
 
@@ -306,7 +368,8 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
   const canSave =
     fullName.trim().length >= 2 &&
     phone.trim().length >= 3 &&
-    (mode === 'edit' || password.length >= 4);
+    (mode === 'edit' || password.length >= 4) &&
+    (mode === 'create' || (detailQuery.isSuccess && cashBoxesQuery.isSuccess));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -339,12 +402,30 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {tab === 'basic' && (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-              <div className="md:col-span-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+              <div className="md:col-span-3">
+                <Label>{t('users.avatar', { defaultValue: 'صورة المستخدم' })}</Label>
+                <div className="mt-1 flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-secondary/20 p-3">
+                  <UserAvatar name={fullName || '?'} src={avatarBase64} size="lg" />
+                  <input ref={avatarFileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => avatarFileRef.current?.click()}>
+                    <Upload className="h-3.5 w-3.5" />
+                    {avatarBase64 ? t('users.avatarChange', { defaultValue: 'تغيير' }) : t('users.avatarUpload', { defaultValue: 'رفع صورة' })}
+                  </Button>
+                  {avatarBase64 && (
+                    <Button type="button" variant="ghost" size="sm" className="h-7 text-destructive" onClick={() => setAvatarBase64('')}>
+                      {t('users.avatarRemove', { defaultValue: 'حذف الصورة' })}
+                    </Button>
+                  )}
+                  <p className="text-center text-[10px] text-muted-foreground">{t('users.avatarHint', { defaultValue: 'PNG/JPG — حتى 512 ك.ب' })}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:col-span-9 md:grid-cols-2">
+              <div className="md:col-span-1">
                 <Label>{t('users.form.fullName')}</Label>
                 <Input value={fullName} onChange={e => setFullName(e.target.value)} className="mt-1" />
               </div>
-              <div className="md:col-span-6">
+              <div className="md:col-span-1">
                 <Label>{t('users.form.username')}</Label>
                 <Input
                   value={phone}
@@ -361,26 +442,52 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
                   هذا ما سيكتبه المستخدم في شاشة الدخول. يقبل اسم لاتيني أو رقم هاتف.
                 </p>
               </div>
-              <div className="md:col-span-6">
-                <Label>{mode === 'create' ? 'كلمة المرور *' : 'كلمة مرور جديدة (اختياري)'}</Label>
-                <div className="relative mt-1">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder={mode === 'edit' ? 'اتركها فارغة لعدم التغيير' : '••••••••'}
-                    className="pl-9"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(s => !s)}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+              <div className="md:col-span-2 space-y-2">
+                <Label>{mode === 'create' ? t('users.form.password', { defaultValue: 'كلمة المرور *' }) : t('users.form.newPassword', { defaultValue: 'كلمة مرور جديدة (اختياري)' })}</Label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      type={showPassword && !passwordGenerated ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => {
+                        setPassword(e.target.value);
+                        setPasswordGenerated(false);
+                      }}
+                      placeholder={mode === 'edit' ? t('users.form.passwordKeep', { defaultValue: 'اتركها فارغة لعدم التغيير' }) : '••••••••'}
+                      className={cn('font-mono text-sm', !passwordGenerated && 'pl-9')}
+                      dir="ltr"
+                    />
+                    {!passwordGenerated && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(s => !s)}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    )}
+                  </div>
+                  <Button type="button" variant="outline" className="gap-1.5 shrink-0" onClick={handleGeneratePassword}>
+                    <RefreshCw className="h-4 w-4" />
+                    {t('users.generatePassword', { defaultValue: 'توليد' })}
+                  </Button>
                 </div>
+                {passwordGenerated && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('users.passwordGeneratedHint', { defaultValue: 'كلمة مرور عشوائية جاهزة — لن تُعرض هنا. اضغط حفظ ثم أبلغ المستخدم خارج النظام.' })}
+                  </p>
+                )}
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={mustChangePassword}
+                    onChange={e => setMustChangePassword(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <span>{t('users.mustChangeOnLogin', { defaultValue: 'يلزم تغيير كلمة المرور عند أول دخول' })}</span>
+                </label>
               </div>
-              <div className="flex items-end md:col-span-6">
+              <div className="flex items-end md:col-span-2">
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -390,6 +497,7 @@ function UserEditorDialog({ mode, existing, onClose, onSaved }: DialogProps) {
                   />
                   <span>{t('users.accountActive')}</span>
                 </label>
+              </div>
               </div>
             </div>
           )}

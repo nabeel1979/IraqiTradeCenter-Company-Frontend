@@ -21,6 +21,8 @@ export interface JournalVoucherTypeDto {
   displayOrder: number;
   nature: VoucherNature;
   showInSidebar: boolean;
+  linkedEntryCount: number;
+  canDelete: boolean;
 }
 
 export interface UpsertJournalVoucherTypePayload {
@@ -37,9 +39,9 @@ export interface UpsertJournalVoucherTypePayload {
 }
 
 export const journalVoucherTypesApi = {
-  getAll: async (enabledOnly = false): Promise<JournalVoucherTypeDto[]> => {
+  getAll: async (enabledOnly = false, managementOnly = false): Promise<JournalVoucherTypeDto[]> => {
     const res = await api.get<ApiResponse<JournalVoucherTypeDto[]>>('/journal-voucher-types', {
-      params: { enabledOnly },
+      params: { enabledOnly, managementOnly },
     });
     return res.data.data ?? [];
   },

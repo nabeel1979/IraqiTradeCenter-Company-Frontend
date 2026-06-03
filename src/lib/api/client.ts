@@ -1,6 +1,13 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { toast } from 'sonner';
 
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /** عند true لا يُعرض toast عام — المكوّن يعالج الخطأ بنفسه. */
+    skipGlobalErrorHandler?: boolean;
+  }
+}
+
 const TOKEN_KEY = 'iqtc_token';
 
 // ════════════════════════════════════════
@@ -41,6 +48,9 @@ let lastLicenseToastAt = 0;
 api.interceptors.response.use(
   res => res,
   (error: AxiosError<ApiErrorBody>) => {
+    if (error.config?.skipGlobalErrorHandler) {
+      return Promise.reject(error);
+    }
     const status = error.response?.status;
     const data = error.response?.data;
     const isLicenseExpired =
@@ -53,6 +63,10 @@ api.interceptors.response.use(
       if (window.location.pathname !== '/login') {
         toast.error('انتهت الجلسة، يرجى تسجيل الدخول');
         setTimeout(() => (window.location.href = '/login'), 1500);
+      }
+    } else if (status === 403 && data?.code === 'MUST_CHANGE_PASSWORD') {
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?mustChange=1';
       }
     } else if (isLicenseExpired) {
       // ‎النظام في وضع قراءة فقط — اعرض توستاً واضحاً مرّة واحدة كل 5 ثوانٍ

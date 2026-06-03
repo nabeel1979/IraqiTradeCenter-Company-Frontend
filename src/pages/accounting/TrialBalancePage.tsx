@@ -18,12 +18,14 @@
  *   Net Income = Σ(دائن − مدين) لحسابات الإيرادات
  *              − Σ(مدين − دائن) لحسابات المصاريف
  */
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { createPortal } from 'react-dom';
 import {
   Calculator, Download, Layers, Coins, TrendingUp, TrendingDown,
-  Info, AlertTriangle, Printer, FileText,
+  Info, AlertTriangle, Printer, FileText, MoreVertical, SlidersHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,23 +36,35 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
 import { accountingApi } from '@/lib/api/accounting';
 import { currenciesApi } from '@/lib/api/currencies';
-import { fiscalYearsApi } from '@/lib/api/fiscalYears';
+import { useActiveFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { printTrialBalance } from '@/lib/printUtils';
+import { readSessionJson, ReportNavKeys, saveStatementSource } from '@/lib/reportReturnState';
 import { auditApi } from '@/lib/api/audit';
 import { formatAmount, cn } from '@/lib/utils';
 import { useLocale, localizedAccountName } from '@/lib/i18n';
+import { usePermissions } from '@/lib/auth/usePermissions';
+import { PERMS } from '@/lib/auth/permissions';
+import type { TrialBalanceDto, TrialBalanceRowDto } from '@/types/api';
+
+type TrialBalanceRestore = {
+  ts?: number;
+  from?: string;
+  to?: string;
+  currency?: string;
+  valuated?: boolean;
+  maxLevel?: number | '';
+  leavesOnly?: boolean;
+  includeDraft?: boolean;
+  includeOpeningEntries?: boolean;
+  hideZero?: boolean;
+  showProfitLoss?: boolean;
+  showBalanceSheet?: boolean;
+  showProfitCalculation?: boolean;
+  highlightAccountId?: number;
+};
 
 const MAX_LEVELS = 5;
-
-/** يحوّل تاريخاً إلى YYYY-MM-DD بالتوقيت المحلي */
-function toISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 
 const TYPE_COLORS: Record<string, string> = {
   Asset: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
@@ -66,9 +80,90 @@ function fmt(n: number): string {
   return formatAmount(n, 2);
 }
 
+const TB_AMT = 'tb-amt border-r border-border/40';
+const TB_AMT_END = 'tb-amt';
+const TB_PIN_SOLID = 'tb-pin-solid';
+const TB_PIN_SOLID_GROUP = 'tb-pin-solid-group';
+const TB_PIN_CODE = 'tb-code tb-pin-start-0';
+const TB_PIN_ACCOUNT = 'tb-account tb-pin-start-1';
+const TB_PIN_TYPE = 'tb-type tb-pin-start-2';
+const TB_PIN_ACTIONS = 'tb-pin-end-0';
+
+const PROFIT_LOSS_TYPES = new Set(['Revenue', 'Expense']);
+const BALANCE_SHEET_TYPES = new Set(['Asset', 'Liability', 'Equity']);
+
+function isProfitLossRow(r: TrialBalanceRowDto): boolean {
+  return PROFIT_LOSS_TYPES.has(r.accountType);
+}
+
+function isBalanceSheetRow(r: TrialBalanceRowDto): boolean {
+  return BALANCE_SHEET_TYPES.has(r.accountType);
+}
+
+function sumTrialBalanceRows(rows: TrialBalanceRowDto[]) {
+  return rows.reduce(
+    (t, r) => ({
+      totalOpeningDebit: t.totalOpeningDebit + (r.openingDebit ?? 0),
+      totalOpeningCredit: t.totalOpeningCredit + (r.openingCredit ?? 0),
+      totalPeriodDebit: t.totalPeriodDebit + (r.periodDebit ?? 0),
+      totalPeriodCredit: t.totalPeriodCredit + (r.periodCredit ?? 0),
+      totalClosingDebit: t.totalClosingDebit + (r.closingDebit ?? 0),
+      totalClosingCredit: t.totalClosingCredit + (r.closingCredit ?? 0),
+    }),
+    {
+      totalOpeningDebit: 0,
+      totalOpeningCredit: 0,
+      totalPeriodDebit: 0,
+      totalPeriodCredit: 0,
+      totalClosingDebit: 0,
+      totalClosingCredit: 0,
+    },
+  );
+}
+
+const EMPTY_TOTALS = {
+  totalOpeningDebit: 0,
+  totalOpeningCredit: 0,
+  totalPeriodDebit: 0,
+  totalPeriodCredit: 0,
+  totalClosingDebit: 0,
+  totalClosingCredit: 0,
+};
+
+/** إجمالي الميزان — دائماً من الأوراق فقط (بدون تكرار حسابات الآباء). */
+function computeTrialBalanceTotals(
+  data: TrialBalanceDto,
+  showBalanceSheet: boolean,
+  showProfitLoss: boolean,
+) {
+  let leaves = data.rows.filter(r => r.isLeaf);
+  if (!showBalanceSheet) leaves = leaves.filter(r => !isBalanceSheetRow(r));
+  if (!showProfitLoss) leaves = leaves.filter(r => !isProfitLossRow(r));
+  if (showBalanceSheet && showProfitLoss) {
+    return {
+      totalOpeningDebit: data.totalOpeningDebit,
+      totalOpeningCredit: data.totalOpeningCredit,
+      totalPeriodDebit: data.totalPeriodDebit,
+      totalPeriodCredit: data.totalPeriodCredit,
+      totalClosingDebit: data.totalClosingDebit,
+      totalClosingCredit: data.totalClosingCredit,
+    };
+  }
+  return sumTrialBalanceRows(leaves);
+}
+
 export function TrialBalancePage() {
   const { t } = useTranslation();
-  const { locale } = useLocale();
+  const { locale, isRtl } = useLocale();
+  const navigate = useNavigate();
+  const { can } = usePermissions();
+  const canOpenStatement = can(PERMS.Accounting.AccountStatement.Read);
+
+  const initialRestore = readSessionJson<TrialBalanceRestore>(ReportNavKeys.trialBalanceRestore);
+  const highlightDoneRef = useRef(false);
+  const [highlightAccountId, setHighlightAccountId] = useState<number | null>(
+    initialRestore?.highlightAccountId ?? null,
+  );
   // ── العملات (للفلتر) + العملة الأساسية
   const currenciesQuery = useQuery({
     queryKey: ['currencies', 'enabled'],
@@ -81,49 +176,25 @@ export function TrialBalancePage() {
   );
   const enabledCurrencies = currenciesQuery.data ?? [];
 
-  // ── السنة المالية الحالية (لتعيين فترة افتراضية)
-  const fiscalQuery = useQuery({
-    queryKey: ['fiscal-years'],
-    queryFn: fiscalYearsApi.getAll,
-    staleTime: 5 * 60 * 1000,
-  });
-  // ‎الأولوية للسنة النشطة (المُعَلَّمة من قِبل المستخدم)، مع المنطق الاحتياطي
-  const currentFY = useMemo(() => {
-    const list = fiscalQuery.data ?? [];
-    if (list.length === 0) return null;
-    const explicit = list.find(fy => fy.isActive);
-    if (explicit) return explicit;
-    const today = toISODate(new Date());
-    const openContainsToday = list.find(fy => {
-      const s = (fy.startDate ?? '').slice(0, 10);
-      const e = (fy.endDate ?? '').slice(0, 10);
-      return s && e && today >= s && today <= e && !fy.isClosed;
-    });
-    if (openContainsToday) return openContainsToday;
-    const newestOpen = [...list]
-      .filter(fy => !fy.isClosed)
-      .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
-    if (newestOpen) return newestOpen;
-    const closedContainsToday = list.find(fy => {
-      const s = (fy.startDate ?? '').slice(0, 10);
-      const e = (fy.endDate ?? '').slice(0, 10);
-      return s && e && today >= s && today <= e;
-    });
-    if (closedContainsToday) return closedContainsToday;
-    return [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0] ?? null;
-  }, [fiscalQuery.data]);
+  const { defaultFromDate, defaultToDate } = useActiveFiscalYear();
 
   // ── الحالة (Filters)
-  const [from, setFrom] = useState<string>('');
-  const [to, setTo] = useState<string>('');
-  const [currency, setCurrency] = useState<string>(''); // "" = الكل
-  // مفعَّل افتراضياً: المستخدمون عادةً يريدون عرضاً موحَّداً بالعملة الأساسية،
-  // ويُلغى تلقائياً إذا اختار المستخدم عملة بعينها (لا داعي للتقويم حينها).
-  const [valuated, setValuated] = useState<boolean>(true);
-  const [maxLevel, setMaxLevel] = useState<number | ''>('');
-  const [leavesOnly, setLeavesOnly] = useState<boolean>(true);
-  const [includeDraft, setIncludeDraft] = useState<boolean>(false);
-  const [hideZero, setHideZero] = useState<boolean>(true);
+  const [from, setFrom] = useState<string>(initialRestore?.from ?? '');
+  const [to, setTo] = useState<string>(initialRestore?.to ?? '');
+  const [currency, setCurrency] = useState<string>(initialRestore?.currency ?? ''); // "" = الكل
+  const [valuated, setValuated] = useState<boolean>(initialRestore?.valuated ?? true);
+  const [maxLevel, setMaxLevel] = useState<number | ''>(initialRestore?.maxLevel ?? '');
+  const [leavesOnly, setLeavesOnly] = useState<boolean>(initialRestore?.leavesOnly ?? true);
+  const [includeDraft, setIncludeDraft] = useState<boolean>(initialRestore?.includeDraft ?? false);
+  const [includeOpeningEntries, setIncludeOpeningEntries] = useState<boolean>(initialRestore?.includeOpeningEntries ?? true);
+  const [hideZero, setHideZero] = useState<boolean>(initialRestore?.hideZero ?? true);
+  const [showProfitLoss, setShowProfitLoss] = useState<boolean>(initialRestore?.showProfitLoss ?? true);
+  const [showBalanceSheet, setShowBalanceSheet] = useState<boolean>(initialRestore?.showBalanceSheet ?? true);
+  const [showProfitCalculation, setShowProfitCalculation] = useState<boolean>(
+    initialRestore?.showProfitCalculation ?? true,
+  );
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsPanelRef = useRef<HTMLDivElement>(null);
 
   // إعدادات الشركة (للوكو/الترويسة على نافذة الطباعة)
   const companyQuery = useQuery({
@@ -143,26 +214,37 @@ export function TrialBalancePage() {
   // ‎البداية = بداية السنة المالية، النهاية = اليوم دائماً (طلب: "لحد اليوم")
   useEffect(() => {
     if (from && to) return;
-    const today = toISODate(new Date());
-    if (currentFY) {
-      const fyStart = (currentFY.startDate ?? '').slice(0, 10);
-      if (fyStart) setFrom(prev => prev || fyStart);
-      setTo(prev => prev || today);
-    } else {
-      const yStart = toISODate(new Date(new Date().getFullYear(), 0, 1));
-      setFrom(prev => prev || yStart);
-      setTo(prev => prev || today);
-    }
-  }, [currentFY, from, to]);
+    if (!defaultFromDate) return;
+    setFrom(prev => prev || defaultFromDate);
+    setTo(prev => prev || defaultToDate);
+  }, [defaultFromDate, defaultToDate, from, to]);
 
   // عند فلترة بعملة واحدة، إيقاف التقويم تلقائياً (المبالغ بالعملة الأصلية فقط)
   useEffect(() => {
     if (currency) setValuated(false);
   }, [currency]);
 
+  useEffect(() => {
+    if (!optionsOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (optionsPanelRef.current && !optionsPanelRef.current.contains(e.target as Node)) {
+        setOptionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [optionsOpen]);
+
+  const optionsActiveCount = useMemo(
+    () =>
+      [!leavesOnly, !hideZero, !showProfitLoss, !showBalanceSheet, !showProfitCalculation].filter(Boolean)
+        .length,
+    [leavesOnly, hideZero, showProfitLoss, showBalanceSheet, showProfitCalculation],
+  );
+
   // ── جلب البيانات
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['trial-balance', from, to, currency, valuated, maxLevel, leavesOnly, includeDraft],
+    queryKey: ['trial-balance', from, to, currency, valuated, maxLevel, leavesOnly, includeDraft, includeOpeningEntries],
     queryFn: () => accountingApi.getTrialBalance({
       from, to,
       currency: currency || null,
@@ -170,14 +252,35 @@ export function TrialBalancePage() {
       maxLevel: maxLevel === '' ? null : Number(maxLevel),
       leavesOnly,
       includeDraft,
+      includeOpeningEntries,
     }),
     enabled: !!from && !!to,
   });
 
-  // ── حسابات مشتقة
-  const isBalanced = data
-    ? Math.abs(data.totalClosingDebit - data.totalClosingCredit) < 0.01
-    : false;
+  // ── فلترة الصفوف (ميزانية + أرباح/خسائر + صفرية)
+  const displayRows = useMemo(() => {
+    let src = data?.rows ?? [];
+    if (!showBalanceSheet) src = src.filter(r => !isBalanceSheetRow(r));
+    if (!showProfitLoss) src = src.filter(r => !isProfitLossRow(r));
+    if (!hideZero) return src;
+    return src.filter(r => {
+      return (
+        Math.abs(r.openingDebit ?? 0) > 0 ||
+        Math.abs(r.openingCredit ?? 0) > 0 ||
+        Math.abs(r.periodDebit ?? 0) > 0 ||
+        Math.abs(r.periodCredit ?? 0) > 0 ||
+        Math.abs(r.closingDebit ?? 0) > 0 ||
+        Math.abs(r.closingCredit ?? 0) > 0
+      );
+    });
+  }, [data?.rows, hideZero, showBalanceSheet, showProfitLoss]);
+
+  const displayTotals = useMemo(
+    () => (data ? computeTrialBalanceTotals(data, showBalanceSheet, showProfitLoss) : EMPTY_TOTALS),
+    [data, showBalanceSheet, showProfitLoss],
+  );
+
+  const isBalanced = Math.abs(displayTotals.totalClosingDebit - displayTotals.totalClosingCredit) < 0.01;
 
   /** خريطة code → { nameAr, nameEn } مأخوذة من شجرة الحسابات لاستخدامها في عرض الأسماء بحسب اللغة. */
   const accountNamesByCode = useMemo(() => {
@@ -205,21 +308,56 @@ export function TrialBalancePage() {
     return t('trialBalance.filters.multiCurrencyDisplay');
   }, [currency, valuated, baseCurrency, data, t]);
 
-  // ── فلترة الصفوف ذات الرصيد الصفري
-  const displayRows = useMemo(() => {
-    const src = data?.rows ?? [];
-    if (!hideZero) return src;
-    return src.filter(r => {
-      return (
-        Math.abs(r.openingDebit ?? 0) > 0 ||
-        Math.abs(r.openingCredit ?? 0) > 0 ||
-        Math.abs(r.periodDebit ?? 0) > 0 ||
-        Math.abs(r.periodCredit ?? 0) > 0 ||
-        Math.abs(r.closingDebit ?? 0) > 0 ||
-        Math.abs(r.closingCredit ?? 0) > 0
-      );
-    });
-  }, [data?.rows, hideZero]);
+  const handleOpenStatement = useCallback((row: TrialBalanceRowDto) => {
+    const found = accountNamesByCode.get(row.accountCode);
+    const name = localizedAccountName(locale, found?.nameAr ?? row.accountName, found?.nameEn);
+    try {
+      sessionStorage.setItem('account-statement:return-state', JSON.stringify({
+        from,
+        to,
+        accountId: row.accountId,
+        accountLabel: `${row.accountCode} - ${name}`,
+        selectedCurrencies: currency ? [currency] : [],
+        autoSubmit: true,
+        ts: Date.now(),
+      }));
+      saveStatementSource({
+        sourcePath: '/accounting/trial-balance',
+        sourceLabelKey: 'sidebar.items.trialBalance',
+        restoreKey: ReportNavKeys.trialBalanceRestore,
+        restore: {
+          from,
+          to,
+          currency,
+          valuated,
+          maxLevel,
+          leavesOnly,
+          includeDraft,
+          includeOpeningEntries,
+          hideZero,
+          showProfitLoss,
+          showBalanceSheet,
+          showProfitCalculation,
+        },
+        highlightAccountId: row.accountId,
+      });
+    } catch { /* تجاهُل */ }
+    navigate('/accounting/account-statement');
+  }, [
+    navigate, from, to, currency, valuated, maxLevel, leavesOnly, includeDraft, includeOpeningEntries,
+    hideZero, showProfitLoss, showBalanceSheet, showProfitCalculation,
+    accountNamesByCode, locale,
+  ]);
+
+  useEffect(() => {
+    if (highlightAccountId == null || !displayRows.length || highlightDoneRef.current) return;
+    const el = document.querySelector<HTMLElement>(`[data-tb-account-id="${highlightAccountId}"]`);
+    if (!el) return;
+    highlightDoneRef.current = true;
+    requestAnimationFrame(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    const timer = setTimeout(() => setHighlightAccountId(null), 2500);
+    return () => clearTimeout(timer);
+  }, [highlightAccountId, displayRows]);
 
   const exportCsv = () => {
     if (!data?.rows?.length) return;
@@ -240,9 +378,9 @@ export function TrialBalancePage() {
         r.closingDebit, r.closingCredit,
       ]),
       ['', t('trialBalance.csv.total'), '', '',
-        data.totalOpeningDebit, data.totalOpeningCredit,
-        data.totalPeriodDebit, data.totalPeriodCredit,
-        data.totalClosingDebit, data.totalClosingCredit,
+        displayTotals.totalOpeningDebit, displayTotals.totalOpeningCredit,
+        displayTotals.totalPeriodDebit, displayTotals.totalPeriodCredit,
+        displayTotals.totalClosingDebit, displayTotals.totalClosingCredit,
       ],
     ];
     const csv = '\uFEFF' + lines.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
@@ -266,7 +404,12 @@ export function TrialBalancePage() {
       }
     };
     walk(treeQuery.data ?? []);
-    printTrialBalance(data, companyQuery.data ?? null, undefined, { accountNamesEn });
+    printTrialBalance(data, companyQuery.data ?? null, undefined, {
+      accountNamesEn,
+      showProfitLoss,
+      showBalanceSheet,
+      showProfitCalculation,
+    });
     void auditApi.logPrint({
       entityType: 'TrialBalance',
       entityId: '*',
@@ -290,7 +433,7 @@ export function TrialBalancePage() {
           />
 
           {/* صف 2: التواريخ + الفلاتر الأخرى */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_140px_140px_auto]">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_180px_140px_auto]">
             <div>
               <Label className="mb-1 text-[11px] text-muted-foreground">{t('trialBalance.filters.fromDate')}</Label>
               <Input type="date" value={from} onChange={e => setFrom(e.target.value)} className="h-8 text-sm" />
@@ -363,28 +506,80 @@ export function TrialBalancePage() {
                 ))}
               </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <Label className="mb-0 text-[11px] text-muted-foreground">{t('trialBalance.filters.options')}</Label>
-              <label className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={leavesOnly}
-                  onChange={e => setLeavesOnly(e.target.checked)}
-                  className="h-3.5 w-3.5"
-                />
-                {t('trialBalance.filters.leavesOnly')}
-              </label>
-              <label className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={hideZero}
-                  onChange={e => setHideZero(e.target.checked)}
-                  className="h-3.5 w-3.5"
-                />
-                {t('trialBalance.filters.hideZero', { defaultValue: 'إخفاء الأرصدة الصفرية' })}
-              </label>
-            </div>
-            <div className="flex items-end gap-2">
+            <div ref={optionsPanelRef} className="relative flex items-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                className="relative h-8 gap-1.5 px-2.5"
+                onClick={() => setOptionsOpen(v => !v)}
+                title={t('trialBalance.filters.options')}
+                aria-expanded={optionsOpen}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {optionsActiveCount > 0 && (
+                  <span className="absolute -top-1 end-0 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold text-primary-foreground">
+                    {optionsActiveCount}
+                  </span>
+                )}
+              </Button>
+              {optionsOpen && (
+                <div
+                  className="absolute end-0 top-[calc(100%+4px)] z-50 w-64 rounded-lg border border-border bg-popover shadow-lg"
+                  dir={isRtl ? 'rtl' : 'ltr'}
+                >
+                  <div className="border-b border-border/60 bg-secondary/30 px-3 py-2 text-xs font-semibold">
+                    {t('trialBalance.filters.options')}
+                  </div>
+                  <div className="flex flex-col gap-1 p-2">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
+                      <input
+                        type="checkbox"
+                        checked={leavesOnly}
+                        onChange={e => setLeavesOnly(e.target.checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {t('trialBalance.filters.leavesOnly')}
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
+                      <input
+                        type="checkbox"
+                        checked={hideZero}
+                        onChange={e => setHideZero(e.target.checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {t('trialBalance.filters.hideZero', { defaultValue: 'إخفاء الأرصدة الصفرية' })}
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
+                      <input
+                        type="checkbox"
+                        checked={showBalanceSheet}
+                        onChange={e => setShowBalanceSheet(e.target.checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {t('trialBalance.filters.showBalanceSheet')}
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
+                      <input
+                        type="checkbox"
+                        checked={showProfitLoss}
+                        onChange={e => setShowProfitLoss(e.target.checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {t('trialBalance.filters.showProfitLoss')}
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
+                      <input
+                        type="checkbox"
+                        checked={showProfitCalculation}
+                        onChange={e => setShowProfitCalculation(e.target.checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {t('trialBalance.filters.showProfitCalculation')}
+                    </label>
+                  </div>
+                </div>
+              )}
               <Button variant="outline" size="sm" onClick={exportCsv} className="h-8 gap-1.5" disabled={!data?.rows?.length}>
                 <Download className="h-3.5 w-3.5" /> CSV
               </Button>
@@ -427,6 +622,19 @@ export function TrialBalancePage() {
                 className="h-3.5 w-3.5"
               />
               {t('trialBalance.filters.includeDraft')}
+            </label>
+
+            <label
+              className="flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-secondary/40 px-3 text-xs text-muted-foreground hover:bg-secondary"
+              title={t('trialBalance.filters.includeOpeningEntriesTip')}
+            >
+              <input
+                type="checkbox"
+                checked={includeOpeningEntries}
+                onChange={e => setIncludeOpeningEntries(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              {t('trialBalance.filters.includeOpeningEntries')}
             </label>
 
             {data?.fxBulletinName && (
@@ -497,13 +705,13 @@ export function TrialBalancePage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="overflow-x-auto p-0">
-              <table className="data-table w-full text-xs">
+            <CardContent className="table-scroll trial-balance-scroll p-0">
+              <table className="data-table trial-balance-table text-xs">
                 <thead>
                   <tr className="border-b-2 border-border/60">
-                    <th rowSpan={2} className="sticky right-0 z-10 bg-card text-center align-middle">{t('trialBalance.table.code')}</th>
-                    <th rowSpan={2} className="text-right align-middle">{t('trialBalance.table.account')}</th>
-                    <th rowSpan={2} className="text-center align-middle">{t('trialBalance.table.type')}</th>
+                    <th rowSpan={2} className={cn(TB_PIN_CODE, TB_PIN_SOLID, 'text-center align-middle')}>{t('trialBalance.table.code')}</th>
+                    <th rowSpan={2} className={cn(TB_PIN_ACCOUNT, TB_PIN_SOLID, 'text-right align-middle')}>{t('trialBalance.table.account')}</th>
+                    <th rowSpan={2} className={cn(TB_PIN_TYPE, TB_PIN_SOLID, 'text-center align-middle')}>{t('trialBalance.table.type')}</th>
                     <th colSpan={2} className="border-r border-border/40 bg-secondary/30 text-center">
                       {t('trialBalance.table.previousPeriod')}
                     </th>
@@ -513,30 +721,46 @@ export function TrialBalancePage() {
                     <th colSpan={2} className="border-r border-border/40 bg-amber-500/10 text-center">
                       {t('trialBalance.table.closingBalance')}
                     </th>
+                    {canOpenStatement && (
+                      <th rowSpan={2} className={cn(TB_PIN_ACTIONS, TB_PIN_SOLID, 'w-11 min-w-[2.75rem] px-1 text-center align-middle')}>
+                        {t('trialBalance.table.actions')}
+                      </th>
+                    )}
                   </tr>
                   <tr className="border-b border-border/60 text-[10px] text-muted-foreground">
-                    <th className="border-r border-border/40 bg-secondary/30 text-center">{t('trialBalance.table.debit')}</th>
-                    <th className="bg-secondary/30 text-center">{t('trialBalance.table.credit')}</th>
-                    <th className="border-r border-border/40 bg-primary/10 text-center">{t('trialBalance.table.debit')}</th>
-                    <th className="bg-primary/10 text-center">{t('trialBalance.table.credit')}</th>
-                    <th className="border-r border-border/40 bg-amber-500/10 text-center">{t('trialBalance.table.debit')}</th>
-                    <th className="bg-amber-500/10 text-center">{t('trialBalance.table.credit')}</th>
+                    <th className={cn('tb-amt-h border-r border-border/40 bg-secondary/30 text-center')}>{t('trialBalance.table.debit')}</th>
+                    <th className="tb-amt-h bg-secondary/30 text-center">{t('trialBalance.table.credit')}</th>
+                    <th className={cn('tb-amt-h border-r border-border/40 bg-primary/10 text-center')}>{t('trialBalance.table.debit')}</th>
+                    <th className="tb-amt-h bg-primary/10 text-center">{t('trialBalance.table.credit')}</th>
+                    <th className={cn('tb-amt-h border-r border-border/40 bg-amber-500/10 text-center')}>{t('trialBalance.table.debit')}</th>
+                    <th className="tb-amt-h bg-amber-500/10 text-center">{t('trialBalance.table.credit')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayRows.map(r => (
-                    <tr key={r.accountId} className={cn(
-                      !r.isLeaf && 'font-semibold bg-secondary/20',
-                    )}>
-                      <td className="sticky right-0 z-10 bg-inherit num-display text-xs text-muted-foreground">
+                  {displayRows.map(r => {
+                    const pinBg = !r.isLeaf ? TB_PIN_SOLID_GROUP : TB_PIN_SOLID;
+                    return (
+                    <tr
+                      key={r.accountId}
+                      data-tb-account-id={r.accountId}
+                      className={cn(
+                        !r.isLeaf && 'font-semibold bg-secondary/20',
+                        highlightAccountId === r.accountId && 'bg-primary/15 ring-2 ring-primary/60 ring-inset',
+                      )}
+                    >
+                      <td className={cn(TB_PIN_CODE, pinBg, 'num-display text-xs text-muted-foreground')}>
                         {r.accountCode}
                       </td>
-                      <td>
-                        <span style={{ paddingInlineStart: `${(r.level - 1) * 12}px` }}>
+                      <td className={cn(TB_PIN_ACCOUNT, pinBg)}>
+                        <span
+                          className="block truncate"
+                          style={{ paddingInlineStart: `${(r.level - 1) * 12}px` }}
+                          title={displayAccountName(r.accountCode, r.accountName)}
+                        >
                           {displayAccountName(r.accountCode, r.accountName)}
                         </span>
                       </td>
-                      <td className="text-center">
+                      <td className={cn(TB_PIN_TYPE, pinBg, 'text-center')}>
                         <span className={cn(
                           'inline-block rounded-md border px-1.5 py-0.5 text-[9px] font-medium',
                           TYPE_COLORS[r.accountType] ?? 'text-muted-foreground bg-secondary/40 border-border'
@@ -544,24 +768,36 @@ export function TrialBalancePage() {
                           {t(`trialBalance.types.${r.accountType}`, { defaultValue: r.accountType })}
                         </span>
                       </td>
-                      <td className="border-r border-border/40 num-display text-left">{fmt(r.openingDebit)}</td>
-                      <td className="num-display text-left">{fmt(r.openingCredit)}</td>
-                      <td className="border-r border-border/40 num-display text-left">{fmt(r.periodDebit)}</td>
-                      <td className="num-display text-left">{fmt(r.periodCredit)}</td>
-                      <td className="border-r border-border/40 num-display text-left font-semibold text-emerald-300">{fmt(r.closingDebit)}</td>
-                      <td className="num-display text-left font-semibold text-amber-300">{fmt(r.closingCredit)}</td>
+                      <td className={TB_AMT}>{fmt(r.openingDebit)}</td>
+                      <td className={TB_AMT_END}>{fmt(r.openingCredit)}</td>
+                      <td className={TB_AMT}>{fmt(r.periodDebit)}</td>
+                      <td className={TB_AMT_END}>{fmt(r.periodCredit)}</td>
+                      <td className={cn(TB_AMT, 'font-semibold text-emerald-300')}>{fmt(r.closingDebit)}</td>
+                      <td className={cn(TB_AMT_END, 'font-semibold text-amber-300')}>{fmt(r.closingCredit)}</td>
+                      {canOpenStatement && (
+                        <td className={cn(TB_PIN_ACTIONS, pinBg, 'w-11 min-w-[2.75rem] px-1 text-center')}>
+                          {r.isLeaf && (
+                            <TrialBalanceRowActionsMenu
+                              onOpenStatement={() => handleOpenStatement(r)}
+                              isRtl={isRtl}
+                            />
+                          )}
+                        </td>
+                      )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
-                <tfoot className="border-t-2 border-primary/40 bg-secondary/50 text-sm font-bold">
+                <tfoot className="border-t-2 border-primary/40 text-xs font-bold">
                   <tr>
-                    <td colSpan={3} className="sticky right-0 z-10 bg-inherit text-center">{t('trialBalance.table.total')}</td>
-                    <td className="border-r border-border/40 num-display text-left">{fmt(data.totalOpeningDebit)}</td>
-                    <td className="num-display text-left">{fmt(data.totalOpeningCredit)}</td>
-                    <td className="border-r border-border/40 num-display text-left">{fmt(data.totalPeriodDebit)}</td>
-                    <td className="num-display text-left">{fmt(data.totalPeriodCredit)}</td>
-                    <td className="border-r border-border/40 num-display text-left text-emerald-300">{fmt(data.totalClosingDebit)}</td>
-                    <td className="num-display text-left text-amber-300">{fmt(data.totalClosingCredit)}</td>
+                    <td colSpan={3} className={cn(TB_PIN_CODE, TB_PIN_SOLID, 'text-center')}>{t('trialBalance.table.total')}</td>
+                    <td className={TB_AMT}>{fmt(displayTotals.totalOpeningDebit)}</td>
+                    <td className={TB_AMT_END}>{fmt(displayTotals.totalOpeningCredit)}</td>
+                    <td className={TB_AMT}>{fmt(displayTotals.totalPeriodDebit)}</td>
+                    <td className={TB_AMT_END}>{fmt(displayTotals.totalPeriodCredit)}</td>
+                    <td className={cn(TB_AMT, 'text-emerald-300')}>{fmt(displayTotals.totalClosingDebit)}</td>
+                    <td className={cn(TB_AMT_END, 'text-amber-300')}>{fmt(displayTotals.totalClosingCredit)}</td>
+                    {canOpenStatement && <td className={cn(TB_PIN_ACTIONS, TB_PIN_SOLID, 'w-11 min-w-[2.75rem]')} />}
                   </tr>
                 </tfoot>
               </table>
@@ -571,15 +807,119 @@ export function TrialBalancePage() {
           {/* ════════════════════════════════════════
                بطاقة: طريقة احتساب الأرباح (نتيجة الفترة)
              ════════════════════════════════════════ */}
-          <ProfitCalculationCard
-            totalRevenue={data.totalRevenue}
-            totalExpense={data.totalExpense}
-            netIncome={data.netIncome}
-            unit={displayUnit}
-          />
+          {showProfitCalculation && (
+            <ProfitCalculationCard
+              totalRevenue={data.totalRevenue}
+              totalExpense={data.totalExpense}
+              netIncome={data.netIncome}
+              unit={displayUnit}
+            />
+          )}
         </>
       )}
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// قائمة إجراءات صف الحساب الورقة
+// ═══════════════════════════════════════════════════════════════
+
+function TrialBalanceRowActionsMenu({
+  onOpenStatement,
+  isRtl,
+}: {
+  onOpenStatement: () => void;
+  isRtl: boolean;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  const computePos = () => {
+    const btn = triggerRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const menuW = 200;
+    const margin = 8;
+    let left = isRtl ? rect.right - menuW : rect.left;
+    left = Math.min(Math.max(left, margin), window.innerWidth - menuW - margin);
+    setPos({ top: rect.bottom + 4, left });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    computePos();
+    window.addEventListener('resize', computePos);
+    window.addEventListener('scroll', computePos, true);
+    return () => {
+      window.removeEventListener('resize', computePos);
+      window.removeEventListener('scroll', computePos, true);
+    };
+  }, [open, isRtl]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const target = ('touches' in e ? e.touches[0]?.target : e.target) as Node | null;
+      if (target && menuRef.current?.contains(target)) return;
+      if (target && triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown as EventListener);
+    document.addEventListener('touchstart', onDown as EventListener, { passive: true });
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDown as EventListener);
+      document.removeEventListener('touchstart', onDown as EventListener);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+          'text-muted-foreground hover:bg-secondary/80 hover:text-foreground',
+          open && 'bg-secondary/80 text-foreground',
+        )}
+        title={t('trialBalance.table.actionsMenuTip')}
+      >
+        <MoreVertical className="h-3.5 w-3.5" />
+      </button>
+
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          dir={isRtl ? 'rtl' : 'ltr'}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: 200, zIndex: 9999 }}
+          className="overflow-hidden rounded-lg border border-border bg-popover/95 shadow-2xl backdrop-blur-sm"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { setOpen(false); onOpenStatement(); }}
+            className={cn(
+              'flex w-full items-center gap-3 px-3 py-2.5 text-xs font-medium text-foreground transition-colors',
+              'hover:bg-primary/10 hover:text-primary',
+              isRtl ? 'text-right' : 'text-left',
+            )}
+          >
+            <FileText className="h-4 w-4 shrink-0 text-primary" />
+            {t('trialBalance.table.accountStatement')}
+          </button>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

@@ -163,6 +163,147 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  /* جداول محاسبية — تمرير أفقي + أعمدة ثابتة (ميزان المراجعة / أرصدة الحسابات) */
+  .trial-balance-scroll,
+  .account-balances-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+  }
+  .trial-balance-table,
+  .account-balances-table {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .trial-balance-table th,
+  .trial-balance-table td,
+  .account-balances-table th,
+  .account-balances-table td {
+    @apply px-2 py-2;
+  }
+  .trial-balance-table .tb-amt,
+  .account-balances-table .tb-amt {
+    @apply num-display whitespace-nowrap text-left text-[11px] leading-tight tabular-nums;
+    min-width: 9rem;
+  }
+  .trial-balance-table .tb-amt-h,
+  .account-balances-table .tb-amt-h {
+    min-width: 9rem;
+  }
+  .trial-balance-table .tb-code,
+  .account-balances-table .tb-code {
+    @apply whitespace-nowrap;
+    width: 7rem;
+    min-width: 7rem;
+    max-width: 7rem;
+  }
+  .trial-balance-table .tb-account,
+  .account-balances-table .tb-account {
+    width: 12rem;
+    min-width: 12rem;
+    max-width: 12rem;
+  }
+  .trial-balance-table .tb-type,
+  .account-balances-table .tb-type {
+    @apply whitespace-nowrap;
+    width: 5rem;
+    min-width: 5rem;
+    max-width: 5rem;
+  }
+  .account-balances-table .tb-idx {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    max-width: 2.5rem;
+  }
+  .account-balances-table .tb-currency {
+    width: 4rem;
+    min-width: 4rem;
+    max-width: 4rem;
+  }
+  .trial-balance-table .tb-pin-start-0 {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 12;
+  }
+  .trial-balance-table .tb-pin-start-1 {
+    position: sticky;
+    inset-inline-start: 7rem;
+    z-index: 12;
+  }
+  .trial-balance-table .tb-pin-start-2 {
+    position: sticky;
+    inset-inline-start: 19rem;
+    z-index: 12;
+    box-shadow: 4px 0 8px -4px rgba(0, 0, 0, 0.12);
+  }
+  [dir='rtl'] .trial-balance-table .tb-pin-start-2 {
+    box-shadow: -4px 0 8px -4px rgba(0, 0, 0, 0.12);
+  }
+  .account-balances-table .ab-pin-start-0 {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 12;
+  }
+  .account-balances-table .ab-pin-start-1 {
+    position: sticky;
+    inset-inline-start: 2.5rem;
+    z-index: 12;
+  }
+  .account-balances-table .ab-pin-start-2 {
+    position: sticky;
+    inset-inline-start: 9.5rem;
+    z-index: 12;
+  }
+  .account-balances-table .ab-pin-start-3 {
+    position: sticky;
+    inset-inline-start: 21.5rem;
+    z-index: 12;
+    box-shadow: 4px 0 8px -4px rgba(0, 0, 0, 0.12);
+  }
+  [dir='rtl'] .account-balances-table .ab-pin-start-3 {
+    box-shadow: -4px 0 8px -4px rgba(0, 0, 0, 0.12);
+  }
+  .trial-balance-table .tb-pin-end-0,
+  .account-balances-table .tb-pin-end-0 {
+    position: sticky;
+    inset-inline-end: 0;
+    z-index: 12;
+    box-shadow: -4px 0 8px -4px rgba(0, 0, 0, 0.12);
+  }
+  [dir='rtl'] .trial-balance-table .tb-pin-end-0,
+  [dir='rtl'] .account-balances-table .tb-pin-end-0 {
+    box-shadow: 4px 0 8px -4px rgba(0, 0, 0, 0.12);
+  }
+  .trial-balance-table .tb-pin-solid,
+  .account-balances-table .tb-pin-solid {
+    background-color: hsl(var(--card));
+  }
+  .trial-balance-table .tb-pin-solid-group,
+  .account-balances-table .tb-pin-solid-group {
+    background-color: hsl(var(--muted));
+  }
+  .trial-balance-table tbody tr:hover .tb-pin-solid,
+  .account-balances-table tbody tr:hover .tb-pin-solid {
+    background-color: hsl(var(--card));
+  }
+  .trial-balance-table tbody tr:hover .tb-pin-solid-group,
+  .account-balances-table tbody tr:hover .tb-pin-solid-group {
+    background-color: hsl(var(--muted));
+  }
+  .trial-balance-table tfoot td,
+  .account-balances-table tfoot td {
+    background-color: hsl(var(--secondary));
+  }
+  .trial-balance-table tfoot .tb-pin-solid,
+  .trial-balance-table tfoot .tb-pin-solid-group,
+  .account-balances-table tfoot .tb-pin-solid,
+  .account-balances-table tfoot .tb-pin-solid-group {
+    background-color: hsl(var(--secondary));
+  }
+
   .account-statement-report.data-table thead {
     text-transform: none;
     letter-spacing: normal;

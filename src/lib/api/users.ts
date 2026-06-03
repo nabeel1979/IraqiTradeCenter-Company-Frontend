@@ -1,6 +1,7 @@
 import { api } from './client';
 import type {
   ApiResponse,
+  ResetPasswordResponseDto,
   UserCashBoxAssignmentDto,
   UserCreatePayload,
   UserDetailDto,
@@ -51,5 +52,11 @@ export const usersApi = {
   setCashBoxes: async (id: string, cashBoxes: UserCashBoxAssignmentDto[]) => {
     const res = await api.put<ApiResponse<unknown>>(`/users/${id}/cash-boxes`, { cashBoxes });
     return res.data;
+  },
+
+  resetPassword: async (id: string) => {
+    const res = await api.post<ApiResponse<ResetPasswordResponseDto>>(`/users/${id}/reset-password`);
+    if (!res.data.success || !res.data.data) throw new Error(res.data.errors?.[0] ?? 'Reset failed');
+    return res.data.data;
   },
 };

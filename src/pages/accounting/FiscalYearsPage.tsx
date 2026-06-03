@@ -22,6 +22,9 @@ import {
   TrendingUp,
   TrendingDown,
   Star,
+  Coins,
+  Layers,
+  FileText,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,11 +36,18 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { accountingApi } from '@/lib/api/accounting';
+import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { formatDate, formatIQD, cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import type { FiscalYearDto, AccountingPeriodStatus, FiscalYearValidationDto, AccountDto } from '@/types/api';
+import type {
+  FiscalYearDto,
+  AccountingPeriodStatus,
+  FiscalYearValidationDto,
+  AccountDto,
+  RolloverUndoTargetDto,
+} from '@/types/api';
 import { useLocale, localizedName, localizedEntryDescription } from '@/lib/i18n';
 
 /**
@@ -111,12 +121,20 @@ export function FiscalYearsPage() {
   const [showClose, setShowClose] = useState(false);
   const [showReopen, setShowReopen] = useState(false);
   const [showRollover, setShowRollover] = useState(false);
+  /** لقطة عند فتح التدوير — تمنع اختفاء النافذة أثناء الطلب أو إعادة جلب السنوات. */
+  const [rolloverSnap, setRolloverSnap] = useState<{
+    source: FiscalYearDto;
+    years: FiscalYearDto[];
+    openingEntriesCount?: number;
+  } | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [editingPeriodId, setEditingPeriodId] = useState<number | null>(null);
   const [deletingPeriodId, setDeletingPeriodId] = useState<number | null>(null);
   const [showBulk, setShowBulk] = useState(false);
   const [showResync, setShowResync] = useState(false);
+  /** سنة الهدف المختارة عند إلغاء التدوير */
+  const [undoTargetId, setUndoTargetId] = useState<number | null>(null);
 
   const { data: years, isLoading } = useQuery({
     queryKey: ['fiscal-years'],
@@ -203,6 +221,52 @@ export function FiscalYearsPage() {
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? t('common.saveFailed', { defaultValue: 'Failed' })),
   });
+
+  const cancelRolloverM = useMutation({
+    mutationFn: (targetFiscalYearId: number) =>
+      fiscalYearsApi.undoRollover({ targetFiscalYearId, reopenSource: true }),
+    onSuccess: (res) => {
+      if (res.success) {
+        toast.success(res.data?.message ?? t('fiscalYears.detail.cancelRolloverSuccess'));
+        qc.invalidateQueries({ queryKey: ['fiscal-years'] });
+        if (selectedId != null) {
+          qc.invalidateQueries({ queryKey: ['fiscal-year-status', selectedId] });
+        }
+      } else {
+        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.detail.cancelRolloverFailed'));
+      }
+    },
+    onError: (e: { response?: { data?: { message?: string } } }) =>
+      toast.error(e?.response?.data?.message ?? t('fiscalYears.detail.cancelRolloverFailed')),
+  });
+
+  const rolloverUndoTargets: RolloverUndoTargetDto[] = status?.rolloverUndoTargets ?? [];
+  const rolloverTargetId = status?.rolloverTargetFiscalYearId ?? null;
+  const canCancelRollover = rolloverUndoTargets.length > 0;
+  const nextTargetAlreadyRolled = rolloverUndoTargets.some(
+    t => t.targetFiscalYearId === rolloverTargetId,
+  );
+  const canRollover =
+    !!selected?.isClosed && !!rolloverTargetId && !nextTargetAlreadyRolled;
+
+  const undoTargetsKey = rolloverUndoTargets.map(t => t.targetFiscalYearId).join(',');
+
+  useEffect(() => {
+    if (rolloverUndoTargets.length === 0) {
+      setUndoTargetId(null);
+      return;
+    }
+    setUndoTargetId(prev => {
+      if (prev != null && rolloverUndoTargets.some(t => t.targetFiscalYearId === prev)) {
+        return prev;
+      }
+      return rolloverUndoTargets[0]!.targetFiscalYearId;
+    });
+  }, [selectedId, undoTargetsKey, rolloverUndoTargets]);
+
+  const selectedUndoTarget = rolloverUndoTargets.find(t => t.targetFiscalYearId === undoTargetId)
+    ?? rolloverUndoTargets[0]
+    ?? null;
 
   return (
     <div className="space-y-5">
@@ -316,7 +380,7 @@ export function FiscalYearsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={selected.isClosed || selected.isActive || activateM.isPending}
+                        disabled={selected.isActive || activateM.isPending}
                         onClick={() => activateM.mutate(selected.id)}
                         className={cn(
                           selected.isActive
@@ -324,11 +388,11 @@ export function FiscalYearsPage() {
                             : 'border-primary/40 text-primary hover:bg-primary/10'
                         )}
                         title={
-                          selected.isClosed
-                            ? t('fiscalYears.detail.cannotActivateClosed')
-                            : selected.isActive
+                          selected.isActive
                             ? t('fiscalYears.detail.alreadyActive')
-                            : t('fiscalYears.detail.activateTip')
+                            : selected.isClosed
+                              ? t('fiscalYears.detail.activateClosedTip')
+                              : t('fiscalYears.detail.activateTip')
                         }
                       >
                         <Star
@@ -390,18 +454,95 @@ export function FiscalYearsPage() {
                           {t('fiscalYears.detail.close')}
                         </Button>
                       )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setShowRollover(true)}
-                        disabled={!selected.isClosed}
-                        title={selected.isClosed
-                          ? t('fiscalYears.detail.rolloverTip')
-                          : t('fiscalYears.detail.rolloverRequiresClosed')}
-                      >
-                        <Repeat className="h-4 w-4" />
-                        {t('fiscalYears.detail.rollover')}
-                      </Button>
+                      {canCancelRollover && selectedUndoTarget ? (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {rolloverUndoTargets.length > 1 ? (
+                            <select
+                              className="h-8 max-w-[11rem] rounded-md border border-border/60 bg-background px-2 text-xs"
+                              value={undoTargetId ?? ''}
+                              onChange={e => setUndoTargetId(Number(e.target.value))}
+                              title={t('fiscalYears.detail.cancelRolloverSelectTarget')}
+                              aria-label={t('fiscalYears.detail.cancelRolloverSelectTarget')}
+                            >
+                              {rolloverUndoTargets.map(t => (
+                                <option key={t.targetFiscalYearId} value={t.targetFiscalYearId}>
+                                  {localizedName(locale, t.targetFiscalYearName, t.targetFiscalYearNameEn)}
+                                  {t.openingEntriesCount > 0 ? ` (${t.openingEntriesCount})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">
+                              {t('fiscalYears.detail.cancelRolloverTo', {
+                                target: localizedName(
+                                  locale,
+                                  selectedUndoTarget.targetFiscalYearName,
+                                  selectedUndoTarget.targetFiscalYearNameEn,
+                                ),
+                              })}
+                            </span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-warning/40 text-warning hover:bg-warning/10"
+                            disabled={cancelRolloverM.isPending || undoTargetId == null}
+                            onClick={() => {
+                              if (!selected || undoTargetId == null) return;
+                              const targetLabel = localizedName(
+                                locale,
+                                selectedUndoTarget.targetFiscalYearName,
+                                selectedUndoTarget.targetFiscalYearNameEn,
+                              );
+                              const sourceLabel = localizedName(
+                                locale,
+                                selectedUndoTarget.sourceFiscalYearName
+                                  ?? selected.name,
+                                selectedUndoTarget.sourceFiscalYearNameEn ?? selected.nameEn,
+                              );
+                              if (!confirm(t('fiscalYears.detail.cancelRolloverConfirm', {
+                                count: selectedUndoTarget.openingEntriesCount,
+                                target: targetLabel,
+                                source: sourceLabel,
+                              }))) return;
+                              cancelRolloverM.mutate(undoTargetId);
+                            }}
+                            title={t('fiscalYears.detail.cancelRolloverTip')}
+                          >
+                            <Undo2 className="h-4 w-4" />
+                            {cancelRolloverM.isPending
+                              ? t('fiscalYears.rolloverModal.undoing')
+                              : t('fiscalYears.detail.cancelRollover')}
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            if (!selected || !years) return;
+                            setRolloverSnap({
+                              source: selected,
+                              years,
+                              openingEntriesCount: status?.rolloverOpeningEntriesCount ?? 0,
+                            });
+                            setShowRollover(true);
+                          }}
+                          disabled={!canRollover}
+                          title={
+                            !selected.isClosed
+                              ? t('fiscalYears.detail.rolloverRequiresClosed')
+                              : nextTargetAlreadyRolled
+                                ? t('fiscalYears.detail.rolloverAlreadyDone')
+                                : !rolloverTargetId
+                                  ? t('fiscalYears.detail.rolloverNoTarget')
+                                  : t('fiscalYears.detail.rolloverTip')
+                          }
+                        >
+                          <Repeat className="h-4 w-4" />
+                          {t('fiscalYears.detail.rollover')}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -537,14 +678,20 @@ export function FiscalYearsPage() {
         />
       )}
 
-      {showRollover && selected && years && (
+      {showRollover && rolloverSnap && (
         <RolloverModal
-          source={selected}
-          years={years}
-          onClose={() => setShowRollover(false)}
+          source={rolloverSnap.source}
+          years={rolloverSnap.years}
+          openingEntriesCount={rolloverSnap.openingEntriesCount ?? 0}
+          onClose={() => {
+            setShowRollover(false);
+            setRolloverSnap(null);
+          }}
           onSuccess={() => {
             setShowRollover(false);
+            setRolloverSnap(null);
             qc.invalidateQueries({ queryKey: ['fiscal-years'] });
+            qc.invalidateQueries({ queryKey: ['fiscal-year-status', rolloverSnap.source.id] });
           }}
         />
       )}
@@ -1008,10 +1155,11 @@ function CloseFiscalYearModal({
 }
 
 function RolloverModal({
-  source, years, onClose, onSuccess,
+  source, years, openingEntriesCount, onClose, onSuccess,
 }: {
   source: FiscalYearDto;
   years: FiscalYearDto[];
+  openingEntriesCount: number;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -1020,8 +1168,15 @@ function RolloverModal({
   const qc = useQueryClient();
   const candidates = years.filter(y => y.id !== source.id && new Date(y.startDate) > new Date(source.endDate));
   const [targetId, setTargetId] = useState<number | null>(candidates[0]?.id ?? null);
-  // ‎ثلاثة أنماط: 1=مع الربح/الخسارة، 2=بدون تغيير (ميزانية)، 3=ترحيل كامل
-  const [mode, setMode] = useState<1 | 2 | 3>(1);
+  const hasExistingOpening = openingEntriesCount > 0;
+  // ‎بُعد الحسابات: 1=ميزانية فقط، 2=ميزانية + إقفال أرباح/خسائر
+  const [scope, setScope] = useState<1 | 2>(2);
+  // ‎بُعد العملة: 1=لكل عملة مستقلة، 2=تحويل للعملة الأساسية
+  const [currencyMode, setCurrencyMode] = useState<1 | 2>(1);
+  // ‎نوع السند الثنائي (Mixed) للقيد الافتتاحي
+  const [openingVoucherTypeId, setOpeningVoucherTypeId] = useState<number | null>(null);
+  // ‎تدوير نشرة الأسعار المعتمدة إلى السنة الجديدة
+  const [rollBulletin, setRollBulletin] = useState(true);
   // ‎نخزّن id الحساب للعرض في AccountPicker، ونرسل الكود للـ API لأن الـ backend يستقبل code
   const [profitAccountId, setProfitAccountId] = useState<number | null>(null);
   const [lossAccountId, setLossAccountId] = useState<number | null>(null);
@@ -1032,6 +1187,20 @@ function RolloverModal({
     queryKey: ['accounts', 'tree'],
     queryFn: accountingApi.getTree,
   });
+
+  // ‎للقيد الافتتاحي: فقط امتداد «قيد محاسبي» JV من النوع المزدوج (Mixed).
+  const voucherTypesQuery = useQuery({
+    queryKey: ['journal-voucher-types', 'enabled'],
+    queryFn: () => journalVoucherTypesApi.getAll(true),
+  });
+  const jvMixedVoucherTypes = (voucherTypesQuery.data ?? []).filter(
+    v => v.isEnabled && v.nature === 'Mixed' && v.code.trim().toUpperCase() === 'JV',
+  );
+
+  useEffect(() => {
+    if (openingVoucherTypeId != null || jvMixedVoucherTypes.length === 0) return;
+    setOpeningVoucherTypeId(jvMixedVoucherTypes[0]!.id);
+  }, [jvMixedVoucherTypes, openingVoucherTypeId]);
   // ‎جميع الحسابات التفصيلية (leaf) — نتركها كاملة كما في شاشة القيود
   // ‎حتى يستطيع المستخدم اختيار أي حساب يريده كحساب أرباح/خسائر بحسب
   // ‎شجرة الحسابات الفعلية لديه (قد تختلف من شركة لأخرى).
@@ -1044,24 +1213,36 @@ function RolloverModal({
     ? leafAccounts.find(a => a.id === lossAccountId)?.code ?? ''
     : '';
 
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   const rollM = useMutation({
     mutationFn: () => fiscalYearsApi.rollover({
       sourceFiscalYearId: source.id,
       targetFiscalYearId: targetId!,
-      profitAccountCode: mode === 1 ? profitCode : null,
-      lossAccountCode: mode === 1 ? lossCode : null,
-      mode,
+      profitAccountCode: scope === 2 ? profitCode : null,
+      lossAccountCode: scope === 2 ? lossCode : null,
+      mode: scope,
+      currencyMode,
+      openingVoucherTypeId,
+      rollBulletin,
       previewOnly,
     }),
     onSuccess: (res) => {
-      if (res.success) {
-        toast.success(res.data?.message ?? t('fiscalYears.rolloverModal.success'));
-        if (!previewOnly) onSuccess();
-      } else {
-        toast.error(res.errors?.[0] ?? res.message ?? t('fiscalYears.rolloverModal.failed'));
-      }
+      setSubmitError(null);
+      const msg = res.data?.message ?? t('fiscalYears.rolloverModal.success');
+      toast.success(msg, { duration: previewOnly ? 8000 : 5000 });
+      if (!previewOnly) onSuccess();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? t('fiscalYears.rolloverModal.failed')),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { message?: string; errors?: string[] } }; message?: string };
+      const msg =
+        err?.response?.data?.message
+        ?? err?.response?.data?.errors?.[0]
+        ?? err?.message
+        ?? t('fiscalYears.rolloverModal.failed');
+      setSubmitError(msg);
+      toast.error(msg, { duration: 15000 });
+    },
   });
 
   const undoM = useMutation({
@@ -1084,6 +1265,14 @@ function RolloverModal({
   return (
     <Modal title={t('fiscalYears.rolloverModal.title')} onClose={onClose} size="lg">
       <div className="space-y-4 text-sm">
+        {submitError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="leading-relaxed">{submitError}</p>
+            </div>
+          </div>
+        )}
         {!source.isClosed && (
           <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
             <div className="flex items-center gap-1.5 font-medium">
@@ -1122,60 +1311,117 @@ function RolloverModal({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs">{t('fiscalYears.rolloverModal.mode')}</Label>
-          <div className="grid grid-cols-1 gap-2">
+          <Label className="text-xs">نوع الإغلاق — الحسابات المُدوَّرة</Label>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <button
               type="button"
-              onClick={() => setMode(1)}
+              onClick={() => setScope(1)}
               className={cn(
                 'flex items-start gap-2 rounded-md border p-2.5 text-right transition',
-                mode === 1 ? 'border-primary bg-primary/10' : 'hover:border-foreground/30'
+                scope === 1 ? 'border-primary bg-primary/10' : 'hover:border-foreground/30'
+              )}
+            >
+              <Layers className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                <div className="font-medium">ميزانية فقط</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                  تدوير أرصدة الأصول/الالتزامات/حقوق الملكية فقط (تُفترض النتيجة مُقفلة).
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setScope(2)}
+              className={cn(
+                'flex items-start gap-2 rounded-md border p-2.5 text-right transition',
+                scope === 2 ? 'border-primary bg-primary/10' : 'hover:border-foreground/30'
               )}
             >
               <Lock className="mt-0.5 h-4 w-4 shrink-0" />
               <div className="flex-1">
-                <div className="font-medium">{t('fiscalYears.rolloverModal.mode1Title')}</div>
+                <div className="font-medium">ميزانية + أرباح وخسائر</div>
                 <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  {t('fiscalYears.rolloverModal.mode1Desc')}
-                </div>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode(2)}
-              className={cn(
-                'flex items-start gap-2 rounded-md border p-2.5 text-right transition',
-                mode === 2 ? 'border-primary bg-primary/10' : 'hover:border-foreground/30'
-              )}
-            >
-              <Repeat className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="flex-1">
-                <div className="font-medium">{t('fiscalYears.rolloverModal.mode2Title')}</div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  {t('fiscalYears.rolloverModal.mode2Desc')}
-                </div>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode(3)}
-              className={cn(
-                'flex items-start gap-2 rounded-md border p-2.5 text-right transition',
-                mode === 3 ? 'border-primary bg-primary/10' : 'hover:border-foreground/30'
-              )}
-            >
-              <Repeat className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="flex-1">
-                <div className="font-medium">{t('fiscalYears.rolloverModal.mode3Title')}</div>
-                <div className="mt-0.5 text-[11px] text-muted-foreground">
-                  {t('fiscalYears.rolloverModal.mode3Desc')}
+                  تدوير الميزانية وإقفال صافي الربح/الخسارة على الحساب المناسب.
                 </div>
               </div>
             </button>
           </div>
         </div>
 
-        {mode === 1 && (
+        <div className="space-y-2">
+          <Label className="text-xs">معالجة العملات</Label>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setCurrencyMode(1)}
+              className={cn(
+                'flex items-start gap-2 rounded-md border p-2.5 text-right transition',
+                currencyMode === 1 ? 'border-primary bg-primary/10' : 'hover:border-foreground/30'
+              )}
+            >
+              <Coins className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                <div className="font-medium">لكل عملة بشكل مستقل</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                  قيد افتتاحي منفصل لكل عملة بعملتها الأصلية (مع تجميد سعر النشرة).
+                </div>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrencyMode(2)}
+              className={cn(
+                'flex items-start gap-2 rounded-md border p-2.5 text-right transition',
+                currencyMode === 2 ? 'border-primary bg-primary/10' : 'hover:border-foreground/30'
+              )}
+            >
+              <Repeat className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                <div className="font-medium">تحويل للعملة الأساسية</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                  قيد افتتاحي واحد محوَّل للعملة الأساسية بسعر النشرة المعتمدة.
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <Label className="mb-1.5 flex items-center gap-1 text-xs">
+              <FileText className="h-3 w-3" />
+              نوع سند القيد الافتتاحي
+            </Label>
+            <select
+              value={openingVoucherTypeId ?? ''}
+              onChange={e => setOpeningVoucherTypeId(e.target.value ? Number(e.target.value) : null)}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+            >
+              {jvMixedVoucherTypes.length === 0 && (
+                <option value="">— لا يوجد نوع JV مزدوج مُفعَّل —</option>
+              )}
+              {jvMixedVoucherTypes.map(v => (
+                <option key={v.id} value={v.id}>{v.code} — {v.nameAr}</option>
+              ))}
+            </select>
+            <div className="mt-1 text-[10px] text-muted-foreground">
+              قيد محاسبي JV (مزدوج Mixed) فقط — ليبقى القيد قابلاً للتعديل من نافذة القيود اليومية.
+            </div>
+          </div>
+          <div className="flex items-end">
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={rollBulletin}
+                onChange={e => setRollBulletin(e.target.checked)}
+                className="rounded"
+              />
+              <span>تدوير نشرة الأسعار المعتمدة إلى السنة الجديدة</span>
+            </label>
+          </div>
+        </div>
+
+        {scope === 2 && (
           <div className="space-y-3 rounded-md border bg-muted/30 p-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
@@ -1241,33 +1487,50 @@ function RolloverModal({
           <span>{t('fiscalYears.rolloverModal.previewOnly')}</span>
         </label>
 
+        {hasExistingOpening && (
+          <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+            {t('fiscalYears.detail.rolloverAlreadyDone')}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-          <Button
-            type="button"
-            variant="outline"
-            className="border-warning/40 text-warning hover:bg-warning/10"
-            disabled={undoM.isPending || !targetId}
-            onClick={() => {
-              if (!confirm(t('fiscalYears.rolloverModal.undoConfirm'))) return;
-              undoM.mutate();
-            }}
-            title={t('fiscalYears.rolloverModal.undoTip')}
-          >
-            <Undo2 className="h-4 w-4" />
-            {undoM.isPending ? t('fiscalYears.rolloverModal.undoing') : t('fiscalYears.rolloverModal.undo')}
-          </Button>
+          {hasExistingOpening ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="border-warning/40 text-warning hover:bg-warning/10"
+              disabled={undoM.isPending || !targetId}
+              onClick={() => {
+                if (!confirm(t('fiscalYears.rolloverModal.undoConfirm'))) return;
+                undoM.mutate();
+              }}
+              title={t('fiscalYears.rolloverModal.undoTip')}
+            >
+              <Undo2 className="h-4 w-4" />
+              {undoM.isPending ? t('fiscalYears.rolloverModal.undoing') : t('fiscalYears.detail.cancelRollover')}
+            </Button>
+          ) : (
+            <span />
+          )}
 
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+            {!hasExistingOpening && (
             <Button
-              onClick={() => rollM.mutate()}
+              type="button"
+              onClick={() => {
+                setSubmitError(null);
+                rollM.mutate();
+              }}
               disabled={
                 rollM.isPending || !targetId || !source.isClosed ||
-                (mode === 1 && (!profitCode || !lossCode))
+                !openingVoucherTypeId ||
+                (scope === 2 && (!profitCode || !lossCode))
               }
             >
               {rollM.isPending ? t('fiscalYears.rolloverModal.executing') : (previewOnly ? t('fiscalYears.rolloverModal.preview') : t('fiscalYears.rolloverModal.execute'))}
             </Button>
+            )}
           </div>
         </div>
       </div>

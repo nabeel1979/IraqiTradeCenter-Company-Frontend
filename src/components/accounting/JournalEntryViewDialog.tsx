@@ -1,12 +1,16 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { X, BookOpen, Printer, Pencil } from 'lucide-react';
+import { X, BookOpen, Printer, Pencil, Undo2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
-import { accountingApi } from '@/lib/api/accounting';
+import { accountingApi, getReversalOriginalEntryId } from '@/lib/api/accounting';
+import {
+  CASH_BOX_TRANSFERS_PATH,
+  isDirectTransferReference,
+} from '@/lib/accounting/journalEntrySource';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { printSingleJournalEntry } from '@/lib/printUtils';
@@ -46,6 +50,19 @@ export function JournalEntryViewDialog({ entryId, onClose, allowEdit = true }: P
     enabled: entryId !== null,
     staleTime: 30_000,
   });
+
+  const originalReversalEntryId = entryQuery.data
+    ? getReversalOriginalEntryId(entryQuery.data)
+    : null;
+  const reversalOriginalQuery = useQuery({
+    queryKey: ['journal-entry', 'reversal-original', originalReversalEntryId],
+    queryFn: () => accountingApi.getJournalEntryById(originalReversalEntryId!),
+    enabled: originalReversalEntryId != null,
+    staleTime: 60_000,
+  });
+  const isReversalOfTransfer = reversalOriginalQuery.data
+    ? isDirectTransferReference(reversalOriginalQuery.data.referenceType)
+    : false;
 
   const companyQuery = useQuery({
     queryKey: ['company-settings-print'],
@@ -115,6 +132,16 @@ export function JournalEntryViewDialog({ entryId, onClose, allowEdit = true }: P
     navigate(`/accounting/journal/${data.id}/edit`);
   };
 
+  const handleViewOriginal = () => {
+    if (originalReversalEntryId == null) return;
+    onClose();
+    if (isReversalOfTransfer) {
+      navigate(CASH_BOX_TRANSFERS_PATH);
+      return;
+    }
+    navigate(`/accounting/journal/${originalReversalEntryId}/view`);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
@@ -175,6 +202,24 @@ export function JournalEntryViewDialog({ entryId, onClose, allowEdit = true }: P
               <Button variant="outline" size="sm" onClick={handlePrint} className="h-7 gap-1 px-2 text-xs">
                 <Printer className="h-3.5 w-3.5" />
                 {t('journalEntries.view.print')}
+              </Button>
+            )}
+            {originalReversalEntryId != null && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleViewOriginal}
+                title={
+                  isReversalOfTransfer
+                    ? t('journalEntries.view.openTransferSourceTip')
+                    : t('journalEntries.view.viewOriginalEntryTip', { num: originalReversalEntryId })
+                }
+                className="h-7 gap-1 border-sky-500/60 bg-sky-500/10 px-2 text-xs text-sky-400 hover:bg-sky-500/20 hover:text-sky-300"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                {isReversalOfTransfer
+                  ? t('journalEntries.view.openTransferSource')
+                  : t('journalEntries.view.viewOriginalEntry', { num: originalReversalEntryId })}
               </Button>
             )}
             {/*

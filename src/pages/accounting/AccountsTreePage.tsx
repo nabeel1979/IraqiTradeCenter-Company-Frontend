@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   ChevronDown,
   ChevronLeft,
@@ -16,6 +17,8 @@ import {
   ListCollapse,
   ListTree,
   EyeOff,
+  Lock,
+  Link2,
 } from 'lucide-react';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
@@ -31,8 +34,13 @@ import {
   type CreateAccountPayload,
   type UpdateAccountPayload,
 } from '@/lib/api/accounting';
-import { formatIQD, cn } from '@/lib/utils';
+import { formatIQD, cn, extractApiError } from '@/lib/utils';
 import type { AccountDto } from '@/types/api';
+import { financialManagementApi } from '@/lib/api/financialManagement';
+import {
+  navigateToFinancialManagementAccount,
+  resolveFmTargetForAccount,
+} from '@/pages/financial-management/fmFocus';
 
 const MAX_LEVEL = 5;
 
@@ -574,6 +582,8 @@ function AccountNode({
   onAddChild,
   onEdit,
   onDelete,
+  onOpenFinancialManagement,
+  canOpenFinancialManagement,
   forceShowAll = false,
 }: {
   account: AccountDto;
@@ -584,6 +594,8 @@ function AccountNode({
   onAddChild: (parent: AccountDto) => void;
   onEdit: (a: AccountDto) => void;
   onDelete: (a: AccountDto) => void;
+  onOpenFinancialManagement: (a: AccountDto) => void;
+  canOpenFinancialManagement: boolean;
   /**
    * ‎إن كانت true: نظهر هذا الحساب وكل أبنائه بدون فلتر بحث (يُمرَّر من الأب
    * ‎عند مطابقة سلفٍ ما — لتُعرض الشجرة الفرعية كاملةً تحت الحساب المطابق).
@@ -629,10 +641,17 @@ function AccountNode({
   // ‎الجديد سيكون أيضاً غير قابل للاستخدام في شاشات الاختيار. على المستخدم
   // ‎تفعيله أولاً عبر شاشة التعديل، أو اختيار حساب أب آخر.
   const inactive = account.isActive === false;
-  const canAddChild = account.level < MAX_LEVEL && !blocked && !inactive;
+  // ‎الحساب المحجوز للإدارة المالية (نوع مورد/عميل/مصرف) — لا نسمح بإضافة
+  // ‎فروع تحته من هنا، لأن إضافة الأطراف الفردية تتم حصراً من نافذة
+  // ‎الإدارة المالية لتوليد الكود التلقائي وتفاصيل البطاقة.
+  const lockedForParties = account.isLockedForParties === true;
+  // ‎حساب مُدار من الإدارة المالية (نوع أو طرف) — لا تعديل ولا حذف من الشجرة.
+  const fmManaged = account.isManagedByFinancialManagement === true;
+  const canAddChild = account.level < MAX_LEVEL && !blocked && !inactive && !lockedForParties && !fmManaged;
   // ‎الحساب الذي له أبناء لا يقبل الحذف (يجب حذف أبنائه أولاً) — نخفي الأيقونة
   // ‎بدلاً من إظهارها وفشل العملية لاحقاً.
-  const canDelete = !blocked && !hasChildren;
+  const canDelete = !blocked && !hasChildren && !fmManaged;
+  const canEdit = !fmManaged;
 
   // ‎نُبرز هذا الحساب بإطار/خلفية مميّزة عند مطابقة البحث ليلفت النظر بسهولة
   const isSearchHit = !!q && accountSearchHaystack(account.code, account.nameAr, account.nameEn).includes(q);
@@ -687,6 +706,43 @@ function AccountNode({
           </span>
         )}
 
+        {fmManaged && (
+          canOpenFinancialManagement ? (
+            <button
+              type="button"
+              onClick={() => onOpenFinancialManagement(account)}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-400 transition-colors hover:border-violet-500/70 hover:bg-violet-500/20 hover:text-violet-300"
+              title={t('accountsTree.openFinancialManagementTooltip')}
+            >
+              <Lock className="h-3 w-3" />
+              {t('accountsTree.fmManagedBadge')}
+            </button>
+          ) : (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-400"
+              title={t('accountsTree.fmManagedTooltip')}
+            >
+              <Lock className="h-3 w-3" />
+              {t('accountsTree.fmManagedBadge')}
+            </span>
+          )
+        )}
+
+        {account.isLinkedToAccountSettlement && (
+          <Link
+            to="/financial-management/account-settlements?tab=settings"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-orange-500/40 bg-orange-500/10 px-2 py-0.5 text-[10px] font-medium text-orange-400 transition-colors hover:border-orange-500/70 hover:bg-orange-500/20 hover:text-orange-300"
+            title={t('accountsTree.settlementLinkedTooltip', {
+              roles: (account.accountSettlementRoles ?? [])
+                .map((role) => t(`accountsTree.settlementRole.${role}`, { defaultValue: role }))
+                .join(' · '),
+            })}
+          >
+            <Link2 className="h-3 w-3" />
+            {t('accountsTree.settlementLinkedBadge')}
+          </Link>
+        )}
+
         <span className="hidden text-[10px] text-muted-foreground md:inline">
           L{account.level} · {t(`accountsTree.natures.${account.nature}`, { defaultValue: '—' })}
         </span>
@@ -725,6 +781,7 @@ function AccountNode({
               <Plus className="h-3.5 w-3.5" />
             </button>
           )}
+          {canEdit && (
           <button
             type="button"
             onClick={() => onEdit(account)}
@@ -733,6 +790,7 @@ function AccountNode({
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
+          )}
           {canDelete && (
             <button
               type="button"
@@ -759,6 +817,8 @@ function AccountNode({
               onAddChild={onAddChild}
               onEdit={onEdit}
               onDelete={onDelete}
+              onOpenFinancialManagement={onOpenFinancialManagement}
+              canOpenFinancialManagement={canOpenFinancialManagement}
               forceShowAll={childForceShowAll}
             />
           ))}
@@ -774,6 +834,10 @@ function AccountNode({
 export function AccountsTreePage() {
   const { t } = useTranslation();
   const { can } = usePermissions();
+  const navigate = useNavigate();
+  const canOpenFinancialManagement =
+    can(PERMS.FinancialManagement.Parties.Read) ||
+    can(PERMS.FinancialManagement.Categories.Read);
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>('create');
@@ -920,7 +984,43 @@ export function AccountsTreePage() {
     });
   };
 
+  const openFinancialManagementForAccount = useCallback(async (account: AccountDto) => {
+    if (!canOpenFinancialManagement) return;
+    const toastId = toast.loading(t('accountsTree.openFinancialManagementLoading'));
+    try {
+      const target = await resolveFmTargetForAccount(
+        account.id,
+        () => qc.fetchQuery({
+          queryKey: ['financial-parties', 'focus-lookup'],
+          queryFn: () => financialManagementApi.getParties({ includeInactive: true }),
+          staleTime: 60_000,
+        }),
+        () => qc.fetchQuery({
+          queryKey: ['financial-categories', 'focus-lookup'],
+          queryFn: () => financialManagementApi.getCategories(undefined, true),
+          staleTime: 60_000,
+        }),
+      );
+      if (!target) {
+        toast.error(t('accountsTree.openFinancialManagementNotFound'), { id: toastId });
+        return;
+      }
+      navigateToFinancialManagementAccount(navigate, account.id, target, 'edit');
+      toast.dismiss(toastId);
+    } catch (e) {
+      toast.error(extractApiError(e, t('accountsTree.openFinancialManagementNotFound')), { id: toastId });
+    }
+  }, [canOpenFinancialManagement, navigate, qc, t]);
+
   const handleEdit = (a: AccountDto) => {
+    if (a.isManagedByFinancialManagement) {
+      if (canOpenFinancialManagement) {
+        void openFinancialManagementForAccount(a);
+      } else {
+        toast.info(t('accountsTree.fmManagedNoEdit'));
+      }
+      return;
+    }
     setFormMode('edit');
     setEditingAccount(a);
     // ‎نمرّر الأب الفعلي للحساب أيضاً في وضع التعديل، كي يعمل فحص تكرار الاسم
@@ -929,6 +1029,54 @@ export function AccountsTreePage() {
     setFormError(null);
     setFormOpen(true);
   };
+
+  // ── ربط عميق: عند القدوم من شاشة أخرى (مثل السند) عبر sessionStorage('coa:focus')
+  //    نفتح بطاقة الحساب المطلوب مباشرة: نوسّع آباءه، نضعه في خانة البحث للإبراز،
+  //    ثم نفتح نموذج التعديل. أو نفتح نموذج إضافة ابن تحته إن كان الوضع 'add'.
+  const focusHandledRef = useRef(false);
+  useEffect(() => {
+    if (!data || focusHandledRef.current) return;
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem('coa:focus'); } catch { /* تجاهُل */ }
+    if (!raw) return;
+    focusHandledRef.current = true;
+    try { sessionStorage.removeItem('coa:focus'); } catch { /* تجاهُل */ }
+
+    let payload: { accountId?: number; mode?: 'edit' | 'add' };
+    try { payload = JSON.parse(raw); } catch { return; }
+    const { accountId, mode } = payload;
+
+    if (mode === 'add') {
+      if (accountId != null) {
+        const parent = findAccountById(data, accountId);
+        if (parent) { handleAddChild(parent); return; }
+      }
+      handleAddRoot();
+      return;
+    }
+
+    // ‎الوضع الافتراضي: فتح بطاقة الحساب (تعديل).
+    if (accountId == null) return;
+    const acc = findAccountById(data, accountId);
+    if (!acc) return;
+    // ‎جمع آباء الحساب لتوسيعهم حتى يظهر داخل الشجرة.
+    const ancestors = new Set<number>();
+    let pid = acc.parentId;
+    let guard = 0;
+    while (pid != null && guard++ < 50) {
+      ancestors.add(pid);
+      pid = findAccountById(data, pid)?.parentId;
+    }
+    if (ancestors.size) setExpanded(prev => new Set([...prev, ...ancestors]));
+    setSearch(acc.code);
+    if (acc.isManagedByFinancialManagement) {
+      if (canOpenFinancialManagement) void openFinancialManagementForAccount(acc);
+      else toast.info(t('accountsTree.fmManagedNoEdit'));
+      return;
+    }
+    handleEdit(acc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const handleDelete = (a: AccountDto) => {
     setDeletingAccount(a);
@@ -1087,6 +1235,8 @@ export function AccountsTreePage() {
                   onAddChild={handleAddChild}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
+                  onOpenFinancialManagement={openFinancialManagementForAccount}
+                  canOpenFinancialManagement={canOpenFinancialManagement}
                 />
               ))}
             </div>

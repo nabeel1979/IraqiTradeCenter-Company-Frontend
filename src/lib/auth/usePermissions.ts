@@ -34,6 +34,8 @@ export function usePermissions() {
         cashBoxIds:   data.cashBoxIds,
         roles:        data.roles,
         isSuperAdmin: data.isSuperAdmin,
+        mustChangePassword: data.mustChangePassword,
+        avatarBase64: data.avatarBase64,
       });
     }
   }, [data, setMe]);

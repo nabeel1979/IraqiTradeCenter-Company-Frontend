@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Activity, X, Plus, Pencil, Trash2, Printer, CheckCircle2, RotateCcw, Eye, LogIn, LogOut } from 'lucide-react';
 import { auditApi, type AuditLogDto } from '@/lib/api/audit';
 import { useLocale } from '@/lib/i18n/useLocale';
+import { formatLocalizedAuditPayload } from '@/lib/audit/formatPayload';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
@@ -31,7 +32,11 @@ const ACTION_VISUALS: Record<string, { icon: typeof Activity; tone: string }> = 
  * IDs والـ IP. هذا متعمَّد ولا يعتمد على الـ locale.
  */
 function formatWhen(iso: string): string {
-  const d = new Date(iso);
+  if (!iso) return iso;
+  // ‎الخادم يخزّن الوقت UTC، لكنّ SQL Server/EF يُعيده بـ Kind=Unspecified فيُسلسَل
+  // ‎بلا لاحقة Z؛ نُلحقها حين تغيب أي منطقة زمنية كي يُحوَّل بدقّة لتوقيت بغداد.
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso);
+  const d = new Date(hasTz ? iso : iso + 'Z');
   if (Number.isNaN(d.getTime())) return iso;
   return new Intl.DateTimeFormat('en-GB', {
     year: 'numeric',
@@ -161,8 +166,11 @@ export function EntityAuditDialog({
                           <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
                             {t('audit.details.raw')}
                           </summary>
-                          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/40 p-2 text-[11px] text-muted-foreground" dir="ltr">
-                            {prettyJson(row.detailsJson)}
+                          <pre
+                            className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/40 p-2 text-[11px] text-muted-foreground"
+                            dir={isRtl ? 'rtl' : 'ltr'}
+                          >
+                            {formatLocalizedAuditPayload(row.detailsJson, t)}
                           </pre>
                         </details>
                       )}
@@ -182,12 +190,4 @@ export function EntityAuditDialog({
       </div>
     </div>
   );
-}
-
-function prettyJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }

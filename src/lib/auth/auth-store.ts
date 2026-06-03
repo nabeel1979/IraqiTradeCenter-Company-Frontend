@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { readMustChangePasswordFromToken } from './jwt';
 
 interface User {
   id: string;
@@ -9,6 +10,8 @@ interface User {
   roles?: string[];
   permissions?: string[];
   isSuperAdmin?: boolean;
+  mustChangePassword?: boolean;
+  avatarBase64?: string | null;
 }
 
 /** يكتشف SuperAdmin من أي مصدر متاح (JWT جديد أو جلسة قديمة). */
@@ -28,7 +31,7 @@ interface AuthState {
   cashBoxIds: number[];
   setUser: (user: User) => void;
   /** تحديث جزئي للصلاحيات/الصناديق (يُستدعى بعد /users/me أو بعد refresh). */
-  setMe: (data: { permissions: string[]; cashBoxIds: number[]; roles: string[]; isSuperAdmin: boolean }) => void;
+  setMe: (data: { permissions: string[]; cashBoxIds: number[]; roles: string[]; isSuperAdmin: boolean; mustChangePassword?: boolean; avatarBase64?: string | null }) => void;
   hasPermission: (code: string) => boolean;
   hasAnyPermission: (...codes: string[]) => boolean;
   logout: () => void;
@@ -60,6 +63,8 @@ export const useAuthStore = create<AuthState>()(
           roles: data.roles,
           permissions: data.permissions,
           isSuperAdmin: data.isSuperAdmin,
+          mustChangePassword: data.mustChangePassword ?? readMustChangePasswordFromToken(),
+          avatarBase64: data.avatarBase64 !== undefined ? data.avatarBase64 : state.user.avatarBase64,
         } : state.user,
       })),
 

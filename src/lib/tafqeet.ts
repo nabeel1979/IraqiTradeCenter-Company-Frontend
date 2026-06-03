@@ -1,7 +1,8 @@
 /**
  * تفقيط (تحويل الأرقام إلى كلمات عربية) — يُستخدم في طباعة السندات والفواتير.
  *
- * يدعم: 0 .. 999,999,999,999 صحيحة + جزء كسري بثلاث منازل (للدينار العراقي).
+ * يدعم: 0 .. 999,999,999,999,999 صحيحة + جزء كسري بثلاث منازل (للدينار العراقي).
+ * المراتب: ألف، مليون، مليار (10⁹)، ترليون (10¹²)، كوادريليون (10¹⁵).
  * يستخدم القواعد التقليدية: ميّز/مجرور حسب العدد، صياغة العشرات والمئات،
  * عطف الواو بين المراتب، وإضافة "فقط لا غير" تلقائياً.
  */
@@ -90,6 +91,29 @@ const BILLION: ScaleUnit = {
   pluralBig: 'ملياراً',
 };
 
+const TRILLION: ScaleUnit = {
+  singular: 'ترليون',
+  dual: 'ترليونان',
+  plural3to10: 'ترليونات',
+  pluralBig: 'ترليوناً',
+};
+
+const QUADRILLION: ScaleUnit = {
+  singular: 'كوادريليون',
+  dual: 'كوادريليونان',
+  plural3to10: 'كوادريليونات',
+  pluralBig: 'كوادريليوناً',
+};
+
+/** ترتيب المراتب من الألف صعوداً — كل مرتبة = 1000 × السابقة */
+const SCALE_UNITS: ScaleUnit[] = [
+  THOUSAND,
+  MILLION,
+  BILLION,
+  TRILLION,
+  QUADRILLION,
+];
+
 /** يبني الجزء الخاص بمرتبة معينة (ألف/مليون/مليار) لعدد من 1 .. 999 */
 function buildScale(n: number, unit: ScaleUnit): string {
   if (n === 0) return '';
@@ -106,20 +130,28 @@ function buildScale(n: number, unit: ScaleUnit): string {
   return `${tafqeetSub999(n, false)} ${unit.singular}`;
 }
 
-/** يقوم بصياغة عدد صحيح موجب بالعربية. الحد الأقصى الموصى به: 999,999,999,999. */
+/** يقوم بصياغة عدد صحيح موجب بالعربية. الحد الأقصى: Number.MAX_SAFE_INTEGER. */
 function tafqeetInteger(n: number, feminine = false): string {
   if (n === 0) return 'صفر';
-
-  const billions = Math.floor(n / 1_000_000_000);
-  const millions = Math.floor((n % 1_000_000_000) / 1_000_000);
-  const thousands = Math.floor((n % 1_000_000) / 1000);
-  const rest = n % 1000;
+  if (!Number.isFinite(n) || n < 0) return '';
 
   const parts: string[] = [];
-  if (billions > 0) parts.push(buildScale(billions, BILLION));
-  if (millions > 0) parts.push(buildScale(millions, MILLION));
-  if (thousands > 0) parts.push(buildScale(thousands, THOUSAND));
-  if (rest > 0) parts.push(tafqeetSub999(rest, feminine));
+  let remaining = Math.floor(n);
+  let scaleIndex = 0;
+
+  while (remaining > 0 && scaleIndex < 64) {
+    const chunk = remaining % 1000;
+    if (chunk > 0) {
+      if (scaleIndex === 0) {
+        parts.unshift(tafqeetSub999(chunk, feminine));
+      } else {
+        const unit = SCALE_UNITS[scaleIndex - 1];
+        if (unit) parts.unshift(buildScale(chunk, unit));
+      }
+    }
+    remaining = Math.floor(remaining / 1000);
+    scaleIndex++;
+  }
 
   return parts.join(' و');
 }

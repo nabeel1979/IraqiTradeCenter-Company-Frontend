@@ -4,7 +4,8 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Save, Search, Trash2, ArrowRight,
-  AlertTriangle, BookOpen, X, CheckCircle2, Printer, FilePlus2, Lock, History, Archive,
+  AlertTriangle, BookOpen, X, CheckCircle2, Printer, FilePlus2, Lock, History, Archive, Undo2,
+  Download, Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -13,20 +14,31 @@ import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import {
   accountingApi,
+  getReversalOriginalEntryId,
   type JournalEntryType,
   type PostJournalEntryPayload,
   type UpdateJournalEntryPayload,
 } from '@/lib/api/accounting';
+import {
+  CASH_BOX_TRANSFERS_PATH,
+  isDirectTransferReference,
+} from '@/lib/accounting/journalEntrySource';
+import { navigateBackFromEntrySource } from '@/lib/reportReturnState';
+import {
+  exportJournalLinesTemplate,
+  importJournalLinesFromExcel,
+} from '@/lib/accounting/journalEntryLinesExcel';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { currenciesApi } from '@/lib/api/currencies';
 import { journalVoucherTypesApi, type JournalVoucherTypeDto } from '@/lib/api/journalVoucherTypes';
-import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
+import { defaultEntryDateForFiscalYear } from '@/lib/fiscalYearDates';
 import { printSingleJournalEntry } from '@/lib/printUtils';
 import { auditApi } from '@/lib/api/audit';
 import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
 import { VoucherAttachmentsDialog } from '@/components/accounting/VoucherAttachmentsDialog';
+import { voucherAttachmentsApi } from '@/lib/api/attachments';
 import { formatAmount, cn, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
 import type { AccountDto } from '@/types/api';
 import { useLocale, localizedAccountName, localizedVoucherTypeName } from '@/lib/i18n';
@@ -116,6 +128,8 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     : t('createJournalEntry.back');
   const backShort = returnState?.returnLabel || t('createJournalEntry.back');
 
+  const handleBack = () => navigateBackFromEntrySource(navigate, backHref, returnState?.returnTo);
+
   const [entryDate, setEntryDate] = useState(() => toIsoLocalDate(new Date()));
   const [description, setDescription] = useState('');
   const [manualNumber, setManualNumber] = useState('');
@@ -130,6 +144,8 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const [showAudit, setShowAudit] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const voucherTypeAppliedRef = useRef<number | null>(null);
+  const linesFileInputRef = useRef<HTMLInputElement>(null);
+  const [importingLines, setImportingLines] = useState(false);
 
   // ‎حالة الفترة المحاسبية لتاريخ القيد: تتبدّل مع كل تعديل لـ entryDate.
   // ‎عندما تكون الفترة مغلقة/مقفلة (أو السنة مغلقة) ⇒ الصفحة قراءة فقط:
@@ -145,6 +161,12 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   // ‎السنة المالية المُفَعَّلة — مرجع مستقلّ عن الفترات: حتى لو كانت
   // ‎الفترة مفتوحة، لا يُسمح بتعديل قيد ينتمي لسنة مالية أخرى.
   const { activeFiscalYear } = useActiveFiscalYear();
+  useEffect(() => {
+    if (isEdit) return;
+    if (activeFiscalYear) {
+      setEntryDate(defaultEntryDateForFiscalYear(activeFiscalYear));
+    }
+  }, [activeFiscalYear?.id, isEdit]);
   const isPeriodLocked = !!periodStatus && !periodStatus.isEditable;
   const periodLockReason = (() => {
     if (!periodStatus) return null;
@@ -165,20 +187,20 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     [treeQuery.data]
   );
 
-  // ‎الصناديق النشطة — لاستثناء حساباتها من القوائم: لا يجوز تحريك حساب صندوق
-  // ‎عبر قيد عام، فقط عبر سندات قبض/دفع. الباك إند يفرض القاعدة نفسها.
-  const cashBoxesQuery = useQuery({
-    queryKey: ['cash-boxes', 'active'],
-    queryFn: () => cashBoxesApi.getAll(true),
+  // ‎حسابات محجوبة (صناديق + وسيط تسوية) — لا يجوز تحريكها عبر قيد عام.
+  // ‎الباك إند يفرض القاعدة نفسها.
+  const restrictedAccountsQuery = useQuery({
+    queryKey: ['accounts', 'journal-restricted-ids'],
+    queryFn: () => accountingApi.getJournalRestrictedAccountIds(),
     staleTime: 60_000,
   });
-  const cashBoxAccountIds = useMemo(
-    () => new Set((cashBoxesQuery.data ?? []).map(b => b.accountId)),
-    [cashBoxesQuery.data]
+  const restrictedAccountIds = useMemo(
+    () => new Set(restrictedAccountsQuery.data ?? []),
+    [restrictedAccountsQuery.data],
   );
   const selectableAccounts = useMemo(
-    () => leafAccounts.filter(a => !cashBoxAccountIds.has(a.id)),
-    [leafAccounts, cashBoxAccountIds]
+    () => leafAccounts.filter(a => !restrictedAccountIds.has(a.id)),
+    [leafAccounts, restrictedAccountIds],
   );
 
   // ── جلب العملات المُفعَّلة بترتيبها من الإعدادات
@@ -226,6 +248,14 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     enabled: isEdit,
   });
 
+  const entryAttachmentsQuery = useQuery({
+    queryKey: ['voucher-attachments', editId],
+    queryFn: () => voucherAttachmentsApi.list(editId!),
+    enabled: isEdit && editId != null,
+    staleTime: 30_000,
+  });
+  const entryAttachmentCount = entryAttachmentsQuery.data?.length ?? 0;
+
   // ‎تاريخ القيد الأصلي كما هو في قاعدة البيانات. نستخدمه (وليس قيمة
   // ‎حقل التاريخ في النموذج) لتقييم انتماء القيد للسنة النشطة، فلا
   // ‎يستطيع المستخدم الالتفاف على القيد عبر تعديل التاريخ في الحقل.
@@ -253,6 +283,19 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     if (!e?.voucherTypeId) return null;
     return voucherTypes.find(v => v.id === e.voucherTypeId) ?? null;
   }, [editQuery.data, voucherTypes]);
+
+  const originalReversalEntryId = editQuery.data
+    ? getReversalOriginalEntryId(editQuery.data)
+    : null;
+  const reversalOriginalQuery = useQuery({
+    queryKey: ['journal-entry', 'reversal-original', originalReversalEntryId],
+    queryFn: () => accountingApi.getJournalEntryById(originalReversalEntryId!),
+    enabled: isEdit && originalReversalEntryId != null,
+    staleTime: 60_000,
+  });
+  const isReversalOfTransfer = reversalOriginalQuery.data
+    ? isDirectTransferReference(reversalOriginalQuery.data.referenceType)
+    : false;
 
   useEffect(() => {
     if (!isEdit || !editQuery.data) return;
@@ -352,6 +395,51 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     setLines(prev => [...prev, newLine(isDebit)]);
   };
 
+  const handleExportLines = () => {
+    exportJournalLinesTemplate(leafAccounts, locale, 'journal-lines-template');
+    toast.success(t('createJournalEntry.excel.exportDone'));
+  };
+
+  const handleImportLinesFile = async (file: File) => {
+    setImportingLines(true);
+    try {
+      const result = await importJournalLinesFromExcel(file, leafAccounts);
+      if (result.imported === 0) {
+        toast.error(t('createJournalEntry.excel.importNone'));
+        return;
+      }
+      setLines(result.lines.map(l => ({
+        uid: l.uid,
+        accountId: l.accountId,
+        accountCode: l.accountCode,
+        accountName: l.accountName,
+        isDebit: l.isDebit,
+        amount: l.amount,
+        description: l.description,
+      })));
+      setError(null);
+      const parts: string[] = [t('createJournalEntry.excel.importDone', { count: result.imported })];
+      if (result.unknownAccounts.length > 0) {
+        const preview = result.unknownAccounts.slice(0, 5).join('، ');
+        const more = result.unknownAccounts.length > 5
+          ? t('createJournalEntry.excel.andMore', { count: result.unknownAccounts.length - 5 })
+          : '';
+        parts.push(t('createJournalEntry.excel.skippedAccounts', {
+          count: result.unknownAccounts.length,
+          list: `${preview}${more}`,
+        }));
+        toast.warning(parts.join(' — '));
+      } else {
+        toast.success(parts[0]);
+      }
+    } catch (e) {
+      toast.error(extractApiError(e, t('createJournalEntry.excel.importFailed')));
+    } finally {
+      setImportingLines(false);
+      if (linesFileInputRef.current) linesFileInputRef.current.value = '';
+    }
+  };
+
   // ── الحفظ
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -384,7 +472,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
       }
       toast.success(isEdit ? t('createJournalEntry.saveSuccessEdit') : t('createJournalEntry.saveSuccessCreate'));
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
-      navigate(backHref);
+      handleBack();
     },
     onError: (err: any) => {
       const msg = extractApiError(err, t('createJournalEntry.saveFailed'));
@@ -405,7 +493,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
       toast.success(t('createJournalEntry.deleteSuccess'));
       setShowDeleteConfirm(false);
       queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
-      navigate(backHref);
+      handleBack();
     },
     onError: (err: any) => {
       toast.error(extractApiError(err, t('createJournalEntry.deleteFailed')));
@@ -524,7 +612,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate(backHref)}
+              onClick={handleBack}
               className="h-8 gap-1.5 text-muted-foreground"
             >
               <ArrowRight className="h-3.5 w-3.5" />
@@ -609,7 +697,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
           <Button
             variant={returnState?.returnTo ? 'default' : 'outline'}
             size="sm"
-            onClick={() => navigate(backHref)}
+            onClick={handleBack}
             className={cn(
               'h-8 gap-1 px-2',
               returnState?.returnTo && 'gap-1.5 bg-primary/90 hover:bg-primary'
@@ -674,6 +762,30 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             >
               <Printer className="h-3.5 w-3.5" />
               {t('createJournalEntry.print')}
+            </Button>
+          )}
+          {isEdit && originalReversalEntryId != null && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (isReversalOfTransfer) {
+                  navigate(CASH_BOX_TRANSFERS_PATH);
+                  return;
+                }
+                navigate(`/accounting/journal/${originalReversalEntryId}/view`);
+              }}
+              title={
+                isReversalOfTransfer
+                  ? t('createJournalEntry.openTransferSourceTip')
+                  : t('createJournalEntry.viewOriginalEntryTip', { num: originalReversalEntryId })
+              }
+              className="h-8 gap-1.5 border-sky-500/60 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 hover:text-sky-300"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              {isReversalOfTransfer
+                ? t('createJournalEntry.openTransferSource')
+                : t('createJournalEntry.viewOriginalEntry', { num: originalReversalEntryId })}
             </Button>
           )}
           {/*
@@ -945,6 +1057,37 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
           </div>
           {!isView && (
             <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExportLines}
+                className="h-7 gap-1 px-2 text-xs"
+                title={t('createJournalEntry.excel.exportTip')}
+              >
+                <Upload className="h-3 w-3" />
+                {t('createJournalEntry.excel.export')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => linesFileInputRef.current?.click()}
+                disabled={importingLines}
+                className="h-7 gap-1 px-2 text-xs"
+                title={t('createJournalEntry.excel.importTip')}
+              >
+                <Download className="h-3 w-3" />
+                {importingLines ? t('createJournalEntry.excel.importing') : t('createJournalEntry.excel.import')}
+              </Button>
+              <input
+                ref={linesFileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleImportLinesFile(f);
+                }}
+              />
               <Button size="sm" variant="outline" onClick={() => addLine(true)} className="h-7 gap-1 px-2 text-xs">
                 <Plus className="h-3 w-3" />
                 {t('createJournalEntry.lines.addLine')}
@@ -1104,6 +1247,19 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
                     {t('createJournalEntry.deleteConfirm.amountLabel')}: {formatAmount(editQuery.data.totalDebit)} {editQuery.data.currency || 'IQD'}
                   </div>
                 </div>
+              )}
+              {entryAttachmentCount > 0 && (
+                <p className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+                  <Archive className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {t('createJournalEntry.deleteConfirm.attachmentsWarning', {
+                      count: entryAttachmentCount,
+                      defaultValue: entryAttachmentCount === 1
+                        ? 'سوف يُحذف ملف واحد مرفق من أرشيف السند.'
+                        : `سوف تُحذف ${entryAttachmentCount} ملفات مرفقة من أرشيف السند.`,
+                    })}
+                  </span>
+                </p>
               )}
               <p className="text-xs text-amber-400">{t('createJournalEntry.deleteConfirm.irreversible')}</p>
             </div>

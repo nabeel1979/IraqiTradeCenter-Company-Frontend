@@ -7,6 +7,7 @@ export interface AccountStatementParams {
   accountId?: number;    // null = all accounts
   currency?: string;     // null = all currencies
   includeDraft?: boolean;
+  includeOpeningEntries?: boolean;
 }
 
 export type JournalEntryType = 1 | 2; // 1=Normal, 2=Opening
@@ -27,6 +28,10 @@ export interface PostJournalEntryPayload {
   voucherTypeId?: number | null;
   /** رقم يدوي اختياري — شيك، إيصال خارجي، … (قابل للبحث) */
   manualNumber?: string | null;
+  /** سعر صرف يدوي اختياري (حين لا توجد نشرة تُسعّر العملة بتاريخ القيد) */
+  manualExchangeRate?: number | null;
+  /** عملية السعر اليدوي: 1=ضرب (افتراضي)، 2=قسمة */
+  manualExchangeRateOperation?: number | null;
   lines: JournalLinePayload[];
 }
 
@@ -39,6 +44,10 @@ export interface UpdateJournalEntryPayload {
   voucherTypeId?: number | null;
   /** رقم يدوي اختياري — شيك، إيصال خارجي، … */
   manualNumber?: string | null;
+  /** سعر صرف يدوي اختياري (حين لا توجد نشرة تُسعّر العملة بتاريخ القيد) */
+  manualExchangeRate?: number | null;
+  /** عملية السعر اليدوي: 1=ضرب (افتراضي)، 2=قسمة */
+  manualExchangeRateOperation?: number | null;
   lines: JournalLinePayload[];
 }
 
@@ -50,6 +59,10 @@ export interface UpdateVoucherEntryPayload {
   postImmediately?: boolean;
   /** رقم يدوي اختياري للسند */
   manualNumber?: string | null;
+  /** سعر صرف يدوي اختياري (حين لا توجد نشرة تُسعّر العملة بتاريخ السند) */
+  manualExchangeRate?: number | null;
+  /** عملية السعر اليدوي: 1=ضرب (افتراضي)، 2=قسمة */
+  manualExchangeRateOperation?: number | null;
   lines: JournalLinePayload[];
 }
 
@@ -58,6 +71,29 @@ export interface JournalEntriesListParams {
   fromDate?: string; toDate?: string; voucherTypeId?: number;
   /** عند true: استبعد القيود التي نوع سندها مفعَّل في القائمة الجانبية */
   excludeSidebarVoucherTypes?: boolean;
+}
+
+export interface PostDraftJournalEntriesParams {
+  search?: string;
+  fromDate?: string;
+  toDate?: string;
+  voucherTypeId?: number;
+  excludeSidebarVoucherTypes?: boolean;
+}
+
+export interface PostDraftJournalEntryIssueDto {
+  entryId: number;
+  entryNumber: string;
+  voucherNumber?: string | null;
+  reason: string;
+  kind: 'Skipped' | 'Failed';
+}
+
+export interface PostDraftJournalEntriesResultDto {
+  postedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  issues: PostDraftJournalEntryIssueDto[];
 }
 
 export interface CreateAccountPayload {
@@ -101,6 +137,11 @@ export const accountingApi = {
     });
     return res.data.data ?? [];
   },
+  /** صناديق + حسابات وسيط تسوية — لا تظهر في القيود اليومية */
+  getJournalRestrictedAccountIds: async (): Promise<number[]> => {
+    const res = await api.get<ApiResponse<number[]>>('/accounts/journal-restricted-ids');
+    return res.data.data ?? [];
+  },
   createAccount: async (data: CreateAccountPayload) => {
     const res = await api.post<ApiResponse<number>>('/accounts', data);
     return res.data;
@@ -141,6 +182,7 @@ export const accountingApi = {
     maxLevel?: number | null;
     leavesOnly?: boolean;
     includeDraft?: boolean;
+    includeOpeningEntries?: boolean;
   }) => {
     const res = await api.get<ApiResponse<AccountBalancesDto>>('/accounts/balances', {
       params: {
@@ -152,6 +194,7 @@ export const accountingApi = {
         maxLevel: params.maxLevel ?? undefined,
         leavesOnly: params.leavesOnly ?? true,
         includeDraft: params.includeDraft ?? false,
+        includeOpeningEntries: params.includeOpeningEntries ?? true,
       },
     });
     return res.data.data!;
@@ -164,6 +207,7 @@ export const accountingApi = {
     maxLevel?: number | null;
     leavesOnly?: boolean;
     includeDraft?: boolean;
+    includeOpeningEntries?: boolean;
   }) => {
     const res = await api.get<ApiResponse<TrialBalanceDto>>('/accounts/trial-balance', {
       params: {
@@ -174,16 +218,39 @@ export const accountingApi = {
         maxLevel: params.maxLevel ?? undefined,
         leavesOnly: params.leavesOnly ?? true,
         includeDraft: params.includeDraft ?? false,
+        includeOpeningEntries: params.includeOpeningEntries ?? true,
       },
     });
     return res.data.data!;
   },
   getAccountStatement: async (params: AccountStatementParams) => {
-    const res = await api.get<ApiResponse<AccountStatementDto>>('/accounts/statement', { params });
+    const res = await api.get<ApiResponse<AccountStatementDto>>('/accounts/statement', {
+      params: {
+        ...params,
+        includeOpeningEntries: params.includeOpeningEntries ?? true,
+      },
+    });
     return res.data.data!;
   },
   getJournalEntries: async (params: JournalEntriesListParams = {}) => {
     const res = await api.get<ApiResponse<PagedResult<JournalEntryDto>>>('/accounts/journal-entries', { params });
+    return res.data.data!;
+  },
+  postDraftJournalEntries: async (params: PostDraftJournalEntriesParams = {}) => {
+    const res = await api.post<ApiResponse<PostDraftJournalEntriesResultDto>>(
+      '/accounts/journal-entries/post-drafts',
+      null,
+      {
+        params: {
+          search: params.search || undefined,
+          fromDate: params.fromDate || undefined,
+          toDate: params.toDate || undefined,
+          voucherTypeId: params.voucherTypeId,
+          excludeSidebarVoucherTypes: params.excludeSidebarVoucherTypes ?? false,
+        },
+        skipGlobalErrorHandler: true,
+      },
+    );
     return res.data.data!;
   },
   postJournalEntry: async (data: PostJournalEntryPayload) => {
@@ -212,3 +279,12 @@ export const accountingApi = {
     return res.data;
   },
 };
+
+export {
+  CASH_BOX_BALANCES_PATH,
+  CASH_BOX_TRANSFERS_PATH,
+  getReversalOriginalEntryId,
+  isDirectTransferReference,
+  isTransferRelatedJournalEntry,
+  navigateJournalEntrySource,
+} from '@/lib/accounting/journalEntrySource';

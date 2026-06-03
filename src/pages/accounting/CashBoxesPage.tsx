@@ -1,65 +1,41 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Wallet, Plus, Pencil, Trash2, ChevronUp, ChevronDown, CheckCircle2, Circle,
-  X, Save, Search, Banknote, ArrowLeftRight, Scale,
-  Lock, Clock, ShieldCheck, RotateCcw, Ban, Printer,
+  X, ArrowLeftRight, Scale,
+  Lock, Clock, ShieldCheck, RotateCcw, Ban, Printer, Pencil, Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
-import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { CashBoxTransferDialog } from '@/components/accounting/CashBoxTransferDialog';
 import { cn, extractApiError, formatAmount } from '@/lib/utils';
 import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
-import { currenciesApi, type CurrencyDto } from '@/lib/api/currencies';
 import { printCashBoxBalances, printCashBoxTransfer } from '@/lib/printUtils';
 import {
   cashBoxesApi,
   type CashBoxDto,
   type CashBoxBalanceDto,
   type CashBoxTransferDto,
-  type UpsertCashBoxPayload,
-  type UpsertCashBoxCurrencyPayload,
 } from '@/lib/api/cashBoxes';
 import type { AccountDto } from '@/types/api';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import { useLocale, localizedName, localizedAccountName } from '@/lib/i18n';
+import { CASH_BOX_TRANSFERS_PATH } from '@/lib/accounting/journalEntrySource';
 
-type CashBoxTab = 'boxes' | 'balances' | 'transfers';
+export type CashBoxesPageMode = 'balances' | 'transfers';
 
-function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
-  const out: AccountDto[] = [];
-  const walk = (nodes: AccountDto[]) => {
-    for (const n of nodes) {
-      if (n.isLeaf) out.push(n);
-      if (n.children?.length) walk(n.children);
-    }
-  };
-  walk(tree);
-  return out;
-}
-
-export function CashBoxesPage() {
+export function CashBoxesPage({ mode }: { mode: CashBoxesPageMode }) {
   const { t } = useTranslation();
-  const { locale, isRtl } = useLocale();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const location = useLocation();
   const { can } = usePermissions();
 
-  // ‎صلاحيات تبويبات الصفحة الثلاث — مفصولة لأن المستخدم قد يطّلع على الأرصدة
-  // ‎فقط، أو يستلم مناقلات دون أن يُعدِّل الصناديق نفسها.
-  const canReadBoxes      = can(PERMS.Accounting.CashBoxes.Read);
-  const canCreateBox      = can(PERMS.Accounting.CashBoxes.Create);
-  const canUpdateBox      = can(PERMS.Accounting.CashBoxes.Update);
-  const canDeleteBox      = can(PERMS.Accounting.CashBoxes.Delete);
   const canReadBalances   = can(PERMS.Accounting.CashBoxBalances.Read);
   const canPrintBalances  = can(PERMS.Accounting.CashBoxBalances.Print);
   const canReadTransfers  = can(PERMS.Accounting.CashBoxTransfers.Read);
@@ -70,22 +46,8 @@ export function CashBoxesPage() {
   const canCancelTransfer = can(PERMS.Accounting.CashBoxTransfers.Cancel);
   const canPrintTransfers = can(PERMS.Accounting.CashBoxTransfers.Print);
 
-  // ‎التبويب الابتدائي من ?tab=transfers (يُستخدم عند العودة من نافذة عرض القيد)؛
-  // ‎مع احترام الصلاحيات: لا نبدأ بتبويب غير مسموح.
-  const initialTab: CashBoxTab = (() => {
-    const tabParam = new URLSearchParams(location.search).get('tab');
-    if (tabParam === 'balances' && canReadBalances) return 'balances';
-    if (tabParam === 'transfers' && canReadTransfers) return 'transfers';
-    if (canReadBoxes) return 'boxes';
-    if (canReadBalances) return 'balances';
-    if (canReadTransfers) return 'transfers';
-    return 'boxes';
-  })();
-  const [tab, setTab] = useState<CashBoxTab>(initialTab);
-  const [search, setSearch] = useState('');
-  const [showOnly, setShowOnly] = useState<'all' | 'active'>('all');
-  const [editing, setEditing] = useState<CashBoxDto | null>(null);
-  const [creatingNew, setCreatingNew] = useState(false);
+  const canAccessPage = mode === 'balances' ? canReadBalances : canReadTransfers;
+
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferDefaults, setTransferDefaults] = useState<{
     fromBoxId?: number | null;
@@ -101,10 +63,10 @@ export function CashBoxesPage() {
   /** مناقلة ملغاة بانتظار تأكيد الحذف النهائي (يحذف القيود معها). */
   const [deletingTransfer, setDeletingTransfer] = useState<CashBoxTransferDto | null>(null);
 
-  const { data: boxes = [], isLoading } = useQuery({
+  const { data: boxes = [] } = useQuery({
     queryKey: ['cash-boxes', 'all'],
     queryFn: () => cashBoxesApi.getAll(false),
-    enabled: canReadBoxes || canReadBalances || canReadTransfers,
+    enabled: canAccessPage,
   });
 
   const balancesQuery = useQuery({
@@ -122,11 +84,8 @@ export function CashBoxesPage() {
   const treeQuery = useQuery({
     queryKey: ['accounts', 'tree'],
     queryFn: accountingApi.getTree,
+    enabled: canAccessPage,
   });
-  const leafAccounts = useMemo(
-    () => (treeQuery.data ? flattenLeafAccounts(treeQuery.data) : []),
-    [treeQuery.data]
-  );
 
   const accountById = useMemo(() => {
     const m = new Map<number, AccountDto>();
@@ -142,60 +101,12 @@ export function CashBoxesPage() {
 
   const boxById = useMemo(() => new Map(boxes.map(b => [b.id, b])), [boxes]);
 
-  const currenciesQuery = useQuery({
-    queryKey: ['currencies', 'enabled'],
-    queryFn: () => currenciesApi.getAll(true),
-    staleTime: 60_000,
-  });
-  const enabledCurrencies = currenciesQuery.data ?? [];
-
   const companyQuery = useQuery({
     queryKey: ['company-settings'],
     queryFn: companySettingsApi.get,
     staleTime: 5 * 60 * 1000,
   });
   const company = companyQuery.data ?? null;
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return boxes.filter(b => {
-      if (showOnly === 'active' && !b.isActive) return false;
-      if (!q) return true;
-      return (
-        b.code.toLowerCase().includes(q) ||
-        b.nameAr.toLowerCase().includes(q) ||
-        (b.nameEn ?? '').toLowerCase().includes(q) ||
-        (b.accountCode ?? '').toLowerCase().includes(q) ||
-        (b.accountName ?? '').toLowerCase().includes(q)
-      );
-    });
-  }, [boxes, search, showOnly]);
-
-  const toggleM = useMutation({
-    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
-      cashBoxesApi.toggle(id, isActive),
-    onSuccess: (_d, vars) => {
-      toast.success(vars.isActive ? t('cashBoxes.toast.activated') : t('cashBoxes.toast.deactivated'));
-      qc.invalidateQueries({ queryKey: ['cash-boxes'] });
-    },
-    onError: (e: any) => toast.error(extractApiError(e, t('cashBoxes.toast.toggleFailed'))),
-  });
-
-  const moveM = useMutation({
-    mutationFn: ({ id, direction }: { id: number; direction: 'up' | 'down' }) =>
-      cashBoxesApi.move(id, direction),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['cash-boxes'] }),
-    onError: (e: any) => toast.error(extractApiError(e, t('cashBoxes.toast.moveFailed'))),
-  });
-
-  const deleteM = useMutation({
-    mutationFn: (id: number) => cashBoxesApi.delete(id),
-    onSuccess: () => {
-      toast.success(t('cashBoxes.toast.deleted'));
-      qc.invalidateQueries({ queryKey: ['cash-boxes'] });
-    },
-    onError: (e: any) => toast.error(extractApiError(e, t('cashBoxes.toast.deleteFailed'))),
-  });
 
   const activeCount = boxes.filter(b => b.isActive).length;
   const balances = balancesQuery.data ?? [];
@@ -205,6 +116,14 @@ export function CashBoxesPage() {
     setTransferDefaults(defaults ?? null);
     setTransferOpen(true);
   };
+
+  if (!canAccessPage) {
+    return (
+      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+        {t('common.noData')}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -222,34 +141,9 @@ export function CashBoxesPage() {
             {t('cashBoxes.newTransfer')}
           </Button>
         )}
-        {canCreateBox && (
-          <Button onClick={() => setCreatingNew(true)} size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            {t('cashBoxes.newBox')}
-          </Button>
-        )}
       </div>
 
-      {/* تبويبات: الصناديق / الأرصدة / المناقلات — تُخفى التبويبات الممنوعة */}
-      <div className="flex flex-wrap gap-1 rounded-md border border-input bg-secondary/30 p-1 text-xs">
-        {canReadBoxes && (
-          <TabButton active={tab === 'boxes'} onClick={() => setTab('boxes')} icon={Wallet}>
-            {t('cashBoxes.tabs.boxes')} ({boxes.length})
-          </TabButton>
-        )}
-        {canReadBalances && (
-          <TabButton active={tab === 'balances'} onClick={() => setTab('balances')} icon={Scale}>
-            {t('cashBoxes.tabs.balances')} ({balances.length})
-          </TabButton>
-        )}
-        {canReadTransfers && (
-          <TabButton active={tab === 'transfers'} onClick={() => setTab('transfers')} icon={ArrowLeftRight}>
-            {t('cashBoxes.tabs.transfers')} ({transfers.length})
-          </TabButton>
-        )}
-      </div>
-
-      {tab === 'balances' && canReadBalances && (
+      {mode === 'balances' && canReadBalances && (
         <BalancesTab
           balances={balances}
           boxById={boxById}
@@ -275,7 +169,7 @@ export function CashBoxesPage() {
         />
       )}
 
-      {tab === 'transfers' && canReadTransfers && (
+      {mode === 'transfers' && canReadTransfers && (
         <TransfersTab
           transfers={transfers}
           boxById={boxById}
@@ -289,7 +183,7 @@ export function CashBoxesPage() {
           onOpenEntry={entryId =>
             navigate(`/accounting/journal/${entryId}/view`, {
               state: {
-                returnTo: '/accounting/cash-boxes?tab=transfers',
+                returnTo: CASH_BOX_TRANSFERS_PATH,
                 returnLabel: t('cashBoxes.returnLabel'),
               },
             })
@@ -346,213 +240,6 @@ export function CashBoxesPage() {
         />
       )}
 
-      {tab === 'boxes' && canReadBoxes && (
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[220px]">
-              <Search className={cn('absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground', isRtl ? 'right-2' : 'left-2')} />
-              <Input
-                placeholder={t('cashBoxes.searchPlaceholder')}
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className={cn('h-8 text-xs', isRtl ? 'pr-7' : 'pl-7')}
-              />
-            </div>
-            <div className="flex items-center gap-1 rounded-md border border-input bg-secondary/40 p-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setShowOnly('all')}
-                className={cn(
-                  'rounded px-2 py-1 transition-colors',
-                  showOnly === 'all' ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
-                )}
-              >
-                {t('cashBoxes.filterAll')} ({boxes.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowOnly('active')}
-                className={cn(
-                  'rounded px-2 py-1 transition-colors',
-                  showOnly === 'active' ? 'bg-primary text-primary-foreground' : 'hover:bg-secondary'
-                )}
-              >
-                {t('cashBoxes.filterActive')} ({activeCount})
-              </button>
-            </div>
-            <CardTitle className="ms-auto text-xs text-muted-foreground">
-              {t('cashBoxes.showing', { shown: filtered.length, total: boxes.length })}
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex justify-center py-8">
-              <LoadingSpinner />
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              {t('cashBoxes.noMatch')}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-secondary/50 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="w-12 p-2 text-center">#</th>
-                    <th className="w-28 p-2 text-right">{t('cashBoxes.table.code')}</th>
-                    <th className="p-2 text-right">{t('cashBoxes.table.name')}</th>
-                    <th className="p-2 text-right">{t('cashBoxes.table.linkedAccount')}</th>
-                    <th className="p-2 text-center">{t('cashBoxes.table.currencies')}</th>
-                    <th className="w-24 p-2 text-center">{t('cashBoxes.table.status')}</th>
-                    <th className="w-32 p-2 text-center">{t('cashBoxes.table.actions')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((b, idx) => (
-                    <tr
-                      key={b.id}
-                      className={cn(
-                        'border-t border-border/40 transition-colors hover:bg-secondary/20',
-                        !b.isActive && 'opacity-60'
-                      )}
-                    >
-                      <td className="p-2 text-center text-xs text-muted-foreground">{idx + 1}</td>
-                      <td className="p-2 text-right">
-                        <code className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-bold text-primary">
-                          {b.code}
-                        </code>
-                      </td>
-                      <td className="p-2 text-right">
-                        <span className="text-sm font-medium">{localizedName(locale, b.nameAr, b.nameEn)}</span>
-                        {b.description && (
-                          <p className="mt-0.5 text-[11px] text-muted-foreground">{b.description}</p>
-                        )}
-                      </td>
-                      <td className="p-2 text-right text-xs">
-                        {b.accountId ? (
-                          <span className="inline-flex items-center gap-1">
-                            <span className="num-display text-primary">{b.accountCode}</span>
-                            <span className="text-muted-foreground">
-                              -{' '}
-                              {localizedAccountName(
-                                locale,
-                                accountById.get(b.accountId)?.nameAr ?? b.accountName ?? '',
-                                accountById.get(b.accountId)?.nameEn
-                              )}
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground/50">—</span>
-                        )}
-                      </td>
-                      <td className="p-2 text-center">
-                        {b.currencies.length === 0 ? (
-                          <span className="text-[11px] text-muted-foreground/50">—</span>
-                        ) : (
-                          <span
-                            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] text-emerald-300"
-                            title={
-                              b.currencies.length > 0
-                                ? t('cashBoxes.currenciesLinked', {
-                                    list: b.currencies.map(c => c.currency).join(' · '),
-                                  })
-                                : ''
-                            }
-                          >
-                            <Banknote className="h-3 w-3" />
-                            <span className="num-display font-bold">{b.currencies.length}</span>
-                            <span className="opacity-80">{t('cashBoxes.currencyCount')}</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            canUpdateBox && toggleM.mutate({ id: b.id, isActive: !b.isActive })
-                          }
-                          disabled={toggleM.isPending || !canUpdateBox}
-                          title={!canUpdateBox ? t('cashBoxes.noEditPerm') : undefined}
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors',
-                            b.isActive
-                              ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                              : 'border border-muted-foreground/20 bg-muted-foreground/5 text-muted-foreground hover:bg-muted-foreground/10',
-                            !canUpdateBox && 'cursor-not-allowed opacity-60 hover:bg-transparent'
-                          )}
-                        >
-                          {b.isActive ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
-                          {b.isActive ? t('cashBoxes.statusActive') : t('cashBoxes.statusInactive')}
-                        </button>
-                      </td>
-                      <td className="p-2 text-center">
-                        <div className="inline-flex items-center gap-0.5">
-                          {canUpdateBox && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => moveM.mutate({ id: b.id, direction: 'up' })}
-                                disabled={moveM.isPending || idx === 0}
-                                title={t('cashBoxes.moveUp')}
-                                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-30"
-                              >
-                                <ChevronUp className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveM.mutate({ id: b.id, direction: 'down' })}
-                                disabled={moveM.isPending || idx === filtered.length - 1}
-                                title={t('cashBoxes.moveDown')}
-                                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-30"
-                              >
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditing(b)}
-                                title={t('cashBoxes.edit')}
-                                className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                            </>
-                          )}
-                          {/* ‎زر الحذف يُخفى إذا كان للصندوق حركات (الحساب المرتبط له سطور قيود).
-                               ‎الحماية مكرَّرة على الخادم — هذا فقط لتحسين تجربة المستخدم. */}
-                          {canDeleteBox && !b.hasMovements && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    t('cashBoxes.deleteConfirm', {
-                                      name: localizedName(locale, b.nameAr, b.nameEn),
-                                    })
-                                  )
-                                ) {
-                                  deleteM.mutate(b.id);
-                                }
-                              }}
-                              title={t('cashBoxes.delete')}
-                              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      )}
-
       {transferOpen && (
         <CashBoxTransferDialog
           boxes={boxes}
@@ -569,8 +256,7 @@ export function CashBoxesPage() {
             setTransferDefaults(null);
             qc.invalidateQueries({ queryKey: ['cash-box-balances'] });
             qc.invalidateQueries({ queryKey: ['cash-box-transfers'] });
-            // ‎الانتقال إلى تبويب المناقلات لإظهار العنصر الجديد
-            setTab('transfers');
+            navigate(CASH_BOX_TRANSFERS_PATH);
           }}
         />
       )}
@@ -589,424 +275,13 @@ export function CashBoxesPage() {
           }}
         />
       )}
-
-      {(creatingNew || editing) && (
-        <CashBoxDialog
-          existing={editing}
-          existingCodes={boxes.map(b => b.code)}
-          accounts={leafAccounts}
-          enabledCurrencies={enabledCurrencies}
-          onClose={() => {
-            setEditing(null);
-            setCreatingNew(false);
-          }}
-          onSaved={() => {
-            qc.invalidateQueries({ queryKey: ['cash-boxes'] });
-            setEditing(null);
-            setCreatingNew(false);
-          }}
-        />
-      )}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Dialog: تعديل/إضافة صندوق
+// مكوّنات مساعدة: جدول الأرصدة + جدول المناقلات
 // ─────────────────────────────────────────────────────────────────────
-
-interface CurrencyRow {
-  uid: string;
-  currency: string;
-  debitLimit: string;
-  creditLimit: string;
-  isActive: boolean;
-}
-
-function CashBoxDialog({
-  existing,
-  existingCodes,
-  accounts,
-  enabledCurrencies,
-  onClose,
-  onSaved,
-}: {
-  existing: CashBoxDto | null;
-  existingCodes: string[];
-  accounts: AccountDto[];
-  enabledCurrencies: CurrencyDto[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const { t } = useTranslation();
-  const { locale, direction } = useLocale();
-  const isNew = existing == null;
-  const [code, setCode] = useState(existing?.code ?? '');
-  const [nameAr, setNameAr] = useState(existing?.nameAr ?? '');
-  const [nameEn, setNameEn] = useState(existing?.nameEn ?? '');
-  const [description, setDescription] = useState(existing?.description ?? '');
-  const [accountId, setAccountId] = useState<number | null>(existing?.accountId ?? null);
-  const [isActive, setIsActive] = useState(existing?.isActive ?? true);
-  const [displayOrder, setDisplayOrder] = useState(existing?.displayOrder ?? 100);
-  const [rows, setRows] = useState<CurrencyRow[]>(
-    () =>
-      existing?.currencies.map(c => ({
-        uid: Math.random().toString(36).slice(2, 9),
-        currency: c.currency,
-        debitLimit: c.debitLimit != null ? String(c.debitLimit) : '',
-        creditLimit: c.creditLimit != null ? String(c.creditLimit) : '',
-        isActive: c.isActive,
-      })) ?? []
-  );
-
-  useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onEsc);
-    return () => window.removeEventListener('keydown', onEsc);
-  }, [onClose]);
-
-  const codeError = (() => {
-    if (!isNew) return null;
-    const c = code.trim().toUpperCase();
-    if (!c) return t('cashBoxes.dialog.codeRequired');
-    if (c.length > 30) return t('cashBoxes.dialog.codeTooLong');
-    if (existingCodes.map(x => x.toUpperCase()).includes(c)) return t('cashBoxes.dialog.codeUsed');
-    return null;
-  })();
-
-  const dupCurrencies = (() => {
-    const codes = rows.map(r => r.currency.trim().toUpperCase()).filter(Boolean);
-    const seen = new Set<string>();
-    const dups: string[] = [];
-    for (const c of codes) {
-      if (seen.has(c)) dups.push(c);
-      else seen.add(c);
-    }
-    return Array.from(new Set(dups));
-  })();
-
-  const addRow = () => {
-    setRows(prev => [
-      ...prev,
-      {
-        uid: Math.random().toString(36).slice(2, 9),
-        currency: '',
-        debitLimit: '',
-        creditLimit: '',
-        isActive: true,
-      },
-    ]);
-  };
-
-  const updateRow = (uid: string, patch: Partial<CurrencyRow>) =>
-    setRows(prev => prev.map(r => (r.uid === uid ? { ...r, ...patch } : r)));
-
-  const removeRow = (uid: string) => setRows(prev => prev.filter(r => r.uid !== uid));
-
-  const saveM = useMutation({
-    mutationFn: () => {
-      const currencies: UpsertCashBoxCurrencyPayload[] = rows
-        .map(r => ({
-          currency: r.currency.trim().toUpperCase(),
-          debitLimit: r.debitLimit.trim() === '' ? null : Number(r.debitLimit) || 0,
-          creditLimit: r.creditLimit.trim() === '' ? null : Number(r.creditLimit) || 0,
-          isActive: r.isActive,
-        }))
-        .filter(c => c.currency.length > 0);
-
-      const payload: UpsertCashBoxPayload = {
-        code: code.trim().toUpperCase(),
-        nameAr: nameAr.trim(),
-        nameEn: nameEn.trim() || null,
-        description: description.trim() || null,
-        accountId: accountId!,
-        isActive,
-        displayOrder,
-        currencies,
-      };
-      return isNew
-        ? cashBoxesApi.create(payload)
-        : cashBoxesApi.update(existing!.id, payload).then(() => ({ id: existing!.id }));
-    },
-    onSuccess: () => {
-      toast.success(isNew ? t('cashBoxes.toast.created') : t('cashBoxes.toast.updated'));
-      onSaved();
-    },
-    onError: (e: any) => toast.error(extractApiError(e, t('cashBoxes.toast.saveFailed'))),
-  });
-
-  const canSave =
-    !saveM.isPending &&
-    !codeError &&
-    nameAr.trim().length > 0 &&
-    accountId != null &&
-    dupCurrencies.length === 0;
-
-  const account = accounts.find(a => a.id === accountId);
-
-  // العملات المُتاحة في كل صف (تُخفي العملات المختارة في صفوف أخرى)
-  const usedCurrencies = (excludeUid: string) =>
-    rows
-      .filter(r => r.uid !== excludeUid)
-      .map(r => r.currency.trim().toUpperCase())
-      .filter(Boolean);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div className="w-full max-w-3xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl" dir={direction}>
-        <div className="flex items-center justify-between border-b border-border bg-secondary/30 px-4 py-2">
-          <h2 className="flex items-center gap-2 text-sm font-bold">
-            {isNew ? <Plus className="h-4 w-4 text-primary" /> : <Pencil className="h-4 w-4 text-primary" />}
-            {isNew
-              ? t('cashBoxes.dialog.addTitle')
-              : t('cashBoxes.dialog.editTitle', {
-                  name: localizedName(locale, existing?.nameAr, existing?.nameEn),
-                })}
-          </h2>
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="max-h-[80vh] space-y-3 overflow-auto p-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.dialog.code')} *</label>
-              <Input
-                value={code}
-                onChange={e => setCode(e.target.value.toUpperCase().slice(0, 30))}
-                disabled={!isNew}
-                placeholder="CB-MAIN"
-                className={cn('h-9 text-sm', codeError && 'border-destructive')}
-              />
-              {codeError && <p className="mt-0.5 text-[10px] text-destructive">{codeError}</p>}
-              {!isNew && <p className="mt-0.5 text-[10px] text-muted-foreground">{t('cashBoxes.dialog.codeLocked')}</p>}
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.dialog.nameAr')} *</label>
-              <Input
-                value={nameAr}
-                onChange={e => setNameAr(e.target.value.slice(0, 150))}
-                placeholder={t('cashBoxes.dialog.nameArPlaceholder')}
-                className="h-9 text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.dialog.nameEn')}</label>
-              <Input
-                value={nameEn ?? ''}
-                onChange={e => setNameEn(e.target.value.slice(0, 150))}
-                placeholder={t('cashBoxes.dialog.nameEnPlaceholder')}
-                className="h-9 text-sm"
-                dir="ltr"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.dialog.displayOrder')}</label>
-              <Input
-                type="number"
-                value={displayOrder}
-                onChange={e => setDisplayOrder(Math.max(0, Math.min(9999, Number(e.target.value) || 0)))}
-                className="h-9 text-sm num-display"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-[11px] text-muted-foreground">{t('cashBoxes.dialog.description')}</label>
-            <Input
-              value={description ?? ''}
-              onChange={e => setDescription(e.target.value.slice(0, 500))}
-              placeholder={t('cashBoxes.dialog.descriptionPlaceholder')}
-              className="h-9 text-sm"
-            />
-          </div>
-
-          <div className="space-y-1.5 rounded-md border border-border bg-secondary/20 p-3">
-            <div className="text-[11px] font-semibold text-primary">{t('cashBoxes.dialog.accountSection')} *</div>
-            <p className="text-[10px] text-muted-foreground">
-              {t('cashBoxes.dialog.accountHint')}
-            </p>
-            <AccountPicker
-              accounts={accounts}
-              value={accountId}
-              initialLabel={account ? `${account.code} - ${localizedAccountName(locale, account.nameAr, account.nameEn)}` : undefined}
-              onChange={id => setAccountId(id)}
-              allowClear
-              placeholder={t('cashBoxes.dialog.accountPlaceholder')}
-              inputHeight={9}
-            />
-          </div>
-
-          <div className="space-y-2 rounded-md border border-border bg-secondary/20 p-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-semibold text-primary">{t('cashBoxes.dialog.currenciesSection')}</div>
-                <p className="text-[10px] text-muted-foreground">
-                  {t('cashBoxes.dialog.currenciesHint')}
-                </p>
-              </div>
-              <Button type="button" size="sm" variant="outline" onClick={addRow} className="h-7 gap-1 text-xs">
-                <Plus className="h-3 w-3" />
-                {t('cashBoxes.dialog.addCurrency')}
-              </Button>
-            </div>
-
-            {dupCurrencies.length > 0 && (
-              <p className="text-[10px] text-destructive">
-                {t('cashBoxes.dialog.dupCurrencies', { list: dupCurrencies.join(', ') })}
-              </p>
-            )}
-
-            {rows.length === 0 ? (
-              <p className="rounded border border-dashed border-border/50 p-3 text-center text-[11px] text-muted-foreground">
-                {t('cashBoxes.dialog.noCurrencies')}
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="text-muted-foreground">
-                    <tr>
-                      <th className="p-1 text-right">{t('cashBoxes.dialog.currencyCol')}</th>
-                      <th className="p-1 text-left">{t('cashBoxes.dialog.debitLimit')}</th>
-                      <th className="p-1 text-left">{t('cashBoxes.dialog.creditLimit')}</th>
-                      <th className="w-16 p-1 text-center">{t('cashBoxes.dialog.activeCol')}</th>
-                      <th className="w-10 p-1"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map(r => {
-                      const used = usedCurrencies(r.uid);
-                      return (
-                        <tr key={r.uid} className="border-t border-border/40">
-                          <td className="p-1">
-                            <select
-                              value={r.currency}
-                              onChange={e => updateRow(r.uid, { currency: e.target.value })}
-                              className="h-8 w-full rounded border border-input bg-secondary/40 px-2 text-xs"
-                            >
-                              <option value="">{t('cashBoxes.dialog.selectCurrency')}</option>
-                              {enabledCurrencies
-                                .filter(c => !used.includes(c.code) || c.code === r.currency)
-                                .map(c => (
-                                  <option key={c.code} value={c.code}>
-                                    {c.code} — {c.nameAr || c.code}
-                                  </option>
-                                ))}
-                            </select>
-                          </td>
-                          <td className="p-1">
-                            <Input
-                              type="number"
-                              inputMode="decimal"
-                              value={r.debitLimit}
-                              onChange={e => updateRow(r.uid, { debitLimit: e.target.value })}
-                              placeholder={t('cashBoxes.dialog.noLimit')}
-                              className="h-8 num-display text-left text-xs"
-                            />
-                          </td>
-                          <td className="p-1">
-                            <Input
-                              type="number"
-                              inputMode="decimal"
-                              value={r.creditLimit}
-                              onChange={e => updateRow(r.uid, { creditLimit: e.target.value })}
-                              placeholder={t('cashBoxes.dialog.noLimit')}
-                              className="h-8 num-display text-left text-xs"
-                            />
-                          </td>
-                          <td className="p-1 text-center">
-                            <input
-                              type="checkbox"
-                              checked={r.isActive}
-                              onChange={e => updateRow(r.uid, { isActive: e.target.checked })}
-                              className="h-4 w-4 accent-primary"
-                            />
-                          </td>
-                          <td className="p-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeRow(r.uid)}
-                              title={t('cashBoxes.delete')}
-                              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <label className="flex items-center gap-2 rounded-md border border-input bg-secondary/30 p-2 text-xs">
-            <input
-              type="checkbox"
-              checked={isActive}
-              onChange={e => setIsActive(e.target.checked)}
-              className="h-4 w-4 accent-primary"
-            />
-            <span>{t('cashBoxes.dialog.boxActive')}</span>
-          </label>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/20 px-4 py-2">
-          <Button variant="ghost" size="sm" type="button" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button
-            size="sm"
-            onClick={() => saveM.mutate()}
-            disabled={!canSave}
-            className="gap-1.5"
-          >
-            <Save className="h-3.5 w-3.5" />
-            {saveM.isPending ? t('cashBoxes.dialog.saving') : t('cashBoxes.dialog.save')}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// مكوّنات مساعدة: التبويبات + جدول الأرصدة + جدول المناقلات
-// ─────────────────────────────────────────────────────────────────────
-
-function TabButton({
-  active,
-  onClick,
-  icon: Icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded px-3 py-1.5 transition-colors',
-        active
-          ? 'bg-primary text-primary-foreground shadow-sm'
-          : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      <span>{children}</span>
-    </button>
-  );
-}
 
 function BalancesTab({
   balances,

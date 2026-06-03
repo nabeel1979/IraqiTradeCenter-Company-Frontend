@@ -35,6 +35,8 @@ export interface LoginResponse {
     roles?: string[];
     permissions?: string[];
     isSuperAdmin?: boolean;
+    mustChangePassword?: boolean;
+    avatarBase64?: string | null;
   };
 }
 
@@ -64,6 +66,7 @@ export interface RoleListItemDto {
   isSystemRole: boolean;
   isSuperAdmin: boolean;
   isActive: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   permissionCount: number;
   userCount: number;
@@ -77,6 +80,7 @@ export interface RoleDetailDto {
   isSystemRole: boolean;
   isSuperAdmin: boolean;
   isActive: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   permissions: string[];
 }
@@ -94,9 +98,11 @@ export interface UserListItemDto {
   fullName: string;
   phone: string;
   isActive: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   roles: string[];
   cashBoxCount: number;
+  hasAvatar?: boolean;
 }
 
 export interface UserPermissionOverrideDto {
@@ -115,12 +121,14 @@ export interface UserDetailDto {
   fullName: string;
   phone: string;
   isActive: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   roleIds: number[];
   overrides: UserPermissionOverrideDto[];
   cashBoxes: UserCashBoxAssignmentDto[];
   effectivePermissions: string[];
   isSuperAdmin: boolean;
+  avatarBase64?: string | null;
 }
 
 export interface UserCreatePayload {
@@ -129,6 +137,8 @@ export interface UserCreatePayload {
   password: string;
   isActive?: boolean;
   roleIds?: number[];
+  mustChangePassword?: boolean;
+  avatarBase64?: string | null;
 }
 
 export interface UserUpdatePayload {
@@ -136,6 +146,13 @@ export interface UserUpdatePayload {
   phone?: string;
   password?: string;
   isActive?: boolean;
+  mustChangePassword?: boolean;
+  avatarBase64?: string | null;
+}
+
+export interface ResetPasswordResponseDto {
+  temporaryPassword: string;
+  mustChangePassword: boolean;
 }
 
 export interface MeDto {
@@ -143,10 +160,12 @@ export interface MeDto {
   fullName: string;
   phone: string;
   isActive: boolean;
+  mustChangePassword?: boolean;
   roles: string[];
   permissions: string[];
   cashBoxIds: number[];
   isSuperAdmin: boolean;
+  avatarBase64?: string | null;
 }
 
 // ── Inventory
@@ -233,6 +252,10 @@ export interface JournalEntryDto {
    * مستقل عن رقم القيد الداخلي ورقم السند التلقائي، وقابل للبحث.
    */
   manualNumber?: string | null;
+  /** سعر صرف يدوي محفوظ على القيد (null = استخدام سعر النشرة) */
+  manualExchangeRate?: number | null;
+  /** عملية السعر اليدوي: 1=ضرب، 2=قسمة */
+  manualExchangeRateOperation?: number | null;
   /** مصدر القيد — يحدد إن كان مولّداً من نافذة أخرى */
   source?: JournalEntrySource;
   referenceType?: string | null;
@@ -373,6 +396,21 @@ export interface AccountDto {
    * والحذف لأن العملية ستفشل على الخادم على أي حال.
    */
   isUsed: boolean;
+  /**
+   * هل الحساب محجوز للإدارة المالية (مرتبط بنوع طرف مالي)؟ في هذه الحالة
+   * تُحجب أيقونة "+" في شجرة الحسابات لأن إضافة الأطراف تتم حصراً من نافذة
+   * الإدارة المالية.
+   */
+  isLockedForParties?: boolean;
+  /**
+   * هل الحساب مُدار بالكامل من الإدارة المالية (نوع طرف أو طرف فردي)؟
+   * يُحجب التعديل والحذف من شجرة الحسابات.
+   */
+  isManagedByFinancialManagement?: boolean;
+  /** مرتبط بإعدادات تسوية الحسابات */
+  isLinkedToAccountSettlement?: boolean;
+  /** أدوار الارتباط: Transit | FxGain | FxLoss | FxDiscount */
+  accountSettlementRoles?: string[];
   children: AccountDto[];
 }
 
@@ -599,6 +637,22 @@ export interface FiscalYearStatusDto {
   totalDebits: number;
   totalCredits: number;
   isBalanced: boolean;
+  rolloverTargetFiscalYearId?: number | null;
+  rolloverTargetFiscalYearName?: string | null;
+  rolloverTargetFiscalYearNameEn?: string | null;
+  hasRolloverOpeningEntries?: boolean;
+  rolloverOpeningEntriesCount?: number;
+  rolloverUndoTargets?: RolloverUndoTargetDto[];
+}
+
+export interface RolloverUndoTargetDto {
+  targetFiscalYearId: number;
+  targetFiscalYearName: string;
+  targetFiscalYearNameEn?: string | null;
+  openingEntriesCount: number;
+  sourceFiscalYearId?: number | null;
+  sourceFiscalYearName?: string | null;
+  sourceFiscalYearNameEn?: string | null;
 }
 
 export interface FiscalYearValidationDto {
@@ -633,6 +687,8 @@ export interface FiscalYearRolloverResultDto {
   toFiscalYearId: number;
   balanceSheetAccountsRolled: number;
   retainedEarningsTransferred: number;
+  openingEntriesCreated?: number;
+  rolledBulletinId?: number | null;
   message: string;
 }
 
@@ -671,4 +727,109 @@ export interface CurrencyRateLinePayload {
   rate: number;
   operation: CurrencyRateOperation;
   notes?: string | null;
+}
+
+// -- Financial Management
+export type FinancialPartyKind = 'Supplier' | 'Customer' | 'Bank' | 'CashBox' | 'PaymentCompany';
+
+export interface FinancialPartyCategoryDto {
+  id: number;
+  kind: FinancialPartyKind;
+  nameAr: string;
+  nameEn?: string | null;
+  mainAccountId: number;
+  mainAccountCode: string;
+  mainAccountNameAr: string;
+  mainAccountNameEn?: string | null;
+  isActive: boolean;
+  displayOrder: number;
+  partyCount: number;
+}
+
+/** سقف ائتمان لعملة واحدة: حدّ مدين وحدّ دائن. */
+export interface CreditLimitDto {
+  debit?: number | null;
+  credit?: number | null;
+}
+
+export interface FinancialPartyDto {
+  id: number;
+  categoryId: number;
+  categoryNameAr: string;
+  categoryNameEn?: string | null;
+  kind: FinancialPartyKind;
+  /** الاسم يُقرأ من بطاقة الحساب المرتبط (مزامنة كاملة مع شجرة الحسابات). */
+  nameAr: string;
+  nameEn?: string | null;
+  accountId: number;
+  accountCode: string;
+  /** سقوف الائتمان مفهرسة برمز العملة (مدين/دائن لكل عملة). */
+  creditLimits: Record<string, CreditLimitDto>;
+  allowedCurrencies: string[];
+  /** IBAN لكل عملة — خاص بأطراف نوع المصرف. */
+  currencyIbans?: Record<string, string>;
+  phone?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  address?: string | null;
+  contactPerson?: string | null;
+  notes?: string | null;
+  /** العنوان بالإنجليزي. */
+  addressEn?: string | null;
+  /** رقم الحساب المصرفي — خاص بأطراف نوع المصرف. */
+  bankAccountNumber?: string | null;
+  /** رمز السويفت (SWIFT/BIC) — خاص بأطراف نوع المصرف. */
+  swiftCode?: string | null;
+  isActive: boolean;
+  mustChangePassword?: boolean;
+  createdAt: string;
+}
+
+export interface CreateFinancialPartyCategoryPayload {
+  kind: number;
+  nameAr: string;
+  nameEn?: string | null;
+  mainAccountId: number;
+}
+
+export interface UpdateFinancialPartyCategoryPayload {
+  nameAr: string;
+  nameEn?: string | null;
+  isActive: boolean;
+}
+
+export interface CreateFinancialPartyPayload {
+  categoryId: number;
+  nameAr: string;
+  nameEn?: string | null;
+  creditLimits?: Record<string, CreditLimitDto> | null;
+  allowedCurrencies?: string[] | null;
+  currencyIbans?: Record<string, string> | null;
+  phone?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  address?: string | null;
+  addressEn?: string | null;
+  contactPerson?: string | null;
+  notes?: string | null;
+  bankAccountNumber?: string | null;
+  swiftCode?: string | null;
+}
+
+export interface UpdateFinancialPartyPayload {
+  nameAr: string;
+  nameEn?: string | null;
+  creditLimits?: Record<string, CreditLimitDto> | null;
+  allowedCurrencies?: string[] | null;
+  currencyIbans?: Record<string, string> | null;
+  phone?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  address?: string | null;
+  addressEn?: string | null;
+  contactPerson?: string | null;
+  notes?: string | null;
+  bankAccountNumber?: string | null;
+  swiftCode?: string | null;
+  isActive: boolean;
 }

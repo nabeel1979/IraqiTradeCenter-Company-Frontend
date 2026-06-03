@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Bell, Calendar, RefreshCw, ArrowDownLeft, ArrowUpRight, BookOpen,
   Menu, Sun, Moon, X, Languages, CheckCheck, ExternalLink,
+  Cloud, CloudOff, CloudUpload, AlertCircle,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -9,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { notificationsApi, type NotificationDto } from '@/lib/api/notifications';
+import { attachmentSettingsApi } from '@/lib/api/attachmentSettings';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
 import { useLocale, localizedName } from '@/lib/i18n';
@@ -33,7 +35,15 @@ const STATIC_ROUTE_KEYS: string[] = [
   '/accounting/account-balances',
   '/accounting/fiscal-years',
   '/accounting/currency-rates',
-  '/accounting/cash-boxes',
+  '/accounting/cash-box-balances',
+  '/accounting/cash-box-transfers',
+  '/financial-management',
+  '/financial-management/suppliers',
+  '/financial-management/customers',
+  '/financial-management/banks',
+  '/financial-management/cash-boxes',
+  '/financial-management/payment-companies',
+  '/financial-management/account-settlements',
   '/accounting/voucher-types',
   '/settings', '/settings/menu', '/settings/users', '/settings/roles',
 ];
@@ -517,6 +527,9 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin text-primary' : ''}`} />
           </button>
 
+          {/* أيقونة مزامنة المرفقات بين الخادم و R2 */}
+          <SyncIndicator isRtl={isRtl} />
+
           <button
             ref={bellRef}
             onClick={() => setNotifOpen(v => !v)}
@@ -550,5 +563,101 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
         </div>
       </div>
     </header>
+  );
+}
+
+// ── أيقونة مزامنة المرفقات ──────────────────────────────────────────────────
+/**
+ * تعرض حالة طابور المزامنة بين القرص المحلي و Cloudflare R2:
+ *   • سحابة + سهم (CloudUpload) عند وجود ملفات قيد الرفع.
+ *   • سحابة عادية (Cloud) عند الاستقرار (لا شيء معلَّق).
+ *   • سحابة مع تحذير (CloudOff) عند خطأ في الإعدادات أو فشل متراكم.
+ *
+ * تحدّث كل 15 ثانية، ويظهر badge صغير عند تجاوز عدد المعلَّق صفراً.
+ * عند المرور بالماوس يظهر tooltip تفصيلي بآخر دورة + الأعداد.
+ */
+function SyncIndicator({ isRtl }: { isRtl: boolean }) {
+  const { t, i18n } = useTranslation();
+  const { data } = useQuery({
+    queryKey: ['attachment-sync-status'],
+    queryFn: attachmentSettingsApi.getSyncStatus,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const pending = (data?.pendingUploads ?? 0) + (data?.pendingDeletes ?? 0);
+  const failed = data?.failedCount ?? 0;
+  const hasWarning = !!data?.lastWarning;
+  const hasError = !!data?.lastError && failed > 0;
+
+  // ‎اختيار الأيقونة + اللون بحسب الحالة (الأهمّ يفوز).
+  let Icon = Cloud;
+  let colorClass = 'text-emerald-500';
+  let stateLabel = t('topbar.sync.idle');
+  if (hasError) {
+    Icon = CloudOff;
+    colorClass = 'text-destructive';
+    stateLabel = t('topbar.sync.error');
+  } else if (hasWarning) {
+    Icon = AlertCircle;
+    colorClass = 'text-amber-500';
+    stateLabel = t('topbar.sync.warning');
+  } else if (pending > 0) {
+    Icon = CloudUpload;
+    colorClass = 'text-primary animate-pulse';
+    stateLabel = t('topbar.sync.syncing', { count: pending });
+  }
+
+  // ‎آخر دورة بصيغة محلية للقراءة في التولتيب.
+  const lastTickLabel = (() => {
+    if (!data?.lastTickAtUtc) return t('topbar.sync.neverRan');
+    try {
+      const dt = new Date(data.lastTickAtUtc);
+      return new Intl.DateTimeFormat(i18n.language === 'ar' ? 'ar-IQ-u-nu-latn' : 'en-GB', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        timeZone: 'Asia/Baghdad',
+      }).format(dt);
+    } catch { return data.lastTickAtUtc ?? ''; }
+  })();
+
+  // ‎بناء tooltip متعدّد الأسطر — المتصفح يعرض \n كأسطر منفصلة في الـ title.
+  const lines: string[] = [
+    `${t('topbar.sync.title')}: ${stateLabel}`,
+    `${t('topbar.sync.lastTick')}: ${lastTickLabel}`,
+    `${t('topbar.sync.pendingUploads')}: ${data?.pendingUploads ?? 0}`,
+    `${t('topbar.sync.pendingDeletes')}: ${data?.pendingDeletes ?? 0}`,
+    `${t('topbar.sync.pendingPurge')}: ${data?.pendingLocalPurge ?? 0}`,
+  ];
+  if (failed > 0) lines.push(`${t('topbar.sync.failed')}: ${failed}`);
+  if (hasWarning && data?.lastWarning) lines.push(`! ${data.lastWarning}`);
+  if (hasError && data?.lastError) lines.push(`× ${data.lastError}`);
+  const tooltip = lines.join('\n');
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        title={tooltip}
+        aria-label={stateLabel}
+        className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      >
+        <Icon className={cn('h-4 w-4', colorClass)} />
+        {pending > 0 && (
+          <span className={cn(
+            'absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-primary-foreground ring-2 ring-background',
+            isRtl ? 'left-1 top-1' : 'right-1 top-1',
+          )}>
+            {pending > 99 ? '99+' : pending}
+          </span>
+        )}
+        {hasError && pending === 0 && (
+          <span className={cn(
+            'absolute h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-background',
+            isRtl ? 'left-1 top-1' : 'right-1 top-1',
+          )} />
+        )}
+      </button>
+    </div>
   );
 }

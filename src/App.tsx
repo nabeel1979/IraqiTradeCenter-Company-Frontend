@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-do
 import { Layout } from '@/components/layout/Layout';
 import { AuthGuard } from '@/lib/auth/auth-guard';
 import { LoginPage } from '@/pages/auth/LoginPage';
+import { ChangePasswordPage } from '@/pages/auth/ChangePasswordPage';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { InvoicesListPage } from '@/pages/invoices/InvoicesListPage';
 import { CreateInvoicePage } from '@/pages/invoices/CreateInvoicePage';
@@ -22,9 +23,16 @@ import { AccountBalancesPage } from '@/pages/accounting/AccountBalancesPage';
 import { FiscalYearsPage } from '@/pages/accounting/FiscalYearsPage';
 import { CurrencyRateBulletinsPage } from '@/pages/accounting/CurrencyRateBulletinsPage';
 import { JournalVoucherTypesPage } from '@/pages/accounting/JournalVoucherTypesPage';
-import { CashBoxesPage } from '@/pages/accounting/CashBoxesPage';
+import { CashBoxesLegacyRedirect } from '@/pages/accounting/CashBoxesLegacyRedirect';
 import { VoucherEntryPage } from '@/pages/accounting/VoucherEntryPage';
 import { VoucherReportPage } from '@/pages/accounting/VoucherReportPage';
+import { FinancialManagementPage } from '@/pages/financial-management/FinancialManagementPage';
+import { FinancialManagementRedirect } from '@/pages/financial-management/FinancialManagementRedirect';
+import { AccountSettlementsPage } from '@/pages/financial-management/AccountSettlementsPage';
+import {
+  CASH_BOX_BALANCES_PATH,
+  CASH_BOX_TRANSFERS_PATH,
+} from '@/lib/accounting/journalEntrySource';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { MenuSettingsPage } from '@/pages/settings/MenuSettingsPage';
 import { UsersPage } from '@/pages/settings/UsersPage';
@@ -56,6 +64,14 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/change-password"
+        element={
+          <AuthGuard allowMustChangePassword>
+            <ChangePasswordPage />
+          </AuthGuard>
+        }
+      />
       <Route
         element={
           <AuthGuard>
@@ -97,11 +113,22 @@ export default function App() {
         <Route path="accounting/fiscal-years" element={<FiscalYearsPage />} />
         <Route path="accounting/currency-rates" element={<CurrencyRateBulletinsPage />} />
         <Route path="accounting/voucher-types" element={<JournalVoucherTypesPage />} />
-        <Route path="accounting/cash-boxes" element={<CashBoxesPage />} />
+        <Route path="accounting/cash-box-balances" element={<Navigate to={CASH_BOX_BALANCES_PATH} replace />} />
+        <Route path="accounting/cash-box-transfers" element={<Navigate to={CASH_BOX_TRANSFERS_PATH} replace />} />
+        <Route path="accounting/cash-boxes" element={<CashBoxesLegacyRedirect />} />
         {/* تقرير سند مخصّص (قائمة) ثم نموذج الإنشاء */}
         <Route path="accounting/vouchers/:code" element={<VoucherReportPage />} />
         <Route path="accounting/vouchers/:code/new" element={<VoucherEntryRoute />} />
         <Route path="accounting/vouchers/:code/:id/edit" element={<VoucherEntryRoute />} />
+
+        {/* Financial Management */}
+        <Route path="financial-management" element={<FinancialManagementRedirect />} />
+        <Route path="financial-management/suppliers" element={<FinancialManagementPage kind="Supplier" />} />
+        <Route path="financial-management/customers" element={<FinancialManagementPage kind="Customer" />} />
+        <Route path="financial-management/banks" element={<FinancialManagementPage kind="Bank" />} />
+        <Route path="financial-management/cash-boxes" element={<FinancialManagementPage kind="CashBox" />} />
+        <Route path="financial-management/payment-companies" element={<FinancialManagementPage kind="PaymentCompany" />} />
+        <Route path="financial-management/account-settlements" element={<AccountSettlementsPage />} />
 
         {/* Settings */}
         <Route path="settings" element={<SettingsPage />} />

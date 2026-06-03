@@ -83,8 +83,12 @@ export default defineConfig(({ mode }) => {
               },
             },
             {
-              // ‎API requests: NetworkFirst — نحاول أولاً الشبكة، نسقط على cache عند الفشل
-              urlPattern: ({ url }) => url.pathname.startsWith('/api'),
+              // ‎API requests: NetworkFirst — نحاول أولاً الشبكة، نسقط على cache عند الفشل.
+              // ‎مهم: نقيّدها على نفس الأصل (same-origin) فقط، وإلا يلتقط الـ SW طلبات
+              // ‎جسر الماسح الضوئي (http://127.0.0.1:5100/api/health) لأن مسارها يبدأ بـ
+              // ‎/api، فيفشل NetworkFirst على الحاسبات بلا سكنر ويُسجّل خطأ no-response.
+              urlPattern: ({ url, sameOrigin }) =>
+                sameOrigin && url.pathname.startsWith('/api'),
               handler: 'NetworkFirst',
               options: {
                 cacheName: 'api-cache',

@@ -55,7 +55,7 @@ export function JournalVoucherTypesPage() {
 
   const { data: types = [], isLoading } = useQuery({
     queryKey: ['voucher-types', 'all'],
-    queryFn: () => journalVoucherTypesApi.getAll(false),
+    queryFn: () => journalVoucherTypesApi.getAll(false, true),
   });
 
   const treeQuery = useQuery({
@@ -302,19 +302,37 @@ export function JournalVoucherTypesPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (vt.isSystem) {
-                                toast.error(t('voucherTypes.cannotDeleteSystem'));
+                              if (!vt.canDelete) {
+                                if (vt.linkedEntryCount > 0) {
+                                  toast.error(t('voucherTypes.cannotDeleteLinked', { count: vt.linkedEntryCount }));
+                                } else if (vt.isSystem && vt.isEnabled) {
+                                  toast.error(t('voucherTypes.cannotDeleteSystemEnabled'));
+                                } else {
+                                  toast.error(t('voucherTypes.cannotDeleteSystem'));
+                                }
                                 return;
                               }
-                              if (window.confirm(t('voucherTypes.confirmDelete', { name: vt.nameAr }))) {
+                              if (window.confirm(
+                                vt.isSystem && vt.linkedEntryCount > 0
+                                  ? t('voucherTypes.confirmDeleteSystemLinked', { name: vt.nameAr, count: vt.linkedEntryCount })
+                                  : t('voucherTypes.confirmDelete', { name: vt.nameAr }),
+                              )) {
                                 deleteM.mutate(vt.id);
                               }
                             }}
-                            disabled={vt.isSystem}
-                            title={vt.isSystem ? t('voucherTypes.systemCannotDelete') : t('common.delete')}
+                            disabled={!vt.canDelete}
+                            title={
+                              !vt.canDelete
+                                ? vt.linkedEntryCount > 0
+                                  ? t('voucherTypes.cannotDeleteLinkedTip', { count: vt.linkedEntryCount })
+                                  : vt.isSystem && vt.isEnabled
+                                    ? t('voucherTypes.systemDisableFirst')
+                                    : t('voucherTypes.systemCannotDelete')
+                                : t('common.delete')
+                            }
                             className={cn(
                               'inline-flex h-6 w-6 items-center justify-center rounded',
-                              vt.isSystem
+                              !vt.canDelete
                                 ? 'cursor-not-allowed text-muted-foreground/30'
                                 : 'text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
                             )}

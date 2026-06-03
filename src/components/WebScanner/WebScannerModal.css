@@ -1,0 +1,373 @@
+.webscan-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0.5rem;
+  background: hsl(var(--background) / 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.webscan-modal-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 98vw);
+  height: min(96dvh, 100%);
+  max-height: 96dvh;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--foreground));
+  box-shadow: 0 24px 48px hsl(var(--background) / 0.55);
+}
+
+.webscan-modal-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.webscan-modal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.webscan-modal-chrome-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.webscan-modal-chrome-actions .webscan-modal-btn {
+  padding: 0.45rem 1rem;
+}
+
+.webscan-format-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.webscan-format-select select {
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.webscan-format-select select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .webscan-format-label {
+    display: none;
+  }
+}
+
+.webscan-modal-title-wrap h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.webscan-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.webscan-modal-close:hover {
+  background: hsl(var(--muted) / 0.6);
+  color: hsl(var(--foreground));
+}
+
+.webscan-modal-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+}
+
+.webscan-modal-body--scan {
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+  padding: 0;
+}
+
+.webscan-bridge-checking {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9375rem;
+  text-align: center;
+}
+
+.webscan-bridge-panel {
+  width: min(520px, 100%);
+  padding: 1.25rem 1.35rem 1.35rem;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  text-align: start;
+}
+
+.webscan-bridge-panel__title {
+  display: inline-block;
+  margin: 0 0 1rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 4px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.webscan-bridge-panel__text {
+  margin: 0 0 0.85rem;
+  color: hsl(var(--foreground));
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+
+.webscan-bridge-panel__text strong {
+  font-weight: 600;
+}
+
+.webscan-bridge-panel__hint {
+  margin: 0 0 1.25rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.webscan-bridge-panel__url {
+  display: inline;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: hsl(var(--muted) / 0.5);
+  color: hsl(var(--primary));
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.webscan-bridge-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.65rem;
+}
+
+.webscan-bridge-panel__download {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.webscan-modal-body .webscan-embed {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The WebScanApp mounts into this wrapper div. Anchor it to the bounded
+   embed with absolute positioning so it always has a definite height; this
+   guarantees the compact layout below can constrain its scroll area
+   regardless of flex min-height quirks across the React boundary. */
+.webscan-modal-body .webscan-embed > div {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.webscan-embed[hidden] {
+  display: none;
+}
+
+.webscan-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.webscan-modal-btn {
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.webscan-modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.webscan-modal-btn--ghost {
+  border: 1px solid hsl(var(--border));
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+.webscan-modal-btn--ghost:hover:not(:disabled) {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.webscan-modal-btn--primary {
+  border: none;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.webscan-modal-btn--primary:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.85);
+}
+
+/* Loading overlay shown while scanning / adding to archive. */
+.webscan-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background: hsl(var(--background) / 0.62);
+  backdrop-filter: blur(2px);
+  color: hsl(var(--foreground));
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.webscan-loading-text {
+  font-size: 1rem;
+}
+
+.webscan-loading-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.webscan-loading-timer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.75rem;
+  padding: 0.2rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.webscan-loading-counter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  padding: 0.2rem 0.75rem;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.webscan-loading-bar {
+  width: min(18rem, 60vw);
+  height: 0.5rem;
+  margin-top: 0.85rem;
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  overflow: hidden;
+}
+
+.webscan-loading-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  transition: width 0.15s ease-out;
+}
+
+.webscan-spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: 3px solid hsl(var(--muted) / 0.7);
+  border-top-color: hsl(var(--primary));
+  animation: webscan-spin 0.8s linear infinite;
+}
+
+@keyframes webscan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .webscan-bridge-panel__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .webscan-bridge-panel__download,
+  .webscan-bridge-panel__actions .webscan-modal-btn--ghost {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+}

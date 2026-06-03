@@ -1,0 +1,751 @@
+/* WebScan embedded UI — import via @/lib/webscanner/embed (no Shadow DOM) */
+/* Colors follow the app's design tokens (globals.css) so it matches light/dark. */
+.webscan-embed {
+  --bg: hsl(var(--background));
+  --surface: hsl(var(--card));
+  --border: hsl(var(--border));
+  --text: hsl(var(--foreground));
+  --muted: hsl(var(--muted-foreground));
+  --accent: hsl(var(--primary));
+  --accent-hover: hsl(var(--primary) / 0.85);
+  --accent-text: hsl(var(--primary-foreground));
+  --error: hsl(var(--destructive));
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100%;
+  direction: inherit;
+}
+
+.webscan-embed * {
+  box-sizing: border-box;
+}
+
+.webscan-embed .webscan {
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0.875rem 1rem 1rem;
+}
+
+/* Sidebar wrapper is transparent in the full-page layout. */
+.webscan-embed .webscan-sidebar {
+  display: contents;
+}
+
+/* Compact (modal): controls sidebar + preview side by side; status floats. */
+.webscan-embed .webscan--compact {
+  display: flex;
+  flex-direction: row;
+  gap: 0.65rem;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.webscan-embed .webscan--compact > .webscan-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 230px;
+  flex-shrink: 0;
+  align-self: stretch;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.webscan-embed .webscan--compact > .webscan-status[hidden] {
+  display: none;
+}
+
+/* Floating toast pinned to the bottom of the preview area. */
+.webscan-embed .webscan--compact > .webscan-status:not([hidden]) {
+  position: absolute;
+  inset-inline-start: calc(230px + 1.15rem);
+  inset-inline-end: 0.5rem;
+  bottom: 0.5rem;
+  margin: 0;
+  z-index: 5;
+  box-shadow: 0 8px 24px hsl(var(--background) / 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.webscan-embed .webscan-status-message {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+}
+
+.webscan-embed .webscan-status-countdown {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.webscan-embed .webscan--compact > .webscan-preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  align-self: stretch;
+}
+
+.webscan-embed .webscan--compact > .webscan-sidebar > .webscan-settings[hidden] {
+  display: none;
+}
+
+.webscan-embed .webscan--compact .webscan-panel {
+  margin-bottom: 0;
+  padding: 0.5rem 0.6rem;
+}
+
+.webscan-embed .webscan--compact .webscan-settings h2 {
+  display: none;
+}
+
+.webscan-embed .webscan--compact .webscan-grid {
+  grid-template-columns: 1fr;
+  gap: 0.4rem;
+}
+
+.webscan-embed .webscan--compact .webscan-panel select {
+  max-width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.webscan-embed .webscan--compact [data-refresh] {
+  margin-top: 0.35rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.webscan-embed .webscan--compact .webscan-actions {
+  flex-direction: column;
+  margin-bottom: 0;
+  gap: 0.35rem;
+}
+
+.webscan-embed .webscan--compact .webscan-actions button {
+  width: 100%;
+}
+
+.webscan-embed .webscan--compact [data-export-pdf] {
+  display: none;
+}
+
+.webscan-embed .webscan--compact .webscan-status {
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.webscan-embed .webscan--compact .webscan-preview-header {
+  margin-bottom: 0.35rem;
+  flex-shrink: 0;
+  flex-direction: row;
+}
+
+.webscan-embed .webscan--compact .webscan-preview-header h2 {
+  text-align: start;
+}
+
+.webscan-embed .webscan--compact .webscan-preview-toolbar {
+  flex-direction: row;
+}
+
+.webscan-embed .webscan--compact .webscan-preview-header h2 {
+  font-size: 0.85rem;
+}
+
+.webscan-embed .webscan--compact .webscan-thumbs {
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+  align-content: start;
+  padding: 0.4rem;
+}
+
+.webscan-embed .webscan--compact .webscan-thumb img {
+  aspect-ratio: 7/10;
+}
+
+.webscan-embed .webscan--compact .webscan-thumb span {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.webscan-embed .webscan--compact .webscan-thumb-delete {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 1rem;
+}
+
+.webscan-embed .webscan--compact .webscan-select-all {
+  font-size: 0.75rem;
+}
+
+.webscan-embed .webscan-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.75rem;
+  color: var(--text);
+}
+
+.webscan-embed .webscan-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.webscan-embed .webscan-status {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  text-align: start;
+}
+
+.webscan-embed .webscan-status[data-level="error"] {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.webscan-embed .webscan-panel {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.webscan-embed .webscan-panel label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+  text-align: start;
+  color: var(--muted);
+}
+
+.webscan-embed .webscan-panel select,
+.webscan-embed .webscan-panel button {
+  font: inherit;
+}
+
+.webscan-embed .webscan-panel select {
+  width: 100%;
+  max-width: 420px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.webscan-embed .webscan-settings h2,
+.webscan-embed .webscan-preview h2 {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.webscan-embed .webscan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.webscan-embed .webscan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.webscan-embed button {
+  padding: 0.45rem 0.9rem;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.webscan-embed button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.webscan-embed button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.webscan-embed [data-import] {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.webscan-embed [data-import]:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.1);
+}
+
+.webscan-embed [data-refresh] {
+  margin-top: 0.75rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.webscan-embed [data-refresh] .webscan-refresh-indicator {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: 0 0 auto;
+  transition: background 0.2s ease;
+}
+
+.webscan-embed [data-refresh].webscan-refresh--ok {
+  border-color: hsl(142deg 70% 40%);
+  color: hsl(142deg 70% 35%);
+}
+
+.webscan-embed [data-refresh].webscan-refresh--ok .webscan-refresh-indicator {
+  background: hsl(142deg 70% 42%);
+  box-shadow: 0 0 0 3px hsl(142deg 70% 42% / 0.2);
+}
+
+.webscan-embed [data-refresh].webscan-refresh--off {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.webscan-embed [data-refresh].webscan-refresh--off .webscan-refresh-indicator {
+  background: var(--error);
+  box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.18);
+}
+
+.webscan-embed [data-refresh].webscan-refresh--loading {
+  opacity: 0.85;
+  cursor: progress;
+}
+
+.webscan-embed [data-refresh].webscan-refresh--loading .webscan-refresh-indicator {
+  border: 2px solid color-mix(in srgb, var(--muted) 40%, transparent);
+  border-top-color: var(--accent);
+  background: transparent;
+  animation: webscan-refresh-spin 0.7s linear infinite;
+}
+
+@keyframes webscan-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.webscan-embed .webscan-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.webscan-embed .webscan-preview-header {
+  display: flex;
+  flex-wrap: wrap;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.webscan-embed .webscan-preview-header h2 {
+  margin: 0;
+  text-align: start;
+}
+
+.webscan-embed .webscan-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.webscan-embed .webscan-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.webscan-embed .webscan-preview-toolbar [data-delete-selected] {
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+
+.webscan-embed .webscan-preview-toolbar [data-delete-selected]:hover:not(:disabled) {
+  background: var(--error);
+  color: #fff;
+}
+
+.webscan-embed .webscan-thumb {
+  position: relative;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.webscan-embed .webscan-thumb--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.webscan-embed .webscan-thumb-select {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 2;
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+.webscan-embed .webscan-thumb-delete {
+  position: absolute;
+  top: 0.35rem;
+  inset-inline-end: 0.35rem;
+  z-index: 3;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.webscan-embed .webscan-thumb-delete:hover {
+  background: var(--error);
+}
+
+.webscan-embed .webscan-thumb-image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 7/10;
+  object-fit: contain;
+  background: #fff;
+  cursor: grab;
+  transition: transform 0.2s ease;
+}
+
+.webscan-embed .webscan-thumb-image:active {
+  cursor: grabbing;
+}
+
+.webscan-embed .webscan-thumb-rotate {
+  position: absolute;
+  top: 0.35rem;
+  inset-inline-start: 0.35rem;
+  z-index: 2;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.webscan-embed .webscan-thumb-rotate:hover {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.webscan-embed .webscan--compact .webscan-thumb-rotate {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.webscan-embed .webscan-thumb-label {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Reorder (forward / back) controls on each thumbnail. */
+.webscan-embed .webscan-thumb-reorder {
+  position: absolute;
+  bottom: 2.1rem;
+  inset-inline: 0.3rem;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.3rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.webscan-embed .webscan-thumb:hover .webscan-thumb-reorder,
+.webscan-embed .webscan-thumb:focus-within .webscan-thumb-reorder {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.webscan-embed .webscan-thumb-move {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: hsl(var(--background) / 0.82);
+  color: var(--text);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px hsl(var(--background) / 0.5);
+}
+
+.webscan-embed .webscan-thumb-move:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.webscan-embed .webscan-thumb-move:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* In compact mode the reorder buttons stay visible (touch friendly). */
+.webscan-embed .webscan--compact .webscan-thumb-reorder {
+  opacity: 1;
+  pointer-events: auto;
+  bottom: 1.35rem;
+  inset-inline: 0.2rem;
+}
+
+.webscan-embed .webscan--compact .webscan-thumb-move {
+  width: 1.3rem;
+  height: 1.3rem;
+  font-size: 0.9rem;
+}
+
+.webscan-embed .webscan-thumb {
+  cursor: grab;
+}
+
+.webscan-embed .webscan-thumb--dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.webscan-embed .webscan-thumb--drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.webscan-embed .webscan-preview-hint {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-inline-start: 0.5rem;
+}
+
+/* معاينة مكبّرة (فوق المودال) */
+.webscan-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.webscan-lightbox[hidden] {
+  display: none !important;
+}
+
+.webscan-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: pointer;
+}
+
+.webscan-lightbox-dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  width: min(920px, 96vw);
+  max-height: 92vh;
+}
+
+.webscan-lightbox-stage {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  max-height: calc(92vh - 3rem);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.webscan-lightbox-stage--panning {
+  cursor: grabbing !important;
+}
+
+.webscan-lightbox-stage img {
+  max-width: 100%;
+  max-height: calc(92vh - 3rem);
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  background: #111;
+  transform-origin: center center;
+  transition: transform 0.08s ease-out;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.webscan-lightbox-zoom {
+  position: absolute;
+  top: -0.25rem;
+  inset-inline-start: 0;
+  z-index: 2;
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.webscan-lightbox-zoom button {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.webscan-lightbox-zoom button:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.webscan-lightbox-caption {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+  text-align: center;
+  color: #e8eef7;
+  font-size: 0.9rem;
+}
+
+.webscan-lightbox-close {
+  position: absolute;
+  top: -0.25rem;
+  inset-inline-end: 0;
+  z-index: 2;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.webscan-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.webscan-lightbox-nav {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.webscan-lightbox-nav:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.webscan-lightbox-nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.webscan-lightbox-nav--prev {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.webscan-lightbox-nav--next {
+  grid-column: 3;
+  grid-row: 1;
+}
+

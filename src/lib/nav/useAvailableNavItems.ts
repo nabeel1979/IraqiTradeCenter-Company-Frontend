@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ArrowDownLeft, ArrowUpRight, BookOpen, Receipt } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, BookOpen, Receipt, Tag } from 'lucide-react';
 import { NAV_GROUPS, type NavGroup } from '@/components/layout/Sidebar';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { usePermissions } from '@/lib/auth/usePermissions';
@@ -61,15 +61,20 @@ export function useAvailableNavItems(): AvailableNavItem[] {
               : BookOpen,
             permission: PERMS.Accounting.Vouchers.read(vt.code),
           }));
-        if (voucherItems.length > 0) {
-          groups.push({
-            key: 'vouchers',
-            titleKey: 'sidebar.groups.vouchers',
-            icon: Receipt,
-            mandatory: true,
-            items: voucherItems,
-          });
-        }
+        // ‎"أنواع السندات" أصبحت ضمن مجموعة السندات.
+        voucherItems.push({
+          to: '/accounting/voucher-types',
+          labelKey: 'sidebar.items.voucherTypes',
+          icon: Tag,
+          permission: PERMS.Accounting.VoucherTypes.Read,
+        });
+        groups.push({
+          key: 'vouchers',
+          titleKey: 'sidebar.groups.vouchers',
+          icon: Receipt,
+          mandatory: true,
+          items: voucherItems,
+        });
       }
     }
 

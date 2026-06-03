@@ -9,6 +9,7 @@ import {
   Download,
   Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/lib/i18n/useLocale';
 import { voucherAttachmentsApi, type VoucherAttachmentDto } from '@/lib/api/attachments';
@@ -34,6 +35,7 @@ export function FileViewerDialog({ open, onClose, entryId, attachment }: FileVie
   const { isRtl } = useLocale();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadPercent, setLoadPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [rotation, setRotation] = useState(0);          // 0 | 90 | 180 | 270
   const [zoom, setZoom] = useState(100);
@@ -48,14 +50,23 @@ export function FileViewerDialog({ open, onClose, entryId, attachment }: FileVie
     if (!open) return;
     let cancelled = false;
     setLoading(true);
+    setLoadPercent(0);
     setError(null);
     setRotation(0);
     setZoom(100);
 
-    voucherAttachmentsApi.getRawBlob(entryId, attachment.id).then(url => {
+    voucherAttachmentsApi.getRawBlob(entryId, attachment.id, (p) => {
+      if (!cancelled) setLoadPercent(p);
+    }).then(url => {
       if (!cancelled) { setBlobUrl(url); setLoading(false); }
-    }).catch(() => {
-      if (!cancelled) { setError(t('attachments.downloadError', { defaultValue: 'تعذّر تحميل الملف' })); setLoading(false); }
+    }).catch((err: unknown) => {
+      if (!cancelled) {
+        const msg = err instanceof Error
+          ? err.message
+          : t('attachments.downloadError', { defaultValue: 'تعذّر تحميل الملف' });
+        setError(msg);
+        setLoading(false);
+      }
     });
 
     return () => {
@@ -79,7 +90,16 @@ export function FileViewerDialog({ open, onClose, entryId, attachment }: FileVie
   const rotateRight = () => setRotation(r => (r + 90) % 360);
   const zoomIn  = () => { const i = ZOOM_STEPS.indexOf(zoom); if (i < ZOOM_STEPS.length - 1) setZoom(ZOOM_STEPS[i + 1]); };
   const zoomOut = () => { const i = ZOOM_STEPS.indexOf(zoom); if (i > 0) setZoom(ZOOM_STEPS[i - 1]); };
-  const handleDownload = () => voucherAttachmentsApi.download(entryId, attachment);
+  const handleDownload = async () => {
+    try {
+      await voucherAttachmentsApi.download(entryId, attachment);
+    } catch (err: unknown) {
+      const msg = err instanceof Error
+        ? err.message
+        : t('attachments.downloadError', { defaultValue: 'تعذّر تحميل الملف' });
+      toast.error(msg);
+    }
+  };
 
   // ── لحساب transform: عند دوران 90/270 نتبادل العرض والارتفاع عبر CSS
   const rotated90 = rotation === 90 || rotation === 270;
@@ -143,6 +163,11 @@ export function FileViewerDialog({ open, onClose, entryId, attachment }: FileVie
           <div className="flex flex-col items-center gap-3 text-slate-400">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <span className="text-sm">{t('common.loading')}</span>
+            {loadPercent > 0 && (
+              <span className="text-lg font-bold tabular-nums text-slate-200" dir="ltr">
+                {loadPercent}%
+              </span>
+            )}
           </div>
         )}
 

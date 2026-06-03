@@ -1423,6 +1423,61 @@ function tbFmt(n: number): string {
 export interface TrialBalancePrintExtra {
   /** خرائط (accountCode → nameEn) لاستعمالها في وضع EN عند انعدام الاسم الإنجليزي بالـ DTO. */
   accountNamesEn?: Record<string, string>;
+  /** إظهار حسابات الميزانية (Asset/Liability/Equity). افتراضي: true. */
+  showBalanceSheet?: boolean;
+  /** إظهار حسابات الأرباح والخسارة في الجدول. افتراضي: false. */
+  showProfitLoss?: boolean;
+  /** إظهار بطاقة احتساب الأرباح. افتراضي: true. */
+  showProfitCalculation?: boolean;
+}
+
+const TB_PROFIT_LOSS_TYPES = new Set(['Revenue', 'Expense']);
+const TB_BALANCE_SHEET_TYPES = new Set(['Asset', 'Liability', 'Equity']);
+
+function tbIsProfitLossRow(r: TrialBalanceDto['rows'][number]): boolean {
+  return TB_PROFIT_LOSS_TYPES.has(r.accountType);
+}
+
+function tbIsBalanceSheetRow(r: TrialBalanceDto['rows'][number]): boolean {
+  return TB_BALANCE_SHEET_TYPES.has(r.accountType);
+}
+
+function computePrintTrialBalanceTotals(
+  data: TrialBalanceDto,
+  showBalanceSheet: boolean,
+  showProfitLoss: boolean,
+) {
+  let leaves = data.rows.filter(r => r.isLeaf);
+  if (!showBalanceSheet) leaves = leaves.filter(r => !tbIsBalanceSheetRow(r));
+  if (!showProfitLoss) leaves = leaves.filter(r => !tbIsProfitLossRow(r));
+  if (showBalanceSheet && showProfitLoss) {
+    return {
+      totalOpeningDebit: data.totalOpeningDebit,
+      totalOpeningCredit: data.totalOpeningCredit,
+      totalPeriodDebit: data.totalPeriodDebit,
+      totalPeriodCredit: data.totalPeriodCredit,
+      totalClosingDebit: data.totalClosingDebit,
+      totalClosingCredit: data.totalClosingCredit,
+    };
+  }
+  return leaves.reduce(
+    (t, r) => ({
+      totalOpeningDebit: t.totalOpeningDebit + (r.openingDebit ?? 0),
+      totalOpeningCredit: t.totalOpeningCredit + (r.openingCredit ?? 0),
+      totalPeriodDebit: t.totalPeriodDebit + (r.periodDebit ?? 0),
+      totalPeriodCredit: t.totalPeriodCredit + (r.periodCredit ?? 0),
+      totalClosingDebit: t.totalClosingDebit + (r.closingDebit ?? 0),
+      totalClosingCredit: t.totalClosingCredit + (r.closingCredit ?? 0),
+    }),
+    {
+      totalOpeningDebit: 0,
+      totalOpeningCredit: 0,
+      totalPeriodDebit: 0,
+      totalPeriodCredit: 0,
+      totalClosingDebit: 0,
+      totalClosingCredit: 0,
+    },
+  );
 }
 
 export function printTrialBalance(
@@ -1437,7 +1492,17 @@ export function printTrialBalance(
     ? data.currency
     : (data.valuated ? (data.baseCurrency || 'IQD') : i18n.trialBalance.multiCurrency);
 
-  const isBalanced = Math.abs(data.totalClosingDebit - data.totalClosingCredit) < 0.01;
+  const showBalanceSheet = extra.showBalanceSheet !== false;
+  const showProfitLoss = extra.showProfitLoss === true;
+  const showProfitCalculation = extra.showProfitCalculation !== false;
+
+  let tableRows = data.rows;
+  if (!showBalanceSheet) tableRows = tableRows.filter(r => !tbIsBalanceSheetRow(r));
+  if (!showProfitLoss) tableRows = tableRows.filter(r => !tbIsProfitLossRow(r));
+
+  const totals = computePrintTrialBalanceTotals(data, showBalanceSheet, showProfitLoss);
+
+  const isBalanced = Math.abs(totals.totalClosingDebit - totals.totalClosingCredit) < 0.01;
 
   const rowName = (r: TrialBalanceDto['rows'][number]): string => {
     if (locale === 'en') {
@@ -1447,7 +1512,7 @@ export function printTrialBalance(
     return r.accountName || '';
   };
 
-  const rows = data.rows.map(r => {
+  const rows = tableRows.map(r => {
     const indent = Math.max(0, (r.level - 1)) * 10;
     const colors = TRIAL_BALANCE_TYPE_COLORS[r.accountType] ?? { bg: '#e5e7eb', fg: '#374151' };
     const typeLbl = i18n.accountType[r.accountType as keyof typeof i18n.accountType] ?? r.accountType;
@@ -1526,12 +1591,12 @@ export function printTrialBalance(
       <tfoot>
         <tr>
           <th colspan="3" class="center" style="background:#ecf0f1;">${escapeHtml(i18n.trialBalance.total)}</th>
-          <th class="left num" style="border-right:1px solid #aaa;">${tbFmt(data.totalOpeningDebit)}</th>
-          <th class="left num">${tbFmt(data.totalOpeningCredit)}</th>
-          <th class="left num" style="border-right:1px solid #aaa;">${tbFmt(data.totalPeriodDebit)}</th>
-          <th class="left num">${tbFmt(data.totalPeriodCredit)}</th>
-          <th class="left num" style="border-right:1px solid #aaa;color:#047857;">${tbFmt(data.totalClosingDebit)}</th>
-          <th class="left num" style="color:#b45309;">${tbFmt(data.totalClosingCredit)}</th>
+          <th class="left num" style="border-right:1px solid #aaa;">${tbFmt(totals.totalOpeningDebit)}</th>
+          <th class="left num">${tbFmt(totals.totalOpeningCredit)}</th>
+          <th class="left num" style="border-right:1px solid #aaa;">${tbFmt(totals.totalPeriodDebit)}</th>
+          <th class="left num">${tbFmt(totals.totalPeriodCredit)}</th>
+          <th class="left num" style="border-right:1px solid #aaa;color:#047857;">${tbFmt(totals.totalClosingDebit)}</th>
+          <th class="left num" style="color:#b45309;">${tbFmt(totals.totalClosingCredit)}</th>
         </tr>
       </tfoot>
     </table>
@@ -1542,6 +1607,7 @@ export function printTrialBalance(
         : `<span style="background:#fee2e2;color:#b91c1c;">${escapeHtml(i18n.trialBalance.unbalanced)}</span>`}
     </div>
 
+    ${showProfitCalculation ? `
     <div class="tb-profit-card">
       <div class="tb-profit-title">${escapeHtml(i18n.trialBalance.profitTitle)}</div>
       <table class="tb-profit-grid">
@@ -1563,6 +1629,7 @@ export function printTrialBalance(
         ${escapeHtml(i18n.trialBalance.formula)}
       </div>
     </div>
+    ` : ''}
 
     <div class="signatures">
       <div class="sig">${escapeHtml(i18n.signatures.accountant)}</div>
@@ -2096,16 +2163,31 @@ function abFmt(n: number): string {
   return formatAmount(n, 2);
 }
 
+const FM_PARTY_KIND_COLORS: Record<string, { bg: string; fg: string }> = {
+  Supplier:       { bg: '#dbeafe', fg: '#1d4ed8' },
+  Customer:       { bg: '#d1fae5', fg: '#047857' },
+  Bank:           { bg: '#ede9fe', fg: '#6d28d9' },
+  CashBox:        { bg: '#fef3c7', fg: '#a16207' },
+  PaymentCompany: { bg: '#cffafe', fg: '#0e7490' },
+};
+
 export type AccountBalancesPrintCol =
   | 'idx'
   | 'code'
   | 'name'
   | 'type'
+  | 'fmParty'
   | 'currency'
   | 'debit'
   | 'credit'
   | 'valDebit'
   | 'valCredit';
+
+export interface AccountBalancesPrintPartyInfo {
+  kind: string;
+  categoryNameAr: string;
+  categoryNameEn?: string | null;
+}
 
 export interface AccountBalancesPrintColConfig {
   order?: AccountBalancesPrintCol[];
@@ -2115,6 +2197,18 @@ export interface AccountBalancesPrintColConfig {
   accountLabel?: string;
   /** خرائط (accountCode → nameEn) للاستخدام في وضع EN حين لا يوفّر الـ DTO الاسم الإنجليزي. */
   accountNamesEn?: Record<string, string>;
+  /** إظهار عمود نوع الطرف (الإدارة المالية). */
+  showFmPartyTypes?: boolean;
+  /** عرض الأطراف فقط في التقرير. */
+  partiesOnly?: boolean;
+  /** أنواع الأطراف الفرعية المفعّلة (لشارة الفلتر). */
+  fmCategoriesEnabled?: string[];
+  /** إجمالي أنواع الأطراف الفرعية. */
+  fmCategoriesTotal?: number;
+  /** @deprecated استخدم fmCategoriesEnabled */
+  fmKindsEnabled?: string[];
+  /** accountId → بيانات الطرف المالي. */
+  partiesByAccountId?: Record<number, AccountBalancesPrintPartyInfo>;
 }
 
 export function printAccountBalances(
@@ -2128,15 +2222,23 @@ export function printAccountBalances(
   const base = data.baseCurrency || 'IQD';
   const isValuated = data.valuated;
 
+  const showPartyTypeInTypeCol = colConfig.partiesOnly === true;
+  const showFmPartyCol = colConfig.showFmPartyTypes === true && !showPartyTypeInTypeCol;
+
+  const typeColLabel = showPartyTypeInTypeCol
+    ? i18n.accountBalances.fmPartyKind
+    : i18n.accountBalances.type;
+
   // ── 1) تحديد الأعمدة المتاحة + الترتيب
   const ALL_COLS: AccountBalancesPrintCol[] =
-    ['idx', 'code', 'name', 'type', 'currency', 'debit', 'credit', 'valDebit', 'valCredit'];
+    ['idx', 'code', 'name', 'type', 'fmParty', 'currency', 'debit', 'credit', 'valDebit', 'valCredit'];
 
   const COL_LABEL: Record<AccountBalancesPrintCol, string> = {
     idx: i18n.accountBalances.idx,
     code: i18n.accountBalances.code,
     name: i18n.accountBalances.account,
     type: i18n.accountBalances.type,
+    fmParty: i18n.accountBalances.fmPartyKind,
     currency: i18n.accountBalances.currency,
     debit: i18n.accountBalances.debit,
     credit: i18n.accountBalances.credit,
@@ -2145,7 +2247,7 @@ export function printAccountBalances(
   };
 
   const COL_DEFAULT_PX: Record<AccountBalancesPrintCol, number> = {
-    idx: 40, code: 70, name: 240, type: 80, currency: 60,
+    idx: 40, code: 70, name: 220, type: 72, fmParty: 88, currency: 60,
     debit: 110, credit: 110, valDebit: 120, valCredit: 120,
   };
 
@@ -2158,6 +2260,7 @@ export function printAccountBalances(
 
   function isColAllowed(k: AccountBalancesPrintCol): boolean {
     if (hiddenSet.has(k)) return false;
+    if (k === 'fmParty' && !showFmPartyCol) return false;
     if (!isValuated && (k === 'valDebit' || k === 'valCredit')) return false;
     if (!showCurrencyCol && k === 'currency') return false;
     return true;
@@ -2199,9 +2302,10 @@ export function printAccountBalances(
   // ── 2) صف الجدول
   const renderHeadCell = (k: AccountBalancesPrintCol): string => {
     const align = (k === 'debit' || k === 'credit' || k === 'valDebit' || k === 'valCredit') ? 'left'
-                : (k === 'idx' || k === 'currency' || k === 'type') ? 'center'
+                : (k === 'idx' || k === 'currency' || k === 'type' || k === 'fmParty') ? 'center'
                 : 'right';
-    return `<th class="${align}">${escapeHtml(COL_LABEL[k])}</th>`;
+    const label = k === 'type' ? typeColLabel : COL_LABEL[k];
+    return `<th class="${align}">${escapeHtml(label)}</th>`;
   };
 
   const renderRowCell = (
@@ -2226,9 +2330,31 @@ export function printAccountBalances(
         return `<td style="${nameStyle}"><span style="padding-inline-start:${indent}px;">${escapeHtml(displayName)}</span></td>`;
       }
       case 'type': {
+        if (showPartyTypeInTypeCol) {
+          const party = colConfig.partiesByAccountId?.[r.accountId];
+          if (!party) return `<td class="center" style="color:#aaa">—</td>`;
+          const colors = FM_PARTY_KIND_COLORS[party.kind] ?? { bg: '#e5e7eb', fg: '#374151' };
+          const catName = locale === 'en'
+            ? (party.categoryNameEn?.trim() || party.categoryNameAr)
+            : party.categoryNameAr;
+          return `<td class="center">
+            <span class="badge" style="display:inline-block;background:${colors.bg};color:${colors.fg};border:1px solid ${colors.fg}33;font-size:9px;max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(catName)}">${escapeHtml(catName)}</span>
+          </td>`;
+        }
         const colors = ACCOUNT_BALANCES_TYPE_COLORS[r.accountType] ?? { bg: '#e5e7eb', fg: '#374151' };
         const lbl = i18n.accountType[r.accountType as keyof typeof i18n.accountType] ?? r.accountType;
         return `<td class="center"><span class="badge" style="background:${colors.bg};color:${colors.fg};border:1px solid ${colors.fg}33;">${escapeHtml(lbl)}</span></td>`;
+      }
+      case 'fmParty': {
+        const party = colConfig.partiesByAccountId?.[r.accountId];
+        if (!party) return `<td class="center" style="color:#aaa">—</td>`;
+        const colors = FM_PARTY_KIND_COLORS[party.kind] ?? { bg: '#e5e7eb', fg: '#374151' };
+        const catName = locale === 'en'
+          ? (party.categoryNameEn?.trim() || party.categoryNameAr)
+          : party.categoryNameAr;
+        return `<td class="center">
+          <span class="badge" style="display:inline-block;background:${colors.bg};color:${colors.fg};border:1px solid ${colors.fg}33;font-size:9px;max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(catName)}">${escapeHtml(catName)}</span>
+        </td>`;
       }
       case 'currency':
         return `<td class="center"><span class="num" style="background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:3px;font-weight:600;font-size:10px;">${escapeHtml(r.currency || '—')}</span></td>`;
@@ -2305,6 +2431,15 @@ export function printAccountBalances(
   }
   if (colConfig.searchFilter) {
     filterChips.push(`<span class="chip" style="background:#fce7f3;color:#9d174d;">${escapeHtml(i18n.accountBalances.searchFilter(colConfig.searchFilter))}</span>`);
+  }
+  if (colConfig.partiesOnly) {
+    filterChips.push(`<span class="chip" style="background:#e0e7ff;color:#3730a3;">${escapeHtml(i18n.accountBalances.partiesOnly)}</span>`);
+  }
+  const fmCategoriesEnabled = colConfig.fmCategoriesEnabled ?? colConfig.fmKindsEnabled ?? [];
+  const fmCategoriesTotal = colConfig.fmCategoriesTotal ?? Object.keys(i18n.accountBalances.fmKind).length;
+  if (fmCategoriesEnabled.length > 0 && fmCategoriesEnabled.length < fmCategoriesTotal) {
+    const labels = fmCategoriesEnabled.join(' · ');
+    filterChips.push(`<span class="chip" style="background:#ede9fe;color:#5b21b6;">${escapeHtml(i18n.accountBalances.fmKindsChip(labels))}</span>`);
   }
 
   const html = `

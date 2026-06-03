@@ -159,7 +159,7 @@ export interface PrintI18n {
   // أرصدة الحسابات
   accountBalances: {
     title: string; previewTitle: string;
-    idx: string; code: string; account: string; type: string; currency: string;
+    idx: string; code: string; account: string; type: string; fmPartyKind: string; currency: string;
     debit: string; credit: string; valDebit: (base: string) => string; valCredit: (base: string) => string;
     totalsLbl: (count: number) => string;
     fromDate: string; toDate: string;
@@ -169,6 +169,9 @@ export interface PrintI18n {
     valuatedBy: (base: string) => string;
     bulletin: (name: string) => string;
     searchFilter: (q: string) => string;
+    partiesOnly: string;
+    fmKindsChip: (kinds: string) => string;
+    fmKind: Record<string, string>;
     fxWarn: string;
     empty: string;
     footerText: string;
@@ -323,7 +326,7 @@ const AR: PrintI18n = {
   },
   accountBalances: {
     title: 'أرصدة الحسابات', previewTitle: 'أرصدة الحسابات',
-    idx: '#', code: 'الكود', account: 'الحساب', type: 'النوع', currency: 'العملة',
+    idx: '#', code: 'الكود', account: 'الحساب', type: 'النوع', fmPartyKind: 'نوع الطرف', currency: 'العملة',
     debit: 'رصيد مدين', credit: 'رصيد دائن',
     valDebit: base => `مقوَّم مدين (${base})`,
     valCredit: base => `مقوَّم دائن (${base})`,
@@ -335,6 +338,11 @@ const AR: PrintI18n = {
     valuatedBy: base => `مقوَّم بـ ${base}`,
     bulletin: name => `نشرة: ${name}`,
     searchFilter: q => `بحث: «${q}»`,
+    partiesOnly: 'الأطراف فقط',
+    fmKindsChip: kinds => `أنواع الأطراف: ${kinds}`,
+    fmKind: {
+      Supplier: 'مورد', Customer: 'عميل', Bank: 'مصرف', CashBox: 'صندوق', PaymentCompany: 'شركة دفع',
+    },
     fxWarn: '⚠ استُخدم سعر صرف احتياطي (1) لبعض العملات غير المدرجة في النشرة المنشورة.',
     empty: 'لا توجد أرصدة للمعايير المحددة',
     footerText: 'أرصدة الحسابات — مولَّد إلكترونياً',
@@ -489,7 +497,7 @@ const EN: PrintI18n = {
   },
   accountBalances: {
     title: 'Account Balances', previewTitle: 'Account Balances',
-    idx: '#', code: 'Code', account: 'Account', type: 'Type', currency: 'Currency',
+    idx: '#', code: 'Code', account: 'Account', type: 'Type', fmPartyKind: 'Party type', currency: 'Currency',
     debit: 'Debit balance', credit: 'Credit balance',
     valDebit: base => `Valued debit (${base})`,
     valCredit: base => `Valued credit (${base})`,
@@ -501,6 +509,11 @@ const EN: PrintI18n = {
     valuatedBy: base => `Valued in ${base}`,
     bulletin: name => `Bulletin: ${name}`,
     searchFilter: q => `Search: «${q}»`,
+    partiesOnly: 'Parties only',
+    fmKindsChip: kinds => `Party kinds: ${kinds}`,
+    fmKind: {
+      Supplier: 'Supplier', Customer: 'Customer', Bank: 'Bank', CashBox: 'Cash box', PaymentCompany: 'Payment company',
+    },
     fxWarn: '⚠ A fallback FX rate (1) was used for some currencies not listed in the published bulletin.',
     empty: 'No balances for the selected criteria',
     footerText: 'Account Balances — electronically generated',

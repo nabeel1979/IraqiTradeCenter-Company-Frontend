@@ -8,9 +8,11 @@ import {
   Calculator, ShoppingCart, Warehouse, FolderTree, Scale,
   ChevronsDown, ChevronsUp, FileText, CalendarRange, Coins, Tag,
   Wallet, ArrowDownLeft, ArrowUpRight, X, Trash2, Activity,
+  Landmark, Building2, CreditCard, ArrowLeftRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth/auth-store';
+import { UserAvatar } from '@/components/shared/UserAvatar';
 import { Separator } from '@/components/ui/separator';
 import { useSidebarPrefs } from '@/lib/sidebarPreferences';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
@@ -72,17 +74,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/accounting/trial-balance', labelKey: 'sidebar.items.trialBalance', icon: Scale, permission: PERMS.Accounting.TrialBalance.Read },
       { to: '/accounting/fiscal-years', labelKey: 'sidebar.items.fiscalYears', icon: CalendarRange, permission: PERMS.Accounting.FiscalYears.Read },
       { to: '/accounting/currency-rates', labelKey: 'sidebar.items.currencyRates', icon: Coins, permission: PERMS.Accounting.CurrencyRates.Read },
-      { to: '/accounting/voucher-types', labelKey: 'sidebar.items.voucherTypes', icon: Tag, permission: PERMS.Accounting.VoucherTypes.Read },
-      {
-        to: '/accounting/cash-boxes',
-        labelKey: 'sidebar.items.cashBoxes',
-        icon: Wallet,
-        permissionAny: [
-          PERMS.Accounting.CashBoxes.Read,
-          PERMS.Accounting.CashBoxBalances.Read,
-          PERMS.Accounting.CashBoxTransfers.Read,
-        ],
-      },
     ],
   },
   {
@@ -104,6 +95,65 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/inventory', labelKey: 'sidebar.items.items', icon: Package, permission: PERMS.Inventory.Items.Read },
       { to: '/inventory/movements', labelKey: 'sidebar.items.stockMovements', icon: TrendingUp, permission: PERMS.Inventory.Movements.Read },
+    ],
+  },
+  {
+    key: 'financial-management',
+    titleKey: 'sidebar.groups.financialManagement',
+    icon: Landmark,
+    items: [
+      {
+        to: '/financial-management/suppliers',
+        labelKey: 'financialManagement.kinds.Supplier',
+        icon: Building2,
+        permissionAny: [
+          PERMS.FinancialManagement.Categories.Read,
+          PERMS.FinancialManagement.Parties.Read,
+        ],
+      },
+      {
+        to: '/financial-management/customers',
+        labelKey: 'financialManagement.kinds.Customer',
+        icon: Users,
+        permissionAny: [
+          PERMS.FinancialManagement.Categories.Read,
+          PERMS.FinancialManagement.Parties.Read,
+        ],
+      },
+      {
+        to: '/financial-management/banks',
+        labelKey: 'financialManagement.kinds.Bank',
+        icon: Landmark,
+        permissionAny: [
+          PERMS.FinancialManagement.Categories.Read,
+          PERMS.FinancialManagement.Parties.Read,
+        ],
+      },
+      {
+        to: '/financial-management/cash-boxes',
+        labelKey: 'financialManagement.kinds.CashBox',
+        icon: Wallet,
+        permissionAny: [
+          PERMS.Accounting.CashBoxes.Read,
+          PERMS.Accounting.CashBoxBalances.Read,
+          PERMS.Accounting.CashBoxTransfers.Read,
+        ],
+      },
+      {
+        to: '/financial-management/payment-companies',
+        labelKey: 'financialManagement.kinds.PaymentCompany',
+        icon: CreditCard,
+        permissionAny: [
+          PERMS.FinancialManagement.Categories.Read,
+          PERMS.FinancialManagement.Parties.Read,
+        ],
+      },
+      {
+        to: '/financial-management/account-settlements',
+        labelKey: 'sidebar.items.accountSettlements',
+        icon: ArrowLeftRight,
+        permission: PERMS.FinancialManagement.AccountSettlements.Read,
+      },
     ],
   },
   {
@@ -165,7 +215,14 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
   }, [voucherTypesQuery.data, locale]);
 
   const groupsWithVouchers: NavGroup[] = useMemo(() => {
-    if (dynamicVoucherItems.length === 0) return NAV_GROUPS;
+    // ‎صفحة "أنواع السندات" (إعدادات) تُعرض الآن ضمن مجموعة "السندات" بدل المحاسبة.
+    const voucherTypesItem: NavItem = {
+      to: '/accounting/voucher-types',
+      labelKey: 'sidebar.items.voucherTypes',
+      icon: Tag,
+      permission: PERMS.Accounting.VoucherTypes.Read,
+    };
+    const voucherItems: NavItem[] = [...dynamicVoucherItems, voucherTypesItem];
     const next: NavGroup[] = [];
     for (const g of NAV_GROUPS) {
       next.push(g);
@@ -175,7 +232,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
           titleKey: 'sidebar.groups.vouchers',
           icon: Receipt,
           mandatory: true,
-          items: dynamicVoucherItems,
+          items: voucherItems,
         });
       }
     }
@@ -400,9 +457,12 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
       <div className="p-4">
         <Separator className="mb-4" />
         <div className="flex items-center gap-3 rounded-lg p-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-primary/30 to-primary/10 text-sm font-medium text-primary ring-1 ring-primary/20">
-            {user?.fullName?.[0] ?? (isRtl ? 'م' : 'U')}
-          </div>
+          <UserAvatar
+            name={user?.fullName ?? t('sidebar.user')}
+            src={user?.avatarBase64}
+            size="sm"
+            className="h-10 w-10 shrink-0 text-sm"
+          />
           <div className="flex-1 overflow-hidden">
             <p className="truncate text-sm font-medium">{user?.fullName ?? t('sidebar.user')}</p>
             <p className="truncate text-xs text-muted-foreground" dir="ltr">{user?.phone ?? '—'}</p>

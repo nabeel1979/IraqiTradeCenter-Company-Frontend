@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -23,6 +23,7 @@ import {
   History,
   Archive,
   MoreVertical,
+  CheckCircle2,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
@@ -36,14 +37,25 @@ import { DateRangePresets } from '@/components/shared/DateRangePresets';
 import { JournalEntryViewDialog } from '@/components/accounting/JournalEntryViewDialog';
 import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
 import { VoucherAttachmentsDialog } from '@/components/accounting/VoucherAttachmentsDialog';
-import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { useActiveFiscalYear, isDateInFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { accountingApi } from '@/lib/api/accounting';
+import { navigateJournalEntrySource } from '@/lib/accounting/journalEntrySource';
+import {
+  readSessionJson,
+  writeSessionJson,
+  ReportNavKeys,
+  saveJournalEntrySourceState,
+} from '@/lib/reportReturnState';
+
+/** يحفظ فلتر التاريخ بين التحديثات (F5) — منفصل عن استعادة التنقّل بين الصفحات. */
+const JOURNAL_DATE_FILTER_KEY = 'itc:journal-entries:date-range';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { useAuthStore } from '@/lib/auth/auth-store';
-import { formatAmount, formatDate, cn } from '@/lib/utils';
+import { formatAmount, formatDate, cn, extractApiError } from '@/lib/utils';
+import { usePermissions } from '@/lib/auth/usePermissions';
+import { PERMS } from '@/lib/auth/permissions';
 import { printJournalEntriesList, printSingleJournalEntry } from '@/lib/printUtils';
 import { auditApi } from '@/lib/api/audit';
 import { useLocale } from '@/lib/i18n/useLocale';
@@ -51,6 +63,19 @@ import { localizedAccountName, localizedVoucherTypeName, localizedEntryDescripti
 import type { JournalEntryDto } from '@/types/api';
 
 const PAGE_SIZE_OPTIONS = [10, 50, 100, 1000] as const;
+
+type JournalEntriesRestore = {
+  ts?: number;
+  search?: string;
+  status?: string;
+  fromDate?: string;
+  toDate?: string;
+  voucherTypeFilter?: number | '';
+  pageNumber?: number;
+  pageSize?: number;
+  openEntryIds?: number[];
+  highlightEntryId?: number;
+};
 
 function StatusBadge({ status }: { status: string }) {
   const { t } = useTranslation();
@@ -340,10 +365,11 @@ interface EntryActionsMenuProps {
   onViewSource: () => void;
   outsideActiveFY?: boolean;
   isRtl: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function EntryActionsMenu({
-  onPrint, onMonitor, onArchive, onView, onViewSource, outsideActiveFY, isRtl,
+  onPrint, onMonitor, onArchive, onView, onViewSource, outsideActiveFY, isRtl, onOpenChange,
 }: EntryActionsMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -392,6 +418,10 @@ function EntryActionsMenu({
       document.removeEventListener('keydown', onEsc);
     };
   }, [open]);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
 
   const action = (fn: () => void) => () => { setOpen(false); fn(); };
 
@@ -507,6 +537,8 @@ function EntryCard({
   isOpen,
   onToggle,
   outsideActiveFY = false,
+  highlighted = false,
+  onEntryInteract,
   extraDescriptionContext,
 }: {
   entry: JournalEntryDto;
@@ -526,6 +558,10 @@ function EntryCard({
   onToggle: () => void;
   /** هل تاريخ هذا القيد خارج السنة المالية النشطة؟ يُعطّل زر "أصل القيد" بصرياً. */
   outsideActiveFY?: boolean;
+  /** تمييز القيد عند الرجوع من «أصل القيد» — يبقى حتى التفاعل مع قيد آخر. */
+  highlighted?: boolean;
+  /** يُستدعى عند التفاعل مع هذا القيد (فتح/إجراءات) لإزالة تمييز الرجوع من قيد سابق. */
+  onEntryInteract?: (entryId: number) => void;
   /** خريطة سياق إضافية (nameAr → nameEn) — تُستخدم لترجمة وصف القيد المُنشأ تلقائياً
    *  كأسماء الصناديق المخصّصة (مثلاً "صندوق نبيل" → "Nabeel Box"). */
   extraDescriptionContext?: Record<string, string>;
@@ -538,6 +574,7 @@ function EntryCard({
   const lineCount = entry.lines?.length ?? 0;
 
   const [dropTarget, setDropTarget] = useState<LineColKey | null>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
 
   const headerAlignCls = isRtl ? 'text-right' : 'text-left';
   const headerAlign: Record<LineColKey, string> = {
@@ -571,16 +608,29 @@ function EntryCard({
     entry.description;
 
   return (
-    <Card className="overflow-hidden border-border/60">
+    <Card
+      data-je-entry-id={entry.id}
+      className={cn(
+        'overflow-hidden border-border/60 transition-[box-shadow,background-color,ring-color]',
+        (highlighted || actionsMenuOpen) && 'ring-2 ring-primary/60 bg-primary/5 shadow-md',
+        actionsMenuOpen && 'border-primary/40',
+      )}
+    >
       {/* ───────── Header القيد ───────── */}
       <div
-        className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-secondary/30 px-4 py-3 cursor-pointer transition-colors hover:bg-secondary/40"
-        onClick={onToggle}
+        className={cn(
+          'flex flex-wrap items-center gap-3 border-b border-border/60 px-4 py-3 cursor-pointer transition-colors',
+          actionsMenuOpen ? 'bg-primary/10 hover:bg-primary/15' : 'bg-secondary/30 hover:bg-secondary/40',
+        )}
+        onClick={() => {
+          onEntryInteract?.(entry.id);
+          onToggle();
+        }}
         title={isOpen ? t('journalEntries.entry.closeDetailsTip') : t('journalEntries.entry.openDetailsTip')}
       >
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          onClick={(e) => { e.stopPropagation(); onEntryInteract?.(entry.id); onToggle(); }}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
           title={isOpen ? t('journalEntries.entry.close') : t('journalEntries.entry.open')}
         >
@@ -694,13 +744,17 @@ function EntryCard({
             onViewSource={onViewSource}
             outsideActiveFY={outsideActiveFY}
             isRtl={isRtl}
+            onOpenChange={open => {
+              setActionsMenuOpen(open);
+              if (open) onEntryInteract?.(entry.id);
+            }}
           />
         </div>
       </div>
 
       {/* ───────── جدول البنود (يظهر فقط عند الفتح) ───────── */}
       {isOpen && (
-        <div className="overflow-x-auto">
+        <div className={cn('overflow-x-auto', actionsMenuOpen && 'bg-primary/[0.04]')}>
           <table className="text-sm" style={{ tableLayout: 'fixed', width: '100%' }}>
             <colgroup>
               {colOrder.map(col => (
@@ -773,15 +827,21 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   const { locale, isRtl } = useLocale();
   const isLocked = !!lockedVoucherCode;
   const lockedCodeUpper = lockedVoucherCode?.toUpperCase() ?? '';
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const initialRestore = readSessionJson<JournalEntriesRestore>(ReportNavKeys.journalEntriesRestore);
+  const hadInitialRestoreRef = useRef(!!initialRestore);
+  const highlightDoneRef = useRef(false);
+  const [search, setSearch] = useState(initialRestore?.search ?? '');
+  const [status, setStatus] = useState(initialRestore?.status ?? '');
+  const [fromDate, setFromDate] = useState(initialRestore?.fromDate ?? '');
+  const [toDate, setToDate] = useState(initialRestore?.toDate ?? '');
   // ‎علامة: هل لمس المستخدم فلتر التاريخ؟ — إن لم يلمسه نعيّنه افتراضياً "من بداية السنة → اليوم"
-  const userTouchedDatesRef = useRef(false);
-  const [voucherTypeFilter, setVoucherTypeFilter] = useState<number | ''>('');
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(50);
+  const userTouchedDatesRef = useRef(!!initialRestore?.fromDate || !!initialRestore?.toDate);
+  const [voucherTypeFilter, setVoucherTypeFilter] = useState<number | ''>(initialRestore?.voucherTypeFilter ?? '');
+  const [pageNumber, setPageNumber] = useState(initialRestore?.pageNumber ?? 1);
+  const [pageSize, setPageSize] = useState<number>(initialRestore?.pageSize ?? 50);
+  const [highlightEntryId, setHighlightEntryId] = useState<number | null>(
+    initialRestore?.highlightEntryId ?? null,
+  );
   const [viewEntryId, setViewEntryId] = useState<number | null>(null);
   // ‎كيان مفتوح في نافذة "مراقبة": نُخزّن نوع الكيان (Voucher / JournalEntry)
   // ‎و المعرّف لجلب سجله من /audit/entity.
@@ -789,13 +849,6 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   // ‎الكيان المفتوح عليه أرشيف المرفقات (null = لا شيء مفتوح).
   const [archiveTarget, setArchiveTarget] = useState<{ entityId: number; subtitle?: string } | null>(null);
   const userNs = useAuthStore(s => s.user?.id ?? '__guest__');
-
-  // ‎جلب السنوات المالية لتعيين الفترة الافتراضية
-  const fiscalYearsQuery = useQuery({
-    queryKey: ['fiscal-years'],
-    queryFn: fiscalYearsApi.getAll,
-    staleTime: 5 * 60 * 1000,
-  });
 
   // ‎جلب الصناديق كي نقدر نترجم وصف القيد المُنشأ تلقائياً (سند قبض — صندوق X).
   // ‎نستعملها كخريطة سياق إضافية في `localizedEntryDescription`.
@@ -815,51 +868,59 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   }, [cashBoxesQuery.data]);
 
   // ‎السنة المالية النشطة — لمنع فتح/تعديل قيود من خارج نطاقها
-  const { activeFiscalYear } = useActiveFiscalYear();
+  const { activeFiscalYear, defaultFromDate, defaultToDate, datesReady } = useActiveFiscalYear();
 
-  // ‎الفترة الافتراضية = من بداية السنة المالية الحالية → اليوم
+  // ‎استعادة فلتر التاريخ المحفوظ (بعد F5) — يحترم اختيار «الفترات السريعة»
   useEffect(() => {
-    if (userTouchedDatesRef.current) return;
-    if (fromDate || toDate) return;
-    const list = fiscalYearsQuery.data ?? [];
-    const today = new Date();
-    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    if (hadInitialRestoreRef.current) return;
+    const saved = readSessionJson<{ from: string; to: string; touched?: boolean; ts?: number }>(
+      JOURNAL_DATE_FILTER_KEY,
+      false,
+      0,
+    );
+    if (saved?.from && saved?.to) {
+      setFromDate(saved.from);
+      setToDate(saved.to);
+      userTouchedDatesRef.current = saved.touched ?? true;
+    }
+  }, []);
 
-    let fyStart = '';
-    if (list.length > 0) {
-      // ‎الأولوية: السنة النشطة → المفتوحة التي تحتوي اليوم → أحدث مفتوحة → المغلقة التي تحتوي اليوم → الأحدث
-      const explicit = list.find(fy => (fy as any).isActive);
-      const openContainsToday = list.find(fy => {
-        const s = (fy.startDate ?? '').slice(0, 10);
-        const e = (fy.endDate ?? '').slice(0, 10);
-        return s && e && todayIso >= s && todayIso <= e && !(fy as any).isClosed;
-      });
-      const newestOpen = [...list]
-        .filter(fy => !(fy as any).isClosed)
-        .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
-      const closedContainsToday = list.find(fy => {
-        const s = (fy.startDate ?? '').slice(0, 10);
-        const e = (fy.endDate ?? '').slice(0, 10);
-        return s && e && todayIso >= s && todayIso <= e;
-      });
-      const newest = [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
-      const chosen = explicit ?? openContainsToday ?? newestOpen ?? closedContainsToday ?? newest;
-      if (chosen) {
-        fyStart = (chosen.startDate ?? '').slice(0, 10);
-      }
+  // ‎الفترة الافتراضية = من بداية السنة المالية النشطة → اليوم (بعد تحميل السنوات)
+  useEffect(() => {
+    if (hadInitialRestoreRef.current) return;
+    if (userTouchedDatesRef.current) return;
+    if (!datesReady || !defaultFromDate) return;
+
+    const calFallback = `${new Date().getFullYear()}-01-01`;
+    const staleCalendar =
+      fromDate === calFallback && defaultFromDate !== calFallback && !!activeFiscalYear;
+
+    if (!fromDate && !toDate) {
+      setFromDate(defaultFromDate);
+      setToDate(defaultToDate);
+      return;
     }
-    // ‎احتياط: لو لم تتوفر سنة مالية، استخدم 1 يناير من السنة التقويمية
-    if (!fyStart) {
-      fyStart = `${today.getFullYear()}-01-01`;
+    if (staleCalendar) {
+      setFromDate(defaultFromDate);
+      setToDate(defaultToDate);
     }
-    // ‎النهاية = اليوم دائماً (طلب المستخدم: "ولحد اليوم")
-    setFromDate(fyStart);
-    setToDate(todayIso);
-  }, [fiscalYearsQuery.data, fromDate, toDate]);
+  }, [datesReady, defaultFromDate, defaultToDate, fromDate, toDate, activeFiscalYear]);
+
+  // ‎حفظ اختيار المستخدم للفترة (يبقى بعد التحديث)
+  useEffect(() => {
+    if (!fromDate || !toDate) return;
+    writeSessionJson(JOURNAL_DATE_FILTER_KEY, {
+      from: fromDate,
+      to: toDate,
+      touched: userTouchedDatesRef.current,
+    });
+  }, [fromDate, toDate]);
   const [colOrder, setColOrder] = useState<LineColKey[]>(() => loadLineColOrder(userNs));
   const [colWidths, setColWidths] = useState<Record<LineColKey, number>>(() => loadLineColWidths(userNs));
-  // القيود المفتوحة (الافتراضي: مغلقة جميعاً)
-  const [openIds, setOpenIds] = useState<Set<number>>(new Set());
+  // القيود المفتوحة (الافتراضي: مغلقة جميعاً) — لا نفتح القيد المُشار إليه عند الرجوع
+  const [openIds, setOpenIds] = useState<Set<number>>(
+    () => new Set(initialRestore?.openEntryIds ?? []),
+  );
 
   const toggleEntry = (id: number) => {
     setOpenIds(prev => {
@@ -944,6 +1005,24 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     enabled: !isLocked || voucherTypeFilter !== '',
   });
 
+  useEffect(() => {
+    if (highlightEntryId != null) highlightDoneRef.current = false;
+  }, [highlightEntryId]);
+
+  useEffect(() => {
+    if (highlightEntryId == null || !data?.items.length || highlightDoneRef.current) return;
+    if (!data.items.some(item => item.id === highlightEntryId)) return;
+    const el = document.querySelector<HTMLElement>(`[data-je-entry-id="${highlightEntryId}"]`);
+    if (!el) return;
+    highlightDoneRef.current = true;
+    requestAnimationFrame(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+  }, [highlightEntryId, data?.items]);
+
+  /** إزالة تمييز الرجوع عند التفاعل مع قيد مختلف. */
+  const handleEntryInteract = useCallback((entryId: number) => {
+    setHighlightEntryId(prev => (prev != null && prev !== entryId ? null : prev));
+  }, []);
+
   const voucherTypesQuery = useQuery({
     queryKey: ['journal-voucher-types', 'enabled'],
     queryFn: () => journalVoucherTypesApi.getAll(true),
@@ -963,6 +1042,68 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
       setVoucherTypeFilter(lockedVoucherType.id);
     }
   }, [isLocked, lockedVoucherType, voucherTypeFilter]);
+
+  const queryClient = useQueryClient();
+  const { can } = usePermissions();
+  const canPostDrafts = useMemo(
+    () => (isLocked && lockedVoucherType
+      ? can(PERMS.Accounting.Vouchers.post(lockedVoucherType.code))
+      : can(PERMS.Accounting.JournalEntries.Post)),
+    [isLocked, lockedVoucherType, can],
+  );
+
+  const { data: draftCountData } = useQuery({
+    queryKey: ['journal-entries', 'draft-count', search, fromDate, toDate, voucherTypeFilter, isLocked],
+    queryFn: () =>
+      accountingApi.getJournalEntries({
+        search: search || undefined,
+        status: 'Draft',
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        voucherTypeId: voucherTypeFilter === '' ? undefined : Number(voucherTypeFilter),
+        pageNumber: 1,
+        pageSize: 1,
+      }),
+    enabled: canPostDrafts && (!isLocked || voucherTypeFilter !== ''),
+    staleTime: 30_000,
+  });
+  const draftCount = draftCountData?.totalCount ?? 0;
+
+  const postDraftsMutation = useMutation({
+    mutationFn: () =>
+      accountingApi.postDraftJournalEntries({
+        search: search || undefined,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        voucherTypeId: voucherTypeFilter === '' ? undefined : Number(voucherTypeFilter),
+      }),
+    onSuccess: result => {
+      void queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
+      if (result.postedCount > 0) {
+        toast.success(t('journalEntries.postDrafts.success', { count: result.postedCount }));
+      } else {
+        toast.info(t('journalEntries.postDrafts.nonePosted'));
+      }
+      if (result.failedCount > 0 || result.skippedCount > 0) {
+        toast.warning(
+          t('journalEntries.postDrafts.partial', {
+            failed: result.failedCount,
+            skipped: result.skippedCount,
+          }),
+          { duration: 8000 },
+        );
+      }
+    },
+    onError: err => {
+      toast.error(t('journalEntries.postDrafts.failed'), { description: extractApiError(err) });
+    },
+  });
+
+  const handlePostDrafts = () => {
+    if (draftCount <= 0 || postDraftsMutation.isPending) return;
+    if (!window.confirm(t('journalEntries.postDrafts.confirm', { count: draftCount }))) return;
+    postDraftsMutation.mutate();
+  };
 
   const { data: company } = useQuery({
     queryKey: ['company-settings'],
@@ -1037,6 +1178,11 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
     setFromDate('');
     setToDate('');
     userTouchedDatesRef.current = false; // ‎اسمح لـ effect بإعادة تطبيق "من بداية السنة"
+    try {
+      sessionStorage.removeItem(JOURNAL_DATE_FILTER_KEY);
+    } catch {
+      /* ignore */
+    }
     if (!isLocked) setVoucherTypeFilter('');
     setPageNumber(1);
   };
@@ -1200,6 +1346,23 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
             </Button>
           )}
 
+          {canPostDrafts && draftCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePostDrafts}
+              disabled={postDraftsMutation.isPending}
+              className="h-9 gap-2 border-emerald-500/40 text-emerald-800 hover:bg-emerald-500/10 dark:text-emerald-300"
+              title={t('journalEntries.postDrafts.tip')}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {t('journalEntries.postDrafts.button')}
+              <Badge variant="muted" className="px-1.5 py-0 text-[10px]">
+                {draftCount.toLocaleString('en-US')}
+              </Badge>
+            </Button>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -1250,60 +1413,50 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
             <EntryCard
               key={e.id}
               entry={e}
-              onView={() => setViewEntryId(e.id)}
+              onView={() => {
+                handleEntryInteract(e.id);
+                setViewEntryId(e.id);
+              }}
               onViewSource={() => {
-                // ‎"أصل القيد" — يتنقّل إلى النافذة التي وُلّد منها القيد:
-                //  - سند مخصّص (مدين/دائن) → نموذج السند المبسّط (وضع التعديل)
-                //  - سند مخصّص (مختلط) → صفحة القيد متعدد البنود (وضع التعديل)
-                //  - فاتورة → صفحة الفاتورة
-                //  - يدوي → صفحة القيد المحاسبي (وضع العرض)
-                //
-                // ‎حارس السنة المالية النشطة:
-                //   إذا كان تاريخ القيد خارج نطاق السنة المالية المُفَعَّلة،
-                //   نمنع الفتح ونعرض إشعاراً يوضّح السبب. هذا يُكمِّل حارس
-                //   "الفترة المغلقة" بحيث لا يصل المستخدم إطلاقاً إلى نموذج
-                //   تعديل قيد لا يخصّ السنة الحالية.
-                if (activeFiscalYear && !isDateInFiscalYear(e.entryDate, activeFiscalYear)) {
-                  toast.error(t('journalEntries.openSourceFailed'), {
-                    description: t('journalEntries.outsideFYReason', {
-                      date: formatDate(e.entryDate),
-                      fy: activeFiscalYear.name,
-                    }),
-                    duration: 6000,
-                  });
-                  return;
-                }
-                // ‎قيد مناقلة بين صناديق: لا يُفتح للتعديل من هنا — يوجَّه
-                // ‎للمناقلات حصراً (تعديل/إلغاء/تراجع عن استلام).
-                if (e.referenceType === 'CashBoxTransfer' || e.referenceType === 'CashBoxTransferReversal') {
-                  navigate('/accounting/cash-boxes?tab=transfers');
-                  return;
-                }
-                // ‎نمرّر returnTo/returnLabel ليرجع المستخدم إلى صفحة السند بعد الحفظ/الإلغاء
-                const returnState = isLocked && lockedVoucherType
-                  ? {
-                      returnTo: `/accounting/vouchers/${lockedVoucherType.code}`,
-                      returnLabel: localizedVoucherTypeName(locale, lockedVoucherType.nameAr, lockedVoucherType.nameEn),
-                    }
-                  : undefined;
-                if (e.voucherTypeId && e.voucherTypeCode) {
-                  const vt = voucherTypes.find(v => v.id === e.voucherTypeId);
-                  if (vt && vt.nature === 'Mixed') {
-                    navigate(`/accounting/journal/${e.id}/edit`, { state: returnState });
-                  } else {
-                    navigate(`/accounting/vouchers/${e.voucherTypeCode}/${e.id}/edit`, { state: returnState });
+                void (async () => {
+                  if (activeFiscalYear && !isDateInFiscalYear(e.entryDate, activeFiscalYear)) {
+                    toast.error(t('journalEntries.openSourceFailed'), {
+                      description: t('journalEntries.outsideFYReason', {
+                        date: formatDate(e.entryDate),
+                        fy: activeFiscalYear.name,
+                      }),
+                      duration: 6000,
+                    });
+                    return;
                   }
-                  return;
-                }
-                if (e.source === 'SalesInvoice' && e.referenceId) {
-                  navigate(`/sales/invoices/${e.referenceId}`);
-                  return;
-                }
-                if (e.source === 'PurchaseInvoice' && e.referenceId) {
-                  navigate(`/purchases/invoices/${e.referenceId}`);
-                  return;
-                }
-                navigate(`/accounting/journal/${e.id}/view`, { state: returnState });
+                  const returnTo = isLocked && lockedVoucherType
+                    ? `/accounting/vouchers/${lockedVoucherType.code}`
+                    : '/accounting/journal';
+                  const returnLabel = isLocked && lockedVoucherType
+                    ? localizedVoucherTypeName(locale, lockedVoucherType.nameAr, lockedVoucherType.nameEn)
+                    : t('journalEntries.returnLabel');
+                  saveJournalEntrySourceState({
+                    returnTo,
+                    returnLabel,
+                    restore: {
+                      search,
+                      status,
+                      fromDate,
+                      toDate,
+                      voucherTypeFilter,
+                      pageNumber,
+                      pageSize,
+                      openEntryIds: [...openIds].filter(id => id !== e.id),
+                    },
+                    highlightEntryId: e.id,
+                  });
+                  const returnState = { returnTo, returnLabel };
+                  try {
+                    await navigateJournalEntrySource(e, navigate, { returnState, voucherTypes });
+                  } catch {
+                    toast.error(t('journalEntries.openSourceFailed'));
+                  }
+                })();
               }}
               onPrint={() => handlePrintSingle(e)}
               onMonitor={() =>
@@ -1330,6 +1483,8 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               userNs={userNs}
               isOpen={openIds.has(e.id)}
               onToggle={() => toggleEntry(e.id)}
+              highlighted={highlightEntryId === e.id}
+              onEntryInteract={handleEntryInteract}
               outsideActiveFY={
                 !!activeFiscalYear && !isDateInFiscalYear(e.entryDate, activeFiscalYear)
               }

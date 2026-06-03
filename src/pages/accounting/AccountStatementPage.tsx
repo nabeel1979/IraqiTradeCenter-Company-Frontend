@@ -23,30 +23,47 @@ import {
   ChevronDown,
   CheckCircle2,
   Receipt,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useLocale } from '@/lib/i18n/useLocale';
-import { localizedName, localizedEntryDescription } from '@/lib/i18n';
+import {
+  readSessionJson,
+  ReportNavKeys,
+  writeSessionJson,
+  saveJournalEntrySourceState,
+  ACCOUNT_STATEMENT_PATH,
+  type StatementSourceState,
+} from '@/lib/reportReturnState';
+import { localizedEntryDescription } from '@/lib/i18n';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { DateRangePresets } from '@/components/shared/DateRangePresets';
+import { useActiveFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { JournalEntryViewDialog } from '@/components/accounting/JournalEntryViewDialog';
 import { StatementRowActionsMenu } from '@/components/accounting/StatementRowActionsMenu';
 import { accountingApi } from '@/lib/api/accounting';
+import {
+  CASH_BOX_TRANSFERS_PATH,
+  navigateJournalEntrySource,
+} from '@/lib/accounting/journalEntrySource';
 import { companySettingsApi } from '@/lib/api/companySettings';
-import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { currenciesApi } from '@/lib/api/currencies';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
+import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
+import { toast } from 'sonner';
 import { formatAmount, formatDate, cn } from '@/lib/utils';
 import { printAccountStatement } from '@/lib/printUtils';
 import { auditApi } from '@/lib/api/audit';
 import { useAuthStore } from '@/lib/auth/auth-store';
-import type { AccountDto, AccountStatementDto, AccountStatementRowDto } from '@/types/api';
+import type { AccountDto, AccountStatementDto, AccountStatementRowDto, OpeningEntryRowDto } from '@/types/api';
 
 /** قائمة احتياطية تُستخدم فقط حتى ينتهي تحميل العملات من الـ API */
 const FALLBACK_CURRENCIES = ['IQD', 'USD', 'EUR', 'SAR', 'AED'];
@@ -309,6 +326,14 @@ function StatementColHead({
   );
 }
 
+function summaryAmountSizeClass(value: number): string {
+  const len = formatAmount(value, 2).length;
+  if (len > 20) return 'text-[11px]';
+  if (len > 16) return 'text-xs';
+  if (len > 12) return 'text-sm';
+  return 'text-base sm:text-lg';
+}
+
 function SummaryCell({
   label,
   value,
@@ -324,6 +349,7 @@ function SummaryCell({
   highlight?: boolean;
   icon?: ReactNode;
 }) {
+  const formatted = formatAmount(value, 2);
   return (
     <div
       className={cn(
@@ -335,12 +361,96 @@ function SummaryCell({
         <div className="text-xs font-medium text-muted-foreground">{label}</div>
         {icon ? <div className={cn('opacity-70', accent)}>{icon}</div> : null}
       </div>
-      <div className={cn('mt-2 text-2xl font-bold tabular-nums num-display tracking-tight', accent)}>
-        {formatAmount(value)}
+      <div className={cn(
+        'mt-2 max-w-full overflow-x-auto font-bold tabular-nums num-display tracking-tight whitespace-nowrap',
+        summaryAmountSizeClass(value),
+        accent,
+      )}>
+        {formatted}
       </div>
       {subtitle ? (
         <div className="mt-1.5 text-[10.5px] leading-tight text-muted-foreground">{subtitle}</div>
       ) : null}
+    </div>
+  );
+}
+
+function entryDateKey(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+type StatementTimelineItem =
+  | { kind: 'opening'; oe: OpeningEntryRowDto }
+  | { kind: 'row'; row: AccountStatementRowDto; sourceIdx: number };
+
+function buildStatementTimeline(
+  rows: AccountStatementRowDto[],
+  openingInPeriod: OpeningEntryRowDto[],
+): StatementTimelineItem[] {
+  const items: StatementTimelineItem[] = [
+    ...openingInPeriod.map(oe => ({ kind: 'opening' as const, oe })),
+    ...rows.map((row, sourceIdx) => ({ kind: 'row' as const, row, sourceIdx })),
+  ];
+  items.sort((a, b) => {
+    const da = a.kind === 'opening' ? a.oe.entryDate : a.row.date;
+    const db = b.kind === 'opening' ? b.oe.entryDate : b.row.date;
+    const d = da.localeCompare(db);
+    if (d !== 0) return d;
+    const na = a.kind === 'opening' ? a.oe.entryNumber : a.row.entryNumber;
+    const nb = b.kind === 'opening' ? b.oe.entryNumber : b.row.entryNumber;
+    const n = na.localeCompare(nb);
+    if (n !== 0) return n;
+    if (a.kind !== b.kind) return a.kind === 'opening' ? -1 : 1;
+    return 0;
+  });
+  return items;
+}
+
+
+/** أرصدة العملة — أعلى جدول كل عملة */
+function CurrencyBalanceHeader({
+  cur,
+  count,
+  totals,
+  t,
+}: {
+  cur: string;
+  count: number;
+  totals: { opening: number; debit: number; credit: number; balance: number };
+  t: TFunction;
+}) {
+  const items = [
+    { label: t('accountStatement.summary.openingBalance'), value: totals.opening, accent: 'text-blue-400' },
+    { label: t('accountStatement.table.debit'), value: totals.debit, accent: 'text-emerald-400' },
+    { label: t('accountStatement.table.credit'), value: totals.credit, accent: 'text-rose-400' },
+    { label: t('accountStatement.table.balance'), value: totals.balance, accent: 'text-primary' },
+  ] as const;
+
+  return (
+    <div className="overflow-hidden border-b border-border/60 bg-card">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border/40 bg-secondary px-3 py-1.5">
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/15 px-2 py-0.5 text-[11px] font-bold text-primary">
+          <Wallet className="h-3 w-3" />
+          {cur}
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {t('accountStatement.table.currencyBlockMovements', { count })}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-px bg-border/40 md:grid-cols-4">
+        {items.map(item => (
+          <div key={item.label} className="bg-card px-3 py-2">
+            <div className="text-[10px] text-muted-foreground">{item.label}</div>
+            <div className={cn(
+              'mt-0.5 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap',
+              summaryAmountSizeClass(item.value),
+              item.accent,
+            )}>
+              {formatAmount(item.value, 2)}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -365,7 +475,10 @@ function resolveSourceLink(
   const refType = (row.referenceType || '').trim();
   const refId = row.referenceId;
   if (refType === 'CashBoxTransfer' || refType === 'CashBoxTransferReversal') {
-    return { href: '/accounting/cash-boxes?tab=transfers', label: t('accountStatement.sources.cashTransfer') };
+    return { href: CASH_BOX_TRANSFERS_PATH, label: t('accountStatement.sources.cashTransfer') };
+  }
+  if (refType === 'ReversalOf') {
+    return { href: '#', label: t('accountStatement.sources.reversalEntry') };
   }
   switch (src) {
     case 'SalesInvoice':
@@ -416,6 +529,26 @@ export function AccountStatementPage() {
   const { locale, isRtl } = useLocale();
   const today = new Date().toISOString().slice(0, 10);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const [statementSource] = useState(() =>
+    readSessionJson<StatementSourceState>(ReportNavKeys.statementSource, false),
+  );
+
+  const handleBackToSource = useCallback(() => {
+    if (!statementSource) return;
+    writeSessionJson(statementSource.restoreKey, {
+      ...statementSource.restore,
+      highlightAccountId: statementSource.highlightAccountId,
+      highlightCurrency: statementSource.highlightCurrency,
+    });
+    try {
+      sessionStorage.removeItem(ReportNavKeys.statementSource);
+    } catch {
+      // تجاهل
+    }
+    navigate(statementSource.sourcePath);
+  }, [statementSource, navigate]);
 
   const colLabels = useMemo(
     (): Record<StatementColKey, string> => ({
@@ -442,44 +575,36 @@ export function AccountStatementPage() {
    * مفتاح تخزين الحالة (فلاتر/نتائج الكشف) في sessionStorage حتى نستعيدها عند
    * الرجوع من صفحة "أصل القيد". يُحذف بعد الاستعادة لتجنّب التعارض مع زيارة عادية.
    */
-  const RETURN_STATE_KEY = 'account-statement:return-state';
-  const RETURN_STATE_TTL_MS = 30 * 60 * 1000; // 30 دقيقة
+  type StatementReturnState = {
+    from: string;
+    to: string;
+    accountId: number | null;
+    accountLabel?: string;
+    selectedCurrencies: string[];
+    autoSubmit?: boolean;
+    focusEntryId?: number | null;
+    ts?: number;
+  };
 
-  // محاولة استعادة الحالة المحفوظة عند الرجوع من صفحة المصدر
-  const initialReturnState = (() => {
-    try {
-      const raw = sessionStorage.getItem(RETURN_STATE_KEY);
-      if (!raw) return null;
-      sessionStorage.removeItem(RETURN_STATE_KEY);
-      const data = JSON.parse(raw) as {
-        from: string;
-        to: string;
-        accountId: number | null;
-        accountLabel?: string;
-        selectedCurrencies: string[];
-        autoSubmit?: boolean;
-        focusEntryId?: number | null;
-        ts: number;
-      };
-      if (Date.now() - (data.ts || 0) > RETURN_STATE_TTL_MS) return null;
-      return data;
-    } catch {
-      return null;
-    }
-  })();
+  /** قراءة لمرة واحدة عند التركيب — يمنع استهلاك الحالة مرتين (React Strict Mode). */
+  const [returnBoot] = useState(() =>
+    readSessionJson<StatementReturnState>(ReportNavKeys.statementReturn, true),
+  );
+  const hadInitialReturnRef = useRef(!!returnBoot);
 
-  const [from, setFrom] = useState(initialReturnState?.from ?? '');
-  const [to, setTo] = useState(initialReturnState?.to ?? today);
-  const [accountId, setAccountId] = useState<number | null>(initialReturnState?.accountId ?? null);
+  const [from, setFrom] = useState(returnBoot?.from ?? '');
+  const [to, setTo] = useState(returnBoot?.to ?? today);
+  const [accountId, setAccountId] = useState<number | null>(returnBoot?.accountId ?? null);
   /**
    * اسم الحساب المختار (كود + اسم) — يُستعمل كـ fallback في الـ AccountPicker
    * عندما يأتي accountId من صفحة أخرى ولا يكون ضمن الأوراق المُمرَّرة.
    */
-  const [accountLabel, setAccountLabel] = useState<string>(initialReturnState?.accountLabel ?? '');
+  const [accountLabel, setAccountLabel] = useState<string>(returnBoot?.accountLabel ?? '');
   /** عملات مختارة (فارغ = جميع العملات). تعدد الاختيار يدعم checkboxes. */
   const [selectedCurrencies, setSelectedCurrencies] = useState<string[]>(
-    initialReturnState?.selectedCurrencies ?? []
+    returnBoot?.selectedCurrencies ?? []
   );
+  const [includeOpeningEntries, setIncludeOpeningEntries] = useState(true);
   const [currencyPanelOpen, setCurrencyPanelOpen] = useState(false);
 
   /** معرّف القيد المعروض حالياً في النافذة المنبثقة (null = الـ Dialog مغلق) */
@@ -491,48 +616,18 @@ export function AccountStatementPage() {
   } | null>(null);
 
   /**
-   * معرّف القيد الذي يجب التمرير إليه وتمييزه مؤقتاً بعد الرجوع من صفحة "أصل القيد".
-   * يُمسح بعد لحظات قليلة من إكمال التمرير (لإزالة التظليل).
+   * معرّف القيد المُميَّز بعد الرجوع من «أصل القيد» — يبقى حتى التفاعل مع سطر آخر.
    */
   const [focusEntryId, setFocusEntryId] = useState<number | null>(
-    initialReturnState?.focusEntryId ?? null
+    returnBoot?.focusEntryId ?? null
   );
   /** عُلِّم عند ظهور البيانات لتنفيذ التمرير مرة واحدة فقط */
   const focusScrollDoneRef = useRef(false);
 
-  // إزالة تظليل السطر بعد فترة وجيزة من ظهوره
-  useEffect(() => {
-    if (focusEntryId === null) return;
-    const t = setTimeout(() => setFocusEntryId(null), 2500);
-    return () => clearTimeout(t);
-  }, [focusEntryId]);
-
-  /**
-   * يفتح أصل القيد في صفحته الأصلية، مع حفظ snapshot للفلاتر + معرّف السطر
-   * الذي ضغط المستخدم عليه، حتى يمكن العودة لنفس السطر تماماً.
-   */
-  const openSourceWithReturn = useCallback((href: string, entryId: number) => {
-    try {
-      const snapshot = {
-        from,
-        to,
-        accountId,
-        accountLabel,
-        selectedCurrencies,
-        focusEntryId: entryId,
-        ts: Date.now(),
-      };
-      sessionStorage.setItem(RETURN_STATE_KEY, JSON.stringify(snapshot));
-    } catch {
-      // تجاهل أخطاء sessionStorage (وضع الخصوصية مثلاً)
-    }
-    navigate(href, {
-      state: {
-        returnTo: '/accounting/account-statement',
-        returnLabel: t('accountStatement.returnLabel'),
-      },
-    });
-  }, [from, to, accountId, accountLabel, selectedCurrencies, navigate]);
+  /** إزالة تمييز سطر الرجوع عند التفاعل مع سطر/قيد مختلف. */
+  const handleRowInteract = useCallback((entryId: number) => {
+    setFocusEntryId(prev => (prev != null && prev !== entryId ? null : prev));
+  }, []);
 
   /** العملات المُفعَّلة من إعدادات الشركة، مرتبة حسب DisplayOrder */
   const enabledCurrenciesQuery = useQuery({
@@ -547,9 +642,30 @@ export function AccountStatementPage() {
         : FALLBACK_CURRENCIES,
     [enabledCurrenciesQuery.data]
   );
-  const [submitted, setSubmitted] = useState(!!(initialReturnState?.autoSubmit));
+  const [submitted, setSubmitted] = useState(!!returnBoot?.autoSubmit);
   /** هل عدّل المستخدم التواريخ يدوياً؟ لو نعم لا نستبدلها بقيم السنة المالية تلقائياً */
-  const userTouchedDatesRef = useRef(false);
+  const userTouchedDatesRef = useRef(!!returnBoot?.from || !!returnBoot?.to);
+
+  const applyStatementReturnState = useCallback((data: StatementReturnState) => {
+    hadInitialReturnRef.current = true;
+    if (data.from || data.to) userTouchedDatesRef.current = true;
+    setFrom(data.from);
+    setTo(data.to);
+    setAccountId(data.accountId);
+    setAccountLabel(data.accountLabel ?? '');
+    setSelectedCurrencies(data.selectedCurrencies ?? []);
+    setSubmitted(!!data.autoSubmit);
+    if (data.focusEntryId != null) {
+      setFocusEntryId(data.focusEntryId);
+      focusScrollDoneRef.current = false;
+    }
+  }, []);
+
+  /** استعادة الكشف عند الرجوع من «أصل القيد» (حتى بدون إعادة تحميل كامل للصفحة). */
+  useEffect(() => {
+    const data = readSessionJson<StatementReturnState>(ReportNavKeys.statementReturn, true);
+    if (data) applyStatementReturnState(data);
+  }, [location.key, applyStatementReturnState]);
 
   const [reportData, setReportData] = useState<AccountStatementDto | null>(null);
 
@@ -591,17 +707,108 @@ export function AccountStatementPage() {
     queryFn: accountingApi.getTree,
   });
 
+  const voucherTypesQuery = useQuery({
+    queryKey: ['journal-voucher-types'],
+    queryFn: () => journalVoucherTypesApi.getAll(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  /**
+   * يفتح أصل القيد في صفحته الأصلية، مع حفظ snapshot للفلاتر + معرّف السطر
+   * الذي ضغط المستخدم عليه، حتى يمكن العودة لنفس السطر تماماً.
+   */
+  const openEntrySource = useCallback(async (row: AccountStatementRowDto) => {
+    const snapshot = {
+      from,
+      to,
+      accountId,
+      accountLabel,
+      selectedCurrencies,
+      focusEntryId: row.entryId,
+      autoSubmit: true,
+    };
+    writeSessionJson(ReportNavKeys.statementReturn, snapshot);
+    saveJournalEntrySourceState({
+      returnTo: ACCOUNT_STATEMENT_PATH,
+      returnLabel: t('accountStatement.returnLabel'),
+      restore: {
+        from,
+        to,
+        accountId,
+        accountLabel,
+        selectedCurrencies,
+      },
+      highlightEntryId: row.entryId,
+    });
+    await navigateJournalEntrySource(
+      {
+        id: row.entryId,
+        source: row.source,
+        referenceType: row.referenceType,
+        referenceId: row.referenceId,
+        voucherTypeCode: row.voucherTypeCode,
+      },
+      navigate,
+      {
+        returnState: {
+          returnTo: ACCOUNT_STATEMENT_PATH,
+          returnLabel: t('accountStatement.returnLabel'),
+        },
+        voucherTypes: voucherTypesQuery.data ?? [],
+      },
+    );
+  }, [from, to, accountId, accountLabel, selectedCurrencies, navigate, t, voucherTypesQuery.data]);
+
+  const openOpeningEntrySource = useCallback(async (entryId: number) => {
+    writeSessionJson(ReportNavKeys.statementReturn, {
+      from,
+      to,
+      accountId,
+      accountLabel,
+      selectedCurrencies,
+      focusEntryId: entryId,
+      autoSubmit: true,
+    });
+    saveJournalEntrySourceState({
+      returnTo: ACCOUNT_STATEMENT_PATH,
+      returnLabel: t('accountStatement.returnLabel'),
+      restore: { from, to, accountId, accountLabel, selectedCurrencies },
+      highlightEntryId: entryId,
+    });
+    let entryInput: Parameters<typeof navigateJournalEntrySource>[0] = {
+      id: entryId,
+      source: 'Manual',
+    };
+    try {
+      const full = await accountingApi.getJournalEntryById(entryId);
+      entryInput = {
+        id: entryId,
+        source: full.source,
+        referenceType: full.referenceType,
+        referenceId: full.referenceId,
+        voucherTypeId: full.voucherTypeId,
+        voucherTypeCode: full.voucherTypeCode,
+      };
+    } catch {
+      toast.error(t('accountStatement.openSourceFailed'));
+      return;
+    }
+    await navigateJournalEntrySource(entryInput, navigate, {
+      returnState: {
+        returnTo: ACCOUNT_STATEMENT_PATH,
+        returnLabel: t('accountStatement.returnLabel'),
+      },
+      voucherTypes: voucherTypesQuery.data ?? [],
+    });
+  }, [from, to, accountId, accountLabel, selectedCurrencies, navigate, t, voucherTypesQuery.data]);
+
   const companyQuery = useQuery({
     queryKey: ['company-settings'],
     queryFn: companySettingsApi.get,
     staleTime: 5 * 60 * 1000,
   });
 
-  const fiscalYearsQuery = useQuery({
-    queryKey: ['fiscal-years'],
-    queryFn: fiscalYearsApi.getAll,
-    staleTime: 5 * 60 * 1000,
-  });
+  const { datesReady, defaultFromDate, defaultToDate } = useActiveFiscalYear();
 
   // ‎الصناديق — للاستعمال كسياق ترجمة لوصف القيد المُولّد تلقائياً.
   const cashBoxesQuery = useQuery({
@@ -610,121 +817,14 @@ export function AccountStatementPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  /**
-   * السنة المالية الحالية بترتيب الأولوية:
-   *   1. السنة المفتوحة التي تحتوي تاريخ اليوم.
-   *   2. أحدث سنة مالية مفتوحة.
-   *   3. السنة المغلقة التي تحتوي تاريخ اليوم.
-   *   4. الأحدث مطلقاً.
-   */
-  const currentFiscalYear = useMemo(() => {
-    const list = fiscalYearsQuery.data ?? [];
-    if (list.length === 0) return null;
-    // ‎1) السنة المُعَلَّمة كنشطة (المصدر الأساسي)
-    const explicit = list.find(fy => fy.isActive);
-    if (explicit) return explicit;
-    const todayDate = today;
-    const openContainsToday = list.find(fy => {
-      const s = (fy.startDate ?? '').slice(0, 10);
-      const e = (fy.endDate ?? '').slice(0, 10);
-      return s && e && todayDate >= s && todayDate <= e && !fy.isClosed;
-    });
-    if (openContainsToday) return openContainsToday;
-    const newestOpen = [...list]
-      .filter(fy => !fy.isClosed)
-      .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
-    if (newestOpen) return newestOpen;
-    const closedContainsToday = list.find(fy => {
-      const s = (fy.startDate ?? '').slice(0, 10);
-      const e = (fy.endDate ?? '').slice(0, 10);
-      return s && e && todayDate >= s && todayDate <= e;
-    });
-    if (closedContainsToday) return closedContainsToday;
-    return [...list].sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0] ?? null;
-  }, [fiscalYearsQuery.data, today]);
-
-  /** عند توفّر السنة المالية، عيّن التواريخ الافتراضية: من بداية السنة المالية → اليوم */
+  /** عند توفّر السنة المالية، عيّن التواريخ الافتراضية ضمن نطاق الفترة المحاسبية */
   useEffect(() => {
+    if (hadInitialReturnRef.current) return;
     if (userTouchedDatesRef.current) return;
-    if (!currentFiscalYear) return;
-    const fyStart = (currentFiscalYear.startDate ?? '').slice(0, 10);
-    if (!fyStart) return;
-    // ‎البداية = بداية السنة المالية، النهاية = اليوم دائماً (طلب المستخدم: "لحد اليوم")
-    setFrom(prev => prev || fyStart);
-    setTo(prev => prev || today);
-  }, [currentFiscalYear, today]);
-
-  /** Presets جاهزة لاختيار سريع للفترة — مطابقة لمجموعة DateRangePresets المشتركة */
-  const datePresets = useMemo(() => {
-    const list: { id: string; label: string; from: string; to: string }[] = [];
-    const now = new Date();
-    const toIso = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-    // ── السنة المالية (إن وُجدت) — تأتي أولاً
-    if (currentFiscalYear) {
-      const fyStart = (currentFiscalYear.startDate ?? '').slice(0, 10);
-      const fyEnd = (currentFiscalYear.endDate ?? '').slice(0, 10);
-      if (fyStart && fyEnd) {
-        list.push({ id: 'fy-full', label: t('dateRange.presets.fyFull'), from: fyStart, to: fyEnd });
-      }
-      if (fyStart) {
-        list.push({
-          id: 'fy-to-today',
-          label: t('dateRange.presets.fyToToday'),
-          from: fyStart,
-          to: today,
-        });
-      }
-    }
-
-    list.push({ id: 'today', label: t('dateRange.presets.today'), from: today, to: today });
-
-    const yest = new Date(now);
-    yest.setDate(yest.getDate() - 1);
-    const yestIso = toIso(yest);
-    list.push({ id: 'yesterday', label: t('dateRange.presets.yesterday'), from: yestIso, to: yestIso });
-
-    const dow = now.getDay();
-    const daysSinceSat = (dow + 1) % 7;
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - daysSinceSat);
-    list.push({ id: 'this-week', label: t('dateRange.presets.thisWeek'), from: toIso(weekStart), to: today });
-
-    const lastWeekEnd = new Date(weekStart);
-    lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
-    const lastWeekStart = new Date(lastWeekEnd);
-    lastWeekStart.setDate(lastWeekStart.getDate() - 6);
-    list.push({
-      id: 'last-week',
-      label: t('dateRange.presets.lastWeek'),
-      from: toIso(lastWeekStart),
-      to: toIso(lastWeekEnd),
-    });
-
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    list.push({ id: 'this-month', label: t('dateRange.presets.thisMonth'), from: toIso(monthStart), to: today });
-
-    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-    list.push({
-      id: 'last-month',
-      label: t('dateRange.presets.lastMonth'),
-      from: toIso(lastMonthStart),
-      to: toIso(lastMonthEnd),
-    });
-
-    const q = Math.floor(now.getMonth() / 3);
-    const qStart = new Date(now.getFullYear(), q * 3, 1);
-    list.push({ id: 'this-quarter', label: t('dateRange.presets.thisQuarter'), from: toIso(qStart), to: today });
-
-    if (!currentFiscalYear) {
-      const yearStart = new Date(now.getFullYear(), 0, 1);
-      list.push({ id: 'this-year', label: t('dateRange.presets.thisYear'), from: toIso(yearStart), to: today });
-    }
-
-    return list;
-  }, [currentFiscalYear, today, t]);
+    if (!datesReady || !defaultFromDate) return;
+    setFrom(prev => prev || defaultFromDate);
+    setTo(prev => prev || defaultToDate);
+  }, [datesReady, defaultFromDate, defaultToDate]);
 
   const leaves = useMemo(() => (treeQuery.data ? flattenLeaves(treeQuery.data) : []), [treeQuery.data]);
 
@@ -737,13 +837,14 @@ export function AccountStatementPage() {
   );
 
   const statementQuery = useQuery<AccountStatementDto>({
-    queryKey: ['account-statement', from, to, accountId, apiCurrency],
+    queryKey: ['account-statement', from, to, accountId, apiCurrency, includeOpeningEntries],
     queryFn: () =>
       accountingApi.getAccountStatement({
         from,
         to,
         accountId: accountId ?? undefined,
         currency: apiCurrency,
+        includeOpeningEntries,
       }),
     enabled: submitted && !!from && !!to,
   });
@@ -765,11 +866,16 @@ export function AccountStatementPage() {
     if (selectedCurrencies.length <= 1) return rdRaw;
     if (selectedCurrencies.length >= CURRENCIES.length) return rdRaw;
     const set = new Set(selectedCurrencies);
+    const openingByCurrency = Object.fromEntries(
+      Object.entries(rdRaw.openingByCurrency ?? {}).filter(([k]) => set.has(k.toUpperCase())),
+    );
     return {
       ...rdRaw,
       rows: (rdRaw.rows ?? []).filter(r => set.has(r.currency)),
+      openingEntries: (rdRaw.openingEntries ?? []).filter(oe => set.has(oe.currency.toUpperCase())),
+      openingByCurrency,
     };
-  }, [rdRaw, selectedCurrencies]);
+  }, [rdRaw, selectedCurrencies, CURRENCIES.length]);
 
   /** مزامنة ترتيب الأعمدة عند تفعيل عرض كل الحسابات */
   useEffect(() => {
@@ -898,9 +1004,13 @@ export function AccountStatementPage() {
    * العملات غير المعروفة في القائمة تُلحَق في النهاية (نادرة).
    */
   const currenciesPresent = useMemo(() => {
-    if (!rd?.rows?.length) return [] as string[];
+    if (!rd) return [] as string[];
     const set = new Set<string>();
-    for (const r of rd.rows) set.add((r.currency || 'IQD').toUpperCase());
+    for (const r of rd.rows ?? []) set.add((r.currency || 'IQD').toUpperCase());
+    for (const oe of rd.openingEntries ?? []) set.add((oe.currency || 'IQD').toUpperCase());
+    if (rd.openingByCurrency) {
+      for (const k of Object.keys(rd.openingByCurrency)) set.add(k.toUpperCase());
+    }
     const ord = CURRENCIES;
     return Array.from(set).sort((a, b) => {
       const ia = ord.indexOf(a);
@@ -910,7 +1020,24 @@ export function AccountStatementPage() {
       if (ib < 0) return -1;
       return ia - ib;
     });
-  }, [rd?.rows, CURRENCIES]);
+  }, [rd, CURRENCIES]);
+
+  const openingEntriesByCurrency = useMemo(() => {
+    const out = new Map<string, OpeningEntryRowDto[]>();
+    if (!includeOpeningEntries || !rd?.openingEntries?.length) return out;
+    for (const oe of rd.openingEntries) {
+      const cur = (oe.currency || 'IQD').toUpperCase();
+      if (!out.has(cur)) out.set(cur, []);
+      out.get(cur)!.push(oe);
+    }
+    for (const [, list] of out) {
+      list.sort((a, b) => {
+        const d = a.entryDate.localeCompare(b.entryDate);
+        return d !== 0 ? d : a.entryNumber.localeCompare(b.entryNumber);
+      });
+    }
+    return out;
+  }, [rd?.openingEntries, includeOpeningEntries]);
 
   /**
    * مُضاعِفات تحويل كل عملة إلى العملة الأساسية.
@@ -997,7 +1124,8 @@ export function AccountStatementPage() {
       opening: number;
       openingValuated: number;
     }> = [];
-    if (!rd?.rows?.length) return list;
+    if (!rd || currenciesPresent.length === 0) return list;
+    const fromKey = from.slice(0, 10);
     for (const cur of currenciesPresent) {
       const arr = rowsByCurrency.get(cur) ?? [];
       let debit = 0;
@@ -1005,6 +1133,15 @@ export function AccountStatementPage() {
       for (const r of arr) {
         debit += r.debit ?? 0;
         credit += r.credit ?? 0;
+      }
+      if (includeOpeningEntries && rd.openingEntries?.length) {
+        for (const oe of rd.openingEntries) {
+          if ((oe.currency || 'IQD').toUpperCase() !== cur) continue;
+          if (entryDateKey(oe.entryDate) >= fromKey) {
+            debit += oe.debit ?? 0;
+            credit += oe.credit ?? 0;
+          }
+        }
       }
       const opening = openingByCurrency.get(cur) ?? 0;
       const mult = multipliers.get(cur) ?? 1;
@@ -1020,7 +1157,7 @@ export function AccountStatementPage() {
       });
     }
     return list;
-  }, [rd, currenciesPresent, rowsByCurrency, openingByCurrency, multipliers]);
+  }, [rd, currenciesPresent, rowsByCurrency, openingByCurrency, multipliers, from, includeOpeningEntries]);
 
   const handleShow = () => {
     if (!from || !to) return;
@@ -1029,9 +1166,8 @@ export function AccountStatementPage() {
   };
 
   const handleReset = () => {
-    const fyStart = (currentFiscalYear?.startDate ?? '').slice(0, 10);
-    setFrom(fyStart || '');
-    setTo(today);
+    setFrom(defaultFromDate || '');
+    setTo(defaultToDate || '');
     setAccountId(null);
     setAccountLabel('');
     setSelectedCurrencies([]);
@@ -1092,14 +1228,11 @@ export function AccountStatementPage() {
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [currencyPanelOpen]);
 
-  const applyPreset = (preset: { from: string; to: string }) => {
-    setFrom(preset.from);
-    setTo(preset.to);
+  const applyPresetRange = (presetFrom: string, presetTo: string) => {
+    setFrom(presetFrom);
+    setTo(presetTo);
     userTouchedDatesRef.current = true;
   };
-
-  /** هل preset مفعّل حالياً (مطابق للقيم الراهنة)؟ */
-  const isPresetActive = (p: { from: string; to: string }) => p.from === from && p.to === to;
 
   const handlePrint = () => {
     if (!rd) return;
@@ -1155,12 +1288,13 @@ export function AccountStatementPage() {
 
   const renderOpeningCell = (
     k: StatementColKey,
-    opts?: { opening?: number; openingValuated?: number; currency?: string }
+    opts?: { opening?: number; openingValuated?: number; currency?: string; label?: string }
   ): ReactNode => {
     if (!rd) return null;
     const opening = opts?.opening ?? rd.openingBalance ?? 0;
     const openingV = opts?.openingValuated ?? rd.openingBalanceValuated ?? 0;
     const cur = opts?.currency ?? rd.baseCurrency ?? 'IQD';
+    const rowLabel = opts?.label ?? t('accountStatement.table.openingBalanceRow');
     if (opening === 0 && openingV === 0) return null;
     switch (k) {
       case 'idx':
@@ -1174,11 +1308,20 @@ export function AccountStatementPage() {
         return <td key={k} className="overflow-hidden px-2 text-xs text-muted-foreground">—</td>;
       case 'desc':
         return (
-          <td key={k} className="overflow-hidden px-2 text-xs italic text-muted-foreground">{t('accountStatement.table.openingBalanceRow')}</td>
+          <td key={k} className="overflow-hidden px-2 text-xs italic text-muted-foreground">{rowLabel}</td>
         );
       case 'debit':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-emerald-400">
+            {opening > 0 ? formatAmount(opening) : <span className="text-muted-foreground/40">—</span>}
+          </td>
+        );
       case 'credit':
-        return <td key={k} className="overflow-hidden px-2 text-right num-display text-muted-foreground/40">—</td>;
+        return (
+          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-rose-400">
+            {opening < 0 ? formatAmount(Math.abs(opening)) : <span className="text-muted-foreground/40">—</span>}
+          </td>
+        );
       case 'balance':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display font-bold text-blue-400">
@@ -1197,6 +1340,76 @@ export function AccountStatementPage() {
         );
       case 'actions':
         return <td key={k} className="overflow-hidden px-2 text-center text-xs text-muted-foreground">—</td>;
+      default:
+        return null;
+    }
+  };
+
+  const renderOpeningEntryCell = (
+    oe: OpeningEntryRowDto,
+    k: StatementColKey,
+    balance: number,
+    balanceValuated: number,
+  ): ReactNode => {
+    const desc = oe.description?.trim() || t('accountStatement.openingEntries.rowLabel');
+    switch (k) {
+      case 'idx':
+        return <td key={k} className="overflow-hidden px-2 text-center text-xs text-muted-foreground">—</td>;
+      case 'date':
+        return (
+          <td key={k} className="overflow-hidden whitespace-nowrap px-2 text-xs">{formatDate(oe.entryDate)}</td>
+        );
+      case 'entry':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-xs">
+            <span className="num-display font-semibold text-primary">#{oe.entryNumber}</span>
+          </td>
+        );
+      case 'account':
+        return <td key={k} className="overflow-hidden px-2 text-xs text-muted-foreground">—</td>;
+      case 'desc':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-xs italic text-blue-300/90">{desc}</td>
+        );
+      case 'debit':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-emerald-400">
+            {oe.debit > 0 ? formatAmount(oe.debit) : <span className="text-muted-foreground/40">—</span>}
+          </td>
+        );
+      case 'credit':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-rose-400">
+            {oe.credit > 0 ? formatAmount(oe.credit) : <span className="text-muted-foreground/40">—</span>}
+          </td>
+        );
+      case 'balance':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold">
+            {formatAmount(balance)}
+          </td>
+        );
+      case 'valBalance':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold text-amber-400">
+            {formatAmount(balanceValuated)}
+          </td>
+        );
+      case 'currency':
+        return (
+          <td key={k} className="overflow-hidden px-2 text-center text-xs text-muted-foreground">{oe.currency}</td>
+        );
+      case 'actions':
+        return (
+          <td key={k} data-col="actions" className="overflow-visible px-1.5 text-center align-middle">
+            <StatementRowActionsMenu
+              entryNumber={oe.entryNumber}
+              sourceLabel={t('accountStatement.sources.openingEntry')}
+              onView={() => setViewEntryId(oe.entryId)}
+              onOpenSource={() => { void openOpeningEntrySource(oe.entryId); }}
+            />
+          </td>
+        );
       default:
         return null;
     }
@@ -1301,8 +1514,12 @@ export function AccountStatementPage() {
               entryNumber={row.entryNumber}
               sourceLabel={sourceDescr}
               sourceHref={sourceLink.href}
-              onView={() => setViewEntryId(row.entryId)}
-              onOpenSource={() => openSourceWithReturn(sourceLink.href, row.entryId)}
+              onView={() => {
+                handleRowInteract(row.entryId);
+                setViewEntryId(row.entryId);
+              }}
+              onOpenSource={() => { void openEntrySource(row); }}
+              onOpenChange={open => { if (open) handleRowInteract(row.entryId); }}
             />
           </td>
         );
@@ -1373,36 +1590,30 @@ export function AccountStatementPage() {
 
   return (
     <div className="space-y-2.5">
-      {/* ════════ شريط الفترات السريعة (بارز في الأعلى) ════════ */}
-      {datePresets.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-border/50 pb-2">
-          {datePresets.map(p => {
-            const active = isPresetActive(p);
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => applyPreset(p)}
-                className={cn(
-                  'h-8 rounded-md border px-3 text-xs font-semibold transition-all',
-                  active
-                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                    : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50 hover:bg-primary/10 hover:text-foreground'
-                )}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-          {currentFiscalYear && (
-            <span className="ms-auto inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 text-[10.5px] font-medium text-primary">
-              <CalendarRange className="h-3 w-3" />
-              {t('accountStatement.filters.fiscalYear')}
-              <span className="font-bold">{localizedName(locale, currentFiscalYear.name, currentFiscalYear.nameEn)}</span>
-            </span>
-          )}
-        </div>
+      {statementSource && (
+        <Button
+          variant="outline"
+          size="sm"
+          type="button"
+          className="h-8 gap-1.5"
+          onClick={handleBackToSource}
+        >
+          {isRtl ? <ArrowRight className="h-3.5 w-3.5" /> : <ArrowLeft className="h-3.5 w-3.5" />}
+          {t('accountStatement.backToReport', { label: t(statementSource.sourceLabelKey) })}
+        </Button>
       )}
+
+      {/* ════════ شريط الفترات السريعة (بارز في الأعلى) ════════ */}
+      <div className="border-b border-border/50 pb-2 [&_button]:h-8 [&_button]:rounded-md [&_button]:px-3 [&_button]:text-xs [&_button]:font-semibold">
+        <DateRangePresets
+          from={from}
+          to={to}
+          onChange={applyPresetRange}
+          showLabel={false}
+          showClearButton={false}
+          showFiscalYearBadge
+        />
+      </div>
 
       {/* ════════ صف الفلاتر (بدون إطار بطاقة — تصميم flat) ════════ */}
       <div className="flex flex-wrap items-end gap-2">
@@ -1522,6 +1733,19 @@ export function AccountStatementPage() {
           </div>
         </div>
 
+        <label
+          className="flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2.5 text-xs"
+          title={t('accountStatement.filters.includeOpeningEntriesTip')}
+        >
+          <input
+            type="checkbox"
+            checked={includeOpeningEntries}
+            onChange={e => setIncludeOpeningEntries(e.target.checked)}
+            className="h-3.5 w-3.5 accent-primary"
+          />
+          <span>{t('accountStatement.filters.includeOpeningEntries')}</span>
+        </label>
+
         <div className="flex items-center gap-1.5">
           <Button onClick={handleShow} className="h-9 gap-2" disabled={!from || !to}>
             <Search className="h-4 w-4" />
@@ -1556,6 +1780,7 @@ export function AccountStatementPage() {
         />
       ) : (
         <>
+          {rd.rows.length === 0 && (
           <Card>
             <CardContent className="grid gap-3 p-4 md:grid-cols-4">
               <SummaryCell
@@ -1593,7 +1818,7 @@ export function AccountStatementPage() {
              * مصدر الرصيد الافتتاحي. لا تُكرَّر بين الحركات لأنها مدمجة بالفعل
              * في openingBalance.
              */}
-            {rd.openingEntries && rd.openingEntries.length > 0 && (
+            {includeOpeningEntries && rd.openingEntries && rd.openingEntries.length > 0 && (
               <div className="border-t border-blue-500/30 bg-blue-500/5 px-4 py-2 text-[11px]">
                 <div className="mb-1.5 flex items-center gap-1.5 font-medium text-blue-300">
                   <Wallet className="h-3.5 w-3.5" />
@@ -1606,7 +1831,11 @@ export function AccountStatementPage() {
                     return (
                       <div
                         key={oe.entryId}
-                        className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded border border-blue-500/20 bg-blue-500/5 px-2 py-1"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setViewEntryId(oe.entryId)}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setViewEntryId(oe.entryId); }}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded border border-blue-500/20 bg-blue-500/5 px-2 py-1 cursor-pointer transition-colors hover:bg-blue-500/10"
                       >
                         <span className="font-semibold text-blue-200">
                           #{oe.entryNumber}
@@ -1641,6 +1870,24 @@ export function AccountStatementPage() {
                             {sign}
                             <span className="num-display">{formatAmount(Math.abs(oe.net))}</span> {oe.currency}
                           </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-blue-200"
+                            onClick={e => { e.stopPropagation(); setViewEntryId(oe.entryId); }}
+                          >
+                            {t('accountStatement.openingEntries.viewEntry')}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-amber-200"
+                            onClick={e => { e.stopPropagation(); void openOpeningEntrySource(oe.entryId); }}
+                          >
+                            {t('accountStatement.rowActions.openSource')}
+                          </Button>
                         </span>
                       </div>
                     );
@@ -1649,26 +1896,26 @@ export function AccountStatementPage() {
               </div>
             )}
             {rd.fxBulletinName ? (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-emerald-500/30 bg-emerald-500/5 px-4 py-2 text-[11px] text-emerald-200">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-[11px] text-emerald-800 dark:bg-emerald-500/5 dark:text-emerald-200">
                 <span className="inline-flex items-center gap-1">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   {t('accountStatement.fx.bulletinPublished')}
-                  <span className="font-bold text-emerald-100">{rd.fxBulletinName}</span>
+                  <span className="font-bold text-emerald-900 dark:text-emerald-100">{rd.fxBulletinName}</span>
                 </span>
                 {rd.fxBulletinEffectiveAt && (
-                  <span className="text-emerald-300/80">
+                  <span className="text-emerald-700 dark:text-emerald-300/80">
                     {t('accountStatement.fx.effective')} {formatDate(rd.fxBulletinEffectiveAt)}
                   </span>
                 )}
                 {rd.fxUsedFallback && (
-                  <span className="ms-auto inline-flex items-center gap-1 text-amber-300">
+                  <span className="ms-auto inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
                     <AlertTriangle className="h-3.5 w-3.5" />
                     {t('accountStatement.fx.fallbackSome')}
                   </span>
                 )}
               </div>
             ) : rd.fxUsedFallback ? (
-              <div className="flex items-center gap-1.5 border-t border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-200">
+              <div className="flex items-center gap-1.5 border-t border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-800 dark:text-amber-200">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>
                   {t('accountStatement.fx.noBulletin')} {t('accountStatement.fx.noBulletinHint')}
@@ -1676,12 +1923,103 @@ export function AccountStatementPage() {
               </div>
             ) : null}
           </Card>
+          )}
 
-          {rd.rows.length === 0 ? (
+          {rd.rows.length === 0 && !(rd.openingBalance ?? 0) && !(includeOpeningEntries && rd.openingEntries?.length) ? (
             <EmptyState icon={FileText} title={t('accountStatement.empty.noMovements')} description={t('accountStatement.empty.noMovementsDesc')} />
           ) : (
             <Card className="overflow-visible">
-              <div className="sticky top-0 z-30 shrink-0 border-b border-border bg-card/95 px-3 py-2 backdrop-blur-sm">
+              <div className="border-b border-border/60">
+                {includeOpeningEntries && rd.openingEntries && rd.openingEntries.length > 0 && (
+                  <div className="border-blue-500/30 bg-blue-500/5 px-4 py-2 text-[11px]">
+                    <div className="mb-1.5 flex items-center gap-1.5 font-medium text-blue-300">
+                      <Wallet className="h-3.5 w-3.5" />
+                      {t('accountStatement.openingEntries.title', { count: rd.openingEntries.length })}
+                    </div>
+                    <div className="space-y-1">
+                      {rd.openingEntries.map(oe => {
+                        const sign = oe.net >= 0 ? '+' : '';
+                        const isCredit = oe.net < 0;
+                        return (
+                          <div
+                            key={oe.entryId}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setViewEntryId(oe.entryId)}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setViewEntryId(oe.entryId); }}
+                            className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded border border-blue-500/20 bg-blue-500/5 px-2 py-1 cursor-pointer transition-colors hover:bg-blue-500/10"
+                          >
+                            <span className="font-semibold text-blue-200">#{oe.entryNumber}</span>
+                            <span className="text-muted-foreground">{formatDate(oe.entryDate)}</span>
+                            {oe.description && (
+                              <span className="truncate text-muted-foreground" title={oe.description}>{oe.description}</span>
+                            )}
+                            <span className="ms-auto inline-flex items-center gap-2">
+                              {oe.debit > 0 && (
+                                <span className="text-emerald-300">
+                                  {t('accountStatement.openingEntries.debit')} <span className="num-display">{formatAmount(oe.debit)}</span>
+                                </span>
+                              )}
+                              {oe.credit > 0 && (
+                                <span className="text-rose-300">
+                                  {t('accountStatement.openingEntries.credit')} <span className="num-display">{formatAmount(oe.credit)}</span>
+                                </span>
+                              )}
+                              <span className={cn('rounded px-1.5 py-0.5 font-bold', isCredit ? 'bg-rose-500/20 text-rose-200' : 'bg-emerald-500/20 text-emerald-200')}>
+                                {sign}<span className="num-display">{formatAmount(Math.abs(oe.net))}</span> {oe.currency}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[10px] text-blue-200"
+                                onClick={e => { e.stopPropagation(); setViewEntryId(oe.entryId); }}
+                              >
+                                {t('accountStatement.openingEntries.viewEntry')}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[10px] text-amber-200"
+                                onClick={e => { e.stopPropagation(); void openOpeningEntrySource(oe.entryId); }}
+                              >
+                                {t('accountStatement.rowActions.openSource')}
+                              </Button>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {rd.fxBulletinName ? (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-[11px] text-emerald-800 dark:bg-emerald-500/5 dark:text-emerald-200">
+                    <span className="inline-flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {t('accountStatement.fx.bulletinPublished')}
+                      <span className="font-bold text-emerald-900 dark:text-emerald-100">{rd.fxBulletinName}</span>
+                    </span>
+                    {rd.fxBulletinEffectiveAt && (
+                      <span className="text-emerald-700 dark:text-emerald-300/80">
+                        {t('accountStatement.fx.effective')} {formatDate(rd.fxBulletinEffectiveAt)}
+                      </span>
+                    )}
+                    {rd.fxUsedFallback && (
+                      <span className="ms-auto inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        {t('accountStatement.fx.fallbackSome')}
+                      </span>
+                    )}
+                  </div>
+                ) : rd.fxUsedFallback ? (
+                  <div className="flex items-center gap-1.5 border-t border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{t('accountStatement.fx.noBulletin')} {t('accountStatement.fx.noBulletinHint')}</span>
+                  </div>
+                ) : null}
+              </div>
+              <div className="sticky top-0 z-30 shrink-0 border-b border-border bg-card px-3 py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10.5px] font-semibold text-primary">
@@ -1823,28 +2161,62 @@ export function AccountStatementPage() {
                   const rows = rowsByCurrency.get(cur) ?? [];
                   const totals = nativeTotalsByCurrency.find(t => t.currency === cur)
                     ?? { currency: cur, debit: 0, credit: 0, balance: 0, balanceValuated: 0, opening: 0, openingValuated: 0 };
-                  const showOpeningRow = totals.opening !== 0 || totals.openingValuated !== 0;
+                  const mult = multipliers.get(cur) ?? 1;
+                  const openingEntriesForCur = includeOpeningEntries
+                    ? (openingEntriesByCurrency.get(cur) ?? [])
+                    : [];
+                  const fromKey = from.slice(0, 10);
+                  const openingBeforeFrom = openingEntriesForCur.filter(
+                    oe => entryDateKey(oe.entryDate) < fromKey,
+                  );
+                  const openingInPeriod = openingEntriesForCur.filter(
+                    oe => entryDateKey(oe.entryDate) >= fromKey,
+                  );
+                  const openingBeforeFromNet = openingBeforeFrom.reduce((s, oe) => s + oe.net, 0);
+                  const carryForward = totals.opening - openingBeforeFromNet;
+                  const showCarryForwardRow = !includeOpeningEntries
+                    ? totals.opening !== 0 || totals.openingValuated !== 0
+                    : Math.abs(carryForward) > 1e-9;
+                  const showOpeningBeforeFromRows = includeOpeningEntries && openingBeforeFrom.length > 0;
+                  const showAggregateOpeningOnly = includeOpeningEntries
+                    && openingBeforeFrom.length === 0
+                    && openingInPeriod.length === 0
+                    && (totals.opening !== 0 || totals.openingValuated !== 0);
+                  const timeline = buildStatementTimeline(rows, openingInPeriod);
+                  let runningBal = totals.opening;
+                  let runningBalV = totals.openingValuated;
+                  const timelineRows = timeline.map(item => {
+                    if (item.kind === 'opening') {
+                      runningBal += item.oe.net;
+                      runningBalV += item.oe.netValuated ?? item.oe.net * mult;
+                      return {
+                        kind: 'opening' as const,
+                        oe: item.oe,
+                        balance: runningBal,
+                        balanceValuated: runningBalV,
+                      };
+                    }
+                    const delta = (item.row.debit ?? 0) - (item.row.credit ?? 0);
+                    runningBal += delta;
+                    runningBalV += delta * mult;
+                    return {
+                      kind: 'row' as const,
+                      row: { ...item.row, balance: runningBal, balanceValuated: runningBalV },
+                      sourceIdx: item.sourceIdx,
+                    };
+                  });
+                  const movementCount = rows.length + openingInPeriod.length;
                   return (
                     <div
                       key={cur}
                       className="overflow-hidden rounded-lg border border-border/60 bg-card/50"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 bg-secondary/40 px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] font-bold text-primary">
-                            <Wallet className="h-3 w-3" />
-                            {cur}
-                          </span>
-                          <span className="text-[11px] text-muted-foreground">
-                            {t('accountStatement.table.currencyBlockMovements', { count: rows.length })}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 text-[10.5px] text-muted-foreground tnum">
-                          <span>{t('accountStatement.table.debit')} <span className="font-bold text-emerald-400 num-display">{formatAmount(totals.debit)}</span></span>
-                          <span>{t('accountStatement.table.credit')} <span className="font-bold text-rose-400 num-display">{formatAmount(totals.credit)}</span></span>
-                          <span>{t('accountStatement.table.balance')} <span className="font-bold text-primary num-display">{formatAmount(totals.balance)}</span></span>
-                        </div>
-                      </div>
+                      <CurrencyBalanceHeader
+                        cur={cur}
+                        count={movementCount}
+                        totals={totals}
+                        t={t}
+                      />
 
                       <div className="overflow-x-auto">
                         <table className="account-statement-report data-table w-full border-collapse table-fixed bg-card">
@@ -1885,7 +2257,41 @@ export function AccountStatementPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {showOpeningRow ? (
+                            {showCarryForwardRow ? (
+                              <tr className="h-9 border-b border-border/40 bg-secondary/40 font-medium">
+                                {visibleCols.map(k =>
+                                  renderOpeningCell(k, {
+                                    opening: includeOpeningEntries ? carryForward : totals.opening,
+                                    openingValuated: includeOpeningEntries ? carryForward * mult : totals.openingValuated,
+                                    currency: cur,
+                                    label: includeOpeningEntries
+                                      ? t('accountStatement.table.carryForwardRow')
+                                      : t('accountStatement.table.openingBalanceRow'),
+                                  })
+                                )}
+                              </tr>
+                            ) : null}
+                            {showOpeningBeforeFromRows
+                              ? openingBeforeFrom.map((oe, oi) => {
+                                  let bal = carryForward;
+                                  for (let i = 0; i <= oi; i++) bal += openingBeforeFrom[i]!.net;
+                                  return (
+                                    <tr
+                                      key={`oe-${oe.entryId}`}
+                                      className="h-9 cursor-pointer border-b border-blue-500/20 bg-blue-500/5 font-medium transition-colors hover:bg-blue-500/10"
+                                      onClick={e => {
+                                        if ((e.target as HTMLElement).closest('[data-col="actions"]')) return;
+                                        setViewEntryId(oe.entryId);
+                                      }}
+                                    >
+                                      {visibleCols.map(k =>
+                                        renderOpeningEntryCell(oe, k, bal, bal * mult)
+                                      )}
+                                    </tr>
+                                  );
+                                })
+                              : null}
+                            {showAggregateOpeningOnly ? (
                               <tr className="h-9 border-b border-border/40 bg-secondary/40 font-medium">
                                 {visibleCols.map(k =>
                                   renderOpeningCell(k, {
@@ -1896,7 +2302,29 @@ export function AccountStatementPage() {
                                 )}
                               </tr>
                             ) : null}
-                            {rows.map((row, idx) => {
+                            {timelineRows.map((item, idx) => {
+                              if (item.kind === 'opening') {
+                                return (
+                                  <tr
+                                    key={`oe-in-${item.oe.entryId}`}
+                                    className="h-9 cursor-pointer border-b border-blue-500/20 bg-blue-500/5 font-medium transition-colors hover:bg-blue-500/10"
+                                    onClick={e => {
+                                      if ((e.target as HTMLElement).closest('[data-col="actions"]')) return;
+                                      setViewEntryId(item.oe.entryId);
+                                    }}
+                                  >
+                                    {visibleCols.map(k =>
+                                      renderOpeningEntryCell(
+                                        item.oe,
+                                        k,
+                                        item.balance,
+                                        item.balanceValuated,
+                                      )
+                                    )}
+                                  </tr>
+                                );
+                              }
+                              const row = item.row;
                               const isFocused = focusEntryId !== null && row.entryId === focusEntryId;
                               return (
                                 <tr
@@ -1914,7 +2342,6 @@ export function AccountStatementPage() {
                                     setCtxMenu({ x: e.clientX, y: e.clientY, row });
                                   }}
                                   onClick={e => {
-                                    // لا نفتح القائمة إذا ضغط على خلية الإجراءات
                                     if ((e.target as HTMLElement).closest('[data-col="actions"]')) return;
                                     setCtxMenu({ x: e.clientX, y: e.clientY, row });
                                   }}
@@ -1923,7 +2350,7 @@ export function AccountStatementPage() {
                                     isFocused && 'bg-primary/15 ring-2 ring-primary/60 ring-inset'
                                   )}
                                 >
-                                  {visibleCols.map(k => renderDataCell(row, idx, k))}
+                                  {visibleCols.map(k => renderDataCell(row, item.sourceIdx, k))}
                                 </tr>
                               );
                             })}
@@ -1947,41 +2374,41 @@ export function AccountStatementPage() {
                     <Scale className="h-3.5 w-3.5" />
                     {t('accountStatement.table.grandTotalTitle', { currency: rd.baseCurrency ?? 'IQD' })}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 p-3 md:grid-cols-4">
-                    <div className="rounded-md border border-border/60 bg-card p-3">
+                  <div className="grid grid-cols-2 gap-px bg-border/40 md:grid-cols-4">
+                    <div className="bg-card p-3">
                       <div className="flex items-center justify-between">
                         <span className="text-[10.5px] text-muted-foreground">{t('accountStatement.summary.openingBalance')}</span>
                         <Wallet className="h-3.5 w-3.5 text-blue-400 opacity-70" />
                       </div>
-                      <div className="mt-1 text-lg font-bold tabular-nums num-display text-blue-400">
-                        {formatAmount(rd.openingBalanceValuated ?? 0)}
+                      <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-blue-400', summaryAmountSizeClass(rd.openingBalanceValuated ?? 0))}>
+                        {formatAmount(rd.openingBalanceValuated ?? 0, 2)}
                       </div>
                     </div>
-                    <div className="rounded-md border border-border/60 bg-card p-3">
+                    <div className="bg-card p-3">
                       <div className="flex items-center justify-between">
                         <span className="text-[10.5px] text-muted-foreground">{t('accountStatement.summary.totalDebit')}</span>
                         <TrendingUp className="h-3.5 w-3.5 text-emerald-400 opacity-70" />
                       </div>
-                      <div className="mt-1 text-lg font-bold tabular-nums num-display text-emerald-400">
-                        {formatAmount(rd.totalDebitValuated ?? rd.totalDebit)}
+                      <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-emerald-400', summaryAmountSizeClass(rd.totalDebitValuated ?? rd.totalDebit))}>
+                        {formatAmount(rd.totalDebitValuated ?? rd.totalDebit, 2)}
                       </div>
                     </div>
-                    <div className="rounded-md border border-border/60 bg-card p-3">
+                    <div className="bg-card p-3">
                       <div className="flex items-center justify-between">
                         <span className="text-[10.5px] text-muted-foreground">{t('accountStatement.summary.totalCredit')}</span>
                         <TrendingDown className="h-3.5 w-3.5 text-rose-400 opacity-70" />
                       </div>
-                      <div className="mt-1 text-lg font-bold tabular-nums num-display text-rose-400">
-                        {formatAmount(rd.totalCreditValuated ?? rd.totalCredit)}
+                      <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-rose-400', summaryAmountSizeClass(rd.totalCreditValuated ?? rd.totalCredit))}>
+                        {formatAmount(rd.totalCreditValuated ?? rd.totalCredit, 2)}
                       </div>
                     </div>
-                    <div className="rounded-md border border-primary/40 bg-primary/10 p-3 ring-1 ring-primary/20">
+                    <div className="bg-primary/10 p-3 ring-1 ring-primary/20">
                       <div className="flex items-center justify-between">
                         <span className="text-[10.5px] font-medium text-muted-foreground">{t('accountStatement.summary.closingBalance')}</span>
                         <Scale className="h-3.5 w-3.5 text-primary opacity-80" />
                       </div>
-                      <div className="mt-1 text-lg font-bold tabular-nums num-display text-primary">
-                        {formatAmount(rd.closingBalanceValuated ?? rd.closingBalance)}
+                      <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-primary', summaryAmountSizeClass(rd.closingBalanceValuated ?? rd.closingBalance))}>
+                        {formatAmount(rd.closingBalanceValuated ?? rd.closingBalance, 2)}
                       </div>
                     </div>
                   </div>
@@ -2014,8 +2441,8 @@ export function AccountStatementPage() {
           onClose={() => setCtxMenu(null)}
           onView={() => { setCtxMenu(null); setViewEntryId(ctxMenu.row.entryId); }}
           onOpenSource={() => {
-            const sl = resolveSourceLink(ctxMenu.row, t);
-            if (sl.href) { setCtxMenu(null); openSourceWithReturn(sl.href, ctxMenu.row.entryId); }
+            setCtxMenu(null);
+            void openEntrySource(ctxMenu.row);
           }}
           t={t}
         />,

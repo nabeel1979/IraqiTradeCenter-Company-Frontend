@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
+import { fiscalYearDateRange, pickWorkingFiscalYear } from '@/lib/fiscalYearDates';
 import type { FiscalYearDto } from '@/types/api';
+
+export { pickWorkingFiscalYear, fiscalYearDateRange, todayIsoLocal } from '@/lib/fiscalYearDates';
 
 /**
  * Hook موحَّد لاستخراج السنة المالية النشطة (المُفَعَّلة من قِبل المستخدم).
@@ -24,43 +27,27 @@ export function useActiveFiscalYear() {
   });
 
   const activeFiscalYear = useMemo<FiscalYearDto | null>(() => {
-    const list = yearsQuery.data ?? [];
-    if (list.length === 0) return null;
-
-    // ‎1) السنة المعلَّمة كنشطة من قِبل المستخدم
-    const explicit = list.find(fy => fy.isActive);
-    if (explicit) return explicit;
-
-    // ‎احتياط: نطبق نفس منطق الترجيح المستخدم في الباك إند
-    const today = new Date().toISOString().slice(0, 10);
-    const openContainsToday = list.find(fy => {
-      const s = (fy.startDate ?? '').slice(0, 10);
-      const e = (fy.endDate ?? '').slice(0, 10);
-      return s && e && today >= s && today <= e && !fy.isClosed;
-    });
-    if (openContainsToday) return openContainsToday;
-
-    const newestOpen = [...list]
-      .filter(fy => !fy.isClosed)
-      .sort((a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? ''))[0];
-    if (newestOpen) return newestOpen;
-
-    const closedContainsToday = list.find(fy => {
-      const s = (fy.startDate ?? '').slice(0, 10);
-      const e = (fy.endDate ?? '').slice(0, 10);
-      return s && e && today >= s && today <= e;
-    });
-    if (closedContainsToday) return closedContainsToday;
-
-    return [...list].sort(
-      (a, b) => (b.startDate ?? '').localeCompare(a.startDate ?? '')
-    )[0] ?? null;
+    return pickWorkingFiscalYear(yearsQuery.data ?? []);
   }, [yearsQuery.data]);
+
+  // ‎لا نُرجع 1/1 التقويمي كاحتياط قبل اكتمال التحميل — وإلا تُقفل الفلاتر على تاريخ خاطئ.
+  const defaultDateRange = useMemo(() => {
+    if (yearsQuery.isLoading || yearsQuery.data === undefined) {
+      return { from: '', to: '' };
+    }
+    return fiscalYearDateRange(activeFiscalYear);
+  }, [yearsQuery.isLoading, yearsQuery.data, activeFiscalYear]);
+
+  const datesReady = !yearsQuery.isLoading && yearsQuery.data !== undefined;
 
   return {
     activeFiscalYear,
     fiscalYears: yearsQuery.data ?? [],
     isLoading: yearsQuery.isLoading,
+    datesReady,
+    /** من بداية السنة المالية النشطة → نهاية الفترة المحاسبية (للفلاتر الافتراضية). */
+    defaultFromDate: defaultDateRange.from,
+    defaultToDate: defaultDateRange.to,
   };
 }
 
