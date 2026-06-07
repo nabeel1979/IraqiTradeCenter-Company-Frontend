@@ -135,7 +135,11 @@ export function CreateInvoicePage() {
 
   const openLineMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>, origIdx: number, itemId: number, itemName: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setLineMenu({ origIdx, itemId, itemName, x: rect.right, y: rect.bottom + 4 });
+    const menuWidth = 170;
+    // افتح القائمة نحو اليمين إذا كان هناك مساحة، وإلا نحو اليسار
+    const spaceOnRight = window.innerWidth - rect.right;
+    const x = spaceOnRight >= menuWidth ? rect.right : rect.left - menuWidth;
+    setLineMenu({ origIdx, itemId, itemName, x, y: rect.bottom + 4 });
   }, []);
 
   // ── مودالات المادة ──
@@ -918,8 +922,8 @@ export function CreateInvoicePage() {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setLineMenu(null)} />
           <div
-            className="fixed z-50 min-w-[160px] rounded-lg border bg-card py-1 shadow-2xl"
-            style={{ left: lineMenu.x - 160, top: lineMenu.y }}
+            className="fixed z-50 min-w-[170px] rounded-lg border bg-card py-1 shadow-2xl"
+            style={{ left: lineMenu.x, top: lineMenu.y }}
           >
             <button
               type="button"
