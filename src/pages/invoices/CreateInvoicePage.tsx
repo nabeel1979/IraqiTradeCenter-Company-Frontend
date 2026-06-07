@@ -19,6 +19,8 @@ import { inventoryApi, ITEM_SALE_PRICE_TYPES, type ItemPriceType, type ItemListD
 import { financialManagementApi } from '@/lib/api/financialManagement';
 import { invoicesApi, type CreateInvoicePayload } from '@/lib/api/invoices';
 import { invoiceTypesApi, type InvoiceTypeDto, INVOICE_SETTLEMENT_TYPES, INVOICE_PAYMENT_METHODS } from '@/lib/api/invoiceTypes';
+import { companySettingsApi } from '@/lib/api/companySettings';
+import { printInvoice } from '@/lib/printUtils';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { currenciesApi } from '@/lib/api/currencies';
 import { accountingApi } from '@/lib/api/accounting';
@@ -147,6 +149,13 @@ export function CreateInvoicePage() {
   const [itemMovementsId, setItemMovementsId] = useState<{ id: number; name: string } | null>(null);
   const [itemStockId, setItemStockId] = useState<{ id: number; name: string } | null>(null);
   const [stockUomId, setStockUomId] = useState<number | null>(null); // وحدة قياس جرد المخزون المختارة
+
+  // ── إعدادات الشركة (للطباعة) ──
+  const companyQuery = useQuery({
+    queryKey: ['company-settings'],
+    queryFn: companySettingsApi.get,
+    staleTime: 10 * 60_000,
+  });
 
   const itemCardQuery = useQuery({
     queryKey: ['item-card', itemCardId],
@@ -982,7 +991,54 @@ export function CreateInvoicePage() {
               <Trash2 className="h-4 w-4" /> حذف
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={lines.filter(l => !l.isGift).length === 0}
+            onClick={() => {
+              const warehouseName = activeWarehouses.find(w => w.id === warehouseId)?.nameAr ?? null;
+              printInvoice(
+                {
+                  invoiceTypeName: invoiceType?.nameAr ?? 'فاتورة',
+                  invoiceNumber: isEdit ? loadedInvoice?.invoiceNumber : invoiceNumber || undefined,
+                  manualNumber: manualNumber && invoiceNumber ? invoiceNumber : null,
+                  invoiceDate,
+                  warehouseName,
+                  partyName: party?.nameAr ?? '',
+                  partyAccountCode: party?.accountCode ?? null,
+                  currency,
+                  lines: lines.map(l => ({
+                    itemName: l.itemName,
+                    itemCode: l.itemCode,
+                    unitName: l.unitName,
+                    quantity: l.quantity,
+                    unitPrice: l.unitPrice,
+                    lineDiscount: l.lineDiscount,
+                    isGift: l.isGift ?? false,
+                  })),
+                  discountPct,
+                  effectiveDiscount,
+                  additionPct,
+                  additionAmt,
+                  taxRate,
+                  taxAmount,
+                  subTotal,
+                  total,
+                  expenseLines: expenseLines.filter(e => e.accountId).map(e => ({
+                    debitAmount: e.debitAmount,
+                    creditAmount: e.creditAmount,
+                    accountName: e.accountName,
+                    accountCode: e.accountCode,
+                    description: e.description,
+                  })),
+                  isCash,
+                  dueDate: !isCash && dueDate ? dueDate : null,
+                  notes: notes || null,
+                },
+                companyQuery.data ?? null,
+              );
+            }}
+          >
             <Printer className="h-4 w-4" /> طباعة
           </Button>
           <Button variant="outline" size="sm" onClick={() => navigate(listPath)}>

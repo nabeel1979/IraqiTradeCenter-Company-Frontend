@@ -2503,3 +2503,245 @@ export function printAccountBalances(
 </html>`;
   openPrintPreview(fullDoc, `${i18n.accountBalances.previewTitle} - ${headerCompanyName}`.trim(), locale);
 }
+
+// ════════════════════════════════════════════════════════════════════
+// طباعة الفاتورة — تصميم احترافي
+// ════════════════════════════════════════════════════════════════════
+
+export interface InvoicePrintLine {
+  itemName: string;
+  itemCode: string;
+  unitName: string;
+  quantity: number;
+  unitPrice: number;
+  lineDiscount: number;
+  isGift: boolean;
+}
+
+export interface InvoicePrintExpense {
+  debitAmount: number;
+  creditAmount: number;
+  accountName: string;
+  accountCode: string;
+  description: string;
+}
+
+export interface InvoicePrintData {
+  invoiceTypeName: string;
+  invoiceNumber?: string | null;
+  manualNumber?: string | null;
+  invoiceDate: string;
+  warehouseName?: string | null;
+  partyName: string;
+  partyAccountCode?: string | null;
+  currency: string;
+  lines: InvoicePrintLine[];
+  discountPct: number;
+  effectiveDiscount: number;
+  additionPct: number;
+  additionAmt: number;
+  taxRate: number;
+  taxAmount: number;
+  subTotal: number;
+  total: number;
+  expenseLines?: InvoicePrintExpense[];
+  isCash: boolean;
+  dueDate?: string | null;
+  notes?: string | null;
+}
+
+const INVOICE_EXTRA_STYLES = `
+  .inv-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+  .inv-meta .item { border: 1px solid #dde1e7; border-radius: 6px; padding: 7px 10px; }
+  .inv-meta .label { font-size: 9.5px; color: #666; display: block; margin-bottom: 2px; font-weight: 500; }
+  .inv-meta .value { font-size: 13px; font-weight: 700; color: #111; }
+  .inv-meta .item.highlight { background: #2c3e50; border-color: #2c3e50; }
+  .inv-meta .item.highlight .label { color: #aaa; }
+  .inv-meta .item.highlight .value { color: #fff; font-size: 15px; }
+  .party-box { border: 1.5px solid #2c3e50; border-radius: 6px; padding: 8px 12px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+  .party-box .party-label { font-size: 10px; color: #666; flex-shrink: 0; }
+  .party-box .party-name { font-size: 14px; font-weight: 700; }
+  .party-box .party-code { font-size: 10px; color: #888; font-family: monospace; }
+  .section-title { font-size: 11px; font-weight: 700; color: #fff; background: #2c3e50; padding: 4px 10px; border-radius: 4px 4px 0 0; margin-top: 14px; margin-bottom: 0; }
+  .section-title.gift { background: #b45309; }
+  .section-title.expense { background: #1e40af; }
+  .totals-grid { margin-top: 16px; display: flex; justify-content: flex-start; gap: 16px; }
+  .totals-table { border-collapse: collapse; min-width: 260px; font-size: 12px; }
+  .totals-table td { padding: 5px 10px; border: 1px solid #dde1e7; }
+  .totals-table .t-label { color: #555; font-weight: 500; }
+  .totals-table .t-value { text-align: left; font-family: monospace; font-weight: 600; }
+  .totals-table tr.grand-total td { background: #2c3e50; color: #fff; font-size: 14px; font-weight: 700; }
+  .notes-box { border: 1px dashed #ccc; border-radius: 4px; padding: 6px 10px; margin-top: 12px; font-size: 11px; color: #555; }
+  .settlement-box { border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 6px; padding: 8px 12px; margin-top: 12px; font-size: 11px; }
+  .settlement-box.credit { border-color: #fed7aa; background: #fff7ed; }
+  @media (max-width: 600px) {
+    .inv-meta { grid-template-columns: 1fr 1fr; }
+  }
+`;
+
+export function printInvoice(
+  data: InvoicePrintData,
+  company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
+) {
+  const dir = getPrintDir(locale);
+  const i18n = getPrintI18n(locale);
+  const printedAt = formatPrintedAt(locale);
+  const header = buildBrandHeader(company, printedAt, i18n, locale);
+  const footer = buildFooter(company, 'مركز التجارة العراقي — IraqiTradeCenter');
+
+  const fmtAmt = (n: number) => formatAmount(n) + ' ' + escapeHtml(data.currency);
+  const fmtNum = (n: number) => formatAmount(n);
+
+  const regularLines = data.lines.filter(l => !l.isGift);
+  const giftLines    = data.lines.filter(l => l.isGift);
+
+  // ── جدول البنود ──
+  const buildLinesTable = (lines: InvoicePrintLine[], forGift = false) => {
+    if (!lines.length) return '';
+    const rows = lines.map((l, idx) => {
+      const lineTotal = l.quantity * l.unitPrice - (forGift ? l.quantity * l.unitPrice : l.lineDiscount);
+      return `<tr>
+        <td class="center">${idx + 1}</td>
+        <td>${escapeHtml(l.itemName)}<br><small style="color:#888;font-size:9px">${escapeHtml(l.itemCode)}</small></td>
+        <td class="center">${escapeHtml(l.unitName)}</td>
+        <td class="center num">${fmtNum(l.quantity)}</td>
+        ${forGift ? '' : `<td class="center num">${fmtNum(l.unitPrice)}</td>`}
+        ${forGift ? '' : `<td class="center num">${l.lineDiscount > 0 ? fmtNum(l.lineDiscount) : '—'}</td>`}
+        <td class="center num">${forGift ? '<span style="color:#b45309">هدية</span>' : fmtAmt(lineTotal)}</td>
+      </tr>`;
+    }).join('');
+
+    const headers = forGift
+      ? `<th class="center">#</th><th>المادة</th><th class="center">الوحدة</th><th class="center">الكمية</th><th class="center">الإجمالي</th>`
+      : `<th class="center">#</th><th>المادة</th><th class="center">الوحدة</th><th class="center">الكمية</th><th class="center">السعر</th><th class="center">الخصم</th><th class="center">الإجمالي</th>`;
+
+    return `
+      <div class="section-title${forGift ? ' gift' : ''}">
+        ${forGift ? '🎁 الهدايا المرفقة' : '📋 بنود الفاتورة'}
+      </div>
+      <table>
+        <thead><tr>${headers}</tr></thead>
+        <tbody>${rows}</tbody>
+        ${!forGift ? `<tfoot><tr>
+          <th colspan="${forGift ? 4 : 6}" class="left" style="padding-right:10px">المجموع الفرعي</th>
+          <th class="center num">${fmtAmt(data.subTotal)}</th>
+        </tr></tfoot>` : ''}
+      </table>`;
+  };
+
+  // ── جدول المصاريف ──
+  const buildExpensesTable = () => {
+    const exps = data.expenseLines?.filter(e => e.debitAmount > 0 || e.creditAmount > 0) ?? [];
+    if (!exps.length) return '';
+    const rows = exps.map((e, idx) => `<tr>
+      <td class="center">${idx + 1}</td>
+      <td>${escapeHtml(e.accountCode)}</td>
+      <td>${escapeHtml(e.accountName)}</td>
+      <td class="center num">${e.debitAmount > 0 ? fmtAmt(e.debitAmount) : '—'}</td>
+      <td class="center num">${e.creditAmount > 0 ? fmtAmt(e.creditAmount) : '—'}</td>
+      <td>${escapeHtml(e.description)}</td>
+    </tr>`).join('');
+    return `
+      <div class="section-title expense">💰 المصاريف</div>
+      <table>
+        <thead><tr>
+          <th class="center">#</th>
+          <th>كود الحساب</th><th>الحساب</th>
+          <th class="center">مدين</th><th class="center">دائن</th>
+          <th>البيان</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  };
+
+  // ── الإجماليات ──
+  const buildTotals = () => {
+    const rows: string[] = [];
+    rows.push(`<tr><td class="t-label">المجموع الفرعي</td><td class="t-value num">${fmtAmt(data.subTotal)}</td></tr>`);
+    if (data.effectiveDiscount > 0) {
+      const label = data.discountPct > 0 ? `خصم (${fmtNum(data.discountPct)}%)` : 'الخصم';
+      rows.push(`<tr><td class="t-label" style="color:#c0392b">${label}</td><td class="t-value num" style="color:#c0392b">— ${fmtAmt(data.effectiveDiscount)}</td></tr>`);
+    }
+    if (data.additionAmt > 0) {
+      const label = data.additionPct > 0 ? `إضافة (${fmtNum(data.additionPct)}%)` : 'الإضافة';
+      rows.push(`<tr><td class="t-label" style="color:#16a085">${label}</td><td class="t-value num" style="color:#16a085">+ ${fmtAmt(data.additionAmt)}</td></tr>`);
+    }
+    if (data.taxRate > 0) {
+      rows.push(`<tr><td class="t-label">ضريبة (${fmtNum(data.taxRate)}%)</td><td class="t-value num">${fmtAmt(data.taxAmount)}</td></tr>`);
+    }
+    rows.push(`<tr class="grand-total"><td class="t-label">الإجمالي الكلي</td><td class="t-value num">${fmtAmt(data.total)}</td></tr>`);
+    return `<div class="totals-grid"><table class="totals-table">${rows.join('')}</table></div>`;
+  };
+
+  // ── التسديد ──
+  const buildSettlement = () => {
+    if (data.isCash) return '';
+    const dueInfo = data.dueDate ? `<br>تاريخ الاستحقاق: <strong>${escapeHtml(data.dueDate)}</strong>` : '';
+    return `<div class="settlement-box credit">
+      💳 <strong>فاتورة آجلة</strong>${dueInfo}
+      <br>الطرف: <strong>${escapeHtml(data.partyName)}</strong>
+      ${data.partyAccountCode ? `<span style="color:#888;font-size:10px">(${escapeHtml(data.partyAccountCode)})</span>` : ''}
+    </div>`;
+  };
+
+  // ── ملاحظات ──
+  const notesHtml = data.notes ? `<div class="notes-box">📝 ملاحظات: ${escapeHtml(data.notes)}</div>` : '';
+
+  const metaItems = [
+    { label: 'رقم الفاتورة', value: data.invoiceNumber ?? 'تلقائي', highlight: true },
+    { label: 'التاريخ', value: data.invoiceDate },
+    { label: 'نوع الفاتورة', value: data.invoiceTypeName },
+    { label: 'العملة', value: data.currency },
+  ];
+  if (data.manualNumber) metaItems.splice(1, 0, { label: 'الرقم اليدوي', value: data.manualNumber, highlight: false });
+
+  const metaHtml = `<div class="inv-meta">
+    ${metaItems.map(m => `<div class="item${m.highlight ? ' highlight' : ''}">
+      <span class="label">${escapeHtml(m.label)}</span>
+      <span class="value">${escapeHtml(m.value)}</span>
+    </div>`).join('')}
+  </div>`;
+
+  const partyHtml = `<div class="party-box">
+    <span class="party-label">العميل / المورد</span>
+    <span class="party-name">${escapeHtml(data.partyName)}</span>
+    ${data.partyAccountCode ? `<span class="party-code">${escapeHtml(data.partyAccountCode)}</span>` : ''}
+  </div>`;
+
+  const bodyHtml = `
+    ${header}
+    <div class="report-title">${escapeHtml(data.invoiceTypeName)}</div>
+    ${metaHtml}
+    ${partyHtml}
+    ${buildLinesTable(regularLines, false)}
+    ${giftLines.length > 0 ? buildLinesTable(giftLines, true) : ''}
+    ${buildExpensesTable()}
+    ${buildTotals()}
+    ${buildSettlement()}
+    ${notesHtml}
+    <div class="signatures" style="margin-top:30px">
+      <div class="sig">المحرر</div>
+      <div class="sig">المدقق</div>
+      <div class="sig">المستلم / الزبون</div>
+    </div>
+    ${footer}
+  `;
+
+  const fullDoc = `<!DOCTYPE html>
+<html dir="${dir}" lang="${locale}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(data.invoiceTypeName)} - ${escapeHtml(data.invoiceNumber ?? '')}</title>
+  <style>${PRINT_STYLES}${INVOICE_EXTRA_STYLES}
+    body { direction: ${dir}; }
+  </style>
+</head>
+<body>
+  <div class="preview-page">${bodyHtml}</div>
+</body>
+</html>`;
+
+  openPrintPreview(fullDoc, `${data.invoiceTypeName} — ${data.invoiceNumber ?? ''}`, locale);
+}
