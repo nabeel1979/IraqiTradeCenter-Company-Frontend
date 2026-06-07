@@ -57,13 +57,17 @@ export function Layout() {
         />
       )}
 
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="print:hidden">
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </div>
 
       {/* ms-72 = margin-inline-start: يتبع dir تلقائياً (يمين في RTL، يسار في LTR) */}
-      <div className="flex h-[100dvh] flex-col lg:ms-72">
-        <TopBar onOpenSidebar={() => setSidebarOpen(true)} />
-        <main className="flex flex-1 min-h-0 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6">
+      <div className="flex h-[100dvh] flex-col lg:ms-72 print:ms-0 print:h-auto print:overflow-visible">
+        <div className="print:hidden">
+          <TopBar onOpenSidebar={() => setSidebarOpen(true)} />
+        </div>
+        <main className="flex flex-1 min-h-0 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6 print:overflow-visible print:p-0">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6 print:overflow-visible print:pb-0">
             <Outlet />
           </div>
         </main>

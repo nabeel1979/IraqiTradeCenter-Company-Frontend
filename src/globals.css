@@ -568,37 +568,28 @@ html:not(.dark) .border-amber-400\/40 {
    طباعة الفاتورة — @print
 ═══════════════════════════════════════════════════════════════ */
 @media print {
-  /* إخفاء كل شيء ما عدا الفاتورة */
-  body > * { display: none !important; }
-  body > #root { display: block !important; }
-  #root > * { display: none !important; }
-
-  /* إظهار فقط صفحة الفاتورة */
-  .invoice-print-root { display: block !important; }
-
-  /* إزالة أشرطة التنقّل والأدوات */
-  .invoice-toolbar,
-  nav,
-  aside,
-  header { display: none !important; }
-
-  /* إزالة الظلال والحدود الزائدة */
-  .shadow-md, .shadow-xl, .shadow-2xl { box-shadow: none !important; }
-
-  /* إظهار جميع التابات */
-  .hidden.print\:block { display: block !important; }
-
   /* إعدادات الصفحة */
   @page {
     size: A4;
-    margin: 15mm 10mm;
+    margin: 12mm 10mm;
   }
 
-  body {
+  html, body {
     background: white !important;
     color: black !important;
     font-size: 11px;
+    height: auto !important;
+    overflow: visible !important;
   }
+
+  /* إخفاء شريط الأدوات */
+  .invoice-toolbar { display: none !important; }
+
+  /* إزالة الظلال */
+  * { box-shadow: none !important; }
+
+  /* إظهار جميع التابات عند الطباعة */
+  .hidden.print\:block { display: block !important; }
 
   /* ألوان قابلة للطباعة */
   .text-muted-foreground { color: #555 !important; }
@@ -607,18 +598,15 @@ html:not(.dark) .border-amber-400\/40 {
   .text-green-600 { color: #166534 !important; }
   .text-red-600 { color: #991b1b !important; }
 
-  /* إزالة الخلفيات الثقيلة */
-  .bg-card, .bg-muted\/30, .bg-secondary\/40 {
-    background: white !important;
-  }
-
-  /* جدول البنود في الطباعة */
-  .invoice-lines-table { border: 1px solid #ddd; }
-  .invoice-lines-table th, .invoice-lines-table td {
-    border: 1px solid #ddd;
-    padding: 4px 6px !important;
-  }
-
   /* شريط التابات مخفي */
-  .border-b.border-border\/60 { display: none !important; }
+  [class*="border-b"][class*="border-border"] > [class*="TabBtn"],
+  .tab-bar { display: none !important; }
+
+  /* جدول البنود */
+  .invoice-lines-table { border-collapse: collapse; }
+  .invoice-lines-table th,
+  .invoice-lines-table td {
+    border: 1px solid #ccc !important;
+    padding: 3px 6px !important;
+  }
 }

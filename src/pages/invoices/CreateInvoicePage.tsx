@@ -1108,8 +1108,8 @@ export function CreateInvoicePage() {
 
           {/* ── التابات ── */}
           <div>
-            {/* شريط التابات */}
-            <div className="flex overflow-x-auto border-b border-border/60 scrollbar-none">
+            {/* شريط التابات — مخفي عند الطباعة */}
+            <div className="flex overflow-x-auto border-b border-border/60 scrollbar-none print:hidden">
               <TabBtn active={activeTab === 'lines'} onClick={() => setActiveTab('lines')} count={regularLinesWithIdx.length}>
                 <Receipt className="h-3.5 w-3.5" /> البنود
               </TabBtn>
