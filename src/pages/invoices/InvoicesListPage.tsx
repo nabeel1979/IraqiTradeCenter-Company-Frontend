@@ -48,6 +48,8 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
       status: status || undefined,
       pageSize: 50,
     }),
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const typesQuery = useQuery({

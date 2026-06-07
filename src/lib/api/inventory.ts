@@ -293,6 +293,29 @@ export interface CreateItemPayload {
   minimumStockLevel: number; openingStock: number;
 }
 
+export interface ItemMovementDto {
+  id: number;
+  movementDate: string;
+  type: number;
+  quantity: number;
+  quantityInBase: number;
+  quantityBefore: number;
+  quantityAfter: number;
+  unitName: string;
+  warehouseId: number;
+  referenceType?: string | null;
+  referenceNumber?: string | null;
+  unitCost?: number | null;
+  notes?: string | null;
+}
+
+export interface ItemWarehouseStockDto {
+  warehouseId: number;
+  warehouseName: string;
+  warehouseCode: string;
+  netStock: number;
+}
+
 export const inventoryApi = {
   list: async (params: { pageNumber?: number; pageSize?: number; search?: string; categoryId?: number; lowStock?: boolean } = {}) => {
     const res = await api.get<ApiResponse<PagedResult<ItemListDto>>>('/items', { params });
@@ -520,6 +543,16 @@ export const inventoryApi = {
   recordMovement: async (data: Record<string, unknown>) => {
     const res = await api.post<ApiResponse<number>>('/items/stock-movements', data);
     return res.data;
+  },
+
+  getMovements: async (itemId: number, take = 100) => {
+    const res = await api.get<ApiResponse<ItemMovementDto[]>>(`/items/${itemId}/movements`, { params: { take } });
+    return res.data.data ?? [];
+  },
+
+  getStockPerWarehouse: async (itemId: number) => {
+    const res = await api.get<ApiResponse<ItemWarehouseStockDto[]>>(`/items/${itemId}/stock`);
+    return res.data.data ?? [];
   },
 };
 

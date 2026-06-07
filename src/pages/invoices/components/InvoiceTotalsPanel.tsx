@@ -5,6 +5,7 @@ interface InvoiceTotalsPanelProps {
   currency: string;
   subTotal: number;
   discount: number;
+  addition?: number;
   tax: number;
   total: number;
   paid?: number;
@@ -17,6 +18,7 @@ export function InvoiceTotalsPanel({
   currency,
   subTotal,
   discount,
+  addition = 0,
   tax,
   total,
   paid,
@@ -36,6 +38,12 @@ export function InvoiceTotalsPanel({
         <div className={cn('flex justify-between gap-4', rowCls)}>
           <span className="text-muted-foreground">الخصم</span>
           <span className="num-display text-destructive">− {formatMoney(discount, currency)}</span>
+        </div>
+      )}
+      {addition > 0 && (
+        <div className={cn('flex justify-between gap-4', rowCls)}>
+          <span className="text-muted-foreground">الإضافة</span>
+          <span className="num-display text-emerald-600">+ {formatMoney(addition, currency)}</span>
         </div>
       )}
       {tax > 0 && (

@@ -162,6 +162,10 @@
     @apply -mx-2 overflow-x-auto sm:mx-0;
     -webkit-overflow-scrolling: touch;
   }
+  /* جدول بنود الفاتورة بدون تمرير أفقي */
+  .invoice-lines-wrap {
+    @apply overflow-hidden rounded-xl border;
+  }
 
   /* ── مستند الفاتورة ── */
   .invoice-document {
@@ -180,7 +184,7 @@
     @apply sticky top-0 z-20 -mx-1 mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/85;
   }
   .invoice-meta-grid {
-    @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-4;
+    @apply grid gap-2 sm:grid-cols-3 lg:grid-cols-6;
   }
   .invoice-meta-cell {
     @apply flex flex-col gap-0.5 rounded-md border border-border/50 bg-secondary/20 px-3 py-2;
@@ -205,19 +209,26 @@
     @apply h-px flex-1 bg-border/60;
   }
   .invoice-lines-table {
-    @apply min-w-[1080px] w-full table-fixed text-sm;
+    @apply w-full table-fixed text-xs;
   }
   .invoice-lines-table thead {
-    @apply sticky top-0 z-10 bg-secondary/80 text-[11px] uppercase tracking-wide text-muted-foreground backdrop-blur;
+    @apply sticky top-0 z-10 bg-secondary/80 text-[10px] uppercase tracking-wide text-muted-foreground backdrop-blur;
   }
   .invoice-lines-table th {
-    @apply border-b border-border px-3 py-2.5 text-right font-medium;
+    @apply border-b border-border px-1.5 py-2 text-right font-medium;
   }
   .invoice-lines-table td {
-    @apply border-b border-border/40 px-3 py-2 align-middle;
+    @apply border-b border-border/40 px-1.5 py-1.5 align-middle;
   }
   .invoice-lines-table tbody tr {
     @apply transition-colors hover:bg-accent/30;
+  }
+  /* حقول الإدخال داخل جدول البنود (بدون min-w ثابت) */
+  .invoice-table-input {
+    @apply h-8 w-full min-w-0 rounded-md border border-input bg-background px-2 text-center text-[12px] font-semibold tabular-nums shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .invoice-table-select {
+    @apply h-8 w-full min-w-0 rounded-md border border-input bg-secondary/40 px-1.5 text-[11px] transition-colors focus:outline-none focus:ring-1 focus:ring-ring;
   }
   .invoice-totals-panel {
     @apply space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-4;
@@ -226,11 +237,14 @@
     @apply mt-2 flex items-center justify-between border-t border-primary/20 pt-3 text-base font-bold;
   }
   .invoice-party-card {
-    @apply flex items-start justify-between gap-3 rounded-lg border border-primary/15 bg-primary/5 p-3;
+    @apply flex items-center justify-between gap-3 rounded-lg border border-primary/15 bg-primary/5 px-3 py-2;
   }
   .invoice-view-dialog {
     @apply animate-slide-up;
   }
+  /* ── تابات الفاتورة ── */
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 
   /* جداول محاسبية — تمرير أفقي + أعمدة ثابتة (ميزان المراجعة / أرصدة الحسابات) */
   .trial-balance-scroll,
@@ -548,4 +562,63 @@ html:not(.dark) .border-amber-500\/40,
 html:not(.dark) .border-amber-500\/30,
 html:not(.dark) .border-amber-400\/40 {
   border-color: hsl(30 88% 34% / 0.40) !important;
+}
+
+/* ════════════════════════════════════════════════════════════
+   طباعة الفاتورة — @print
+═══════════════════════════════════════════════════════════════ */
+@media print {
+  /* إخفاء كل شيء ما عدا الفاتورة */
+  body > * { display: none !important; }
+  body > #root { display: block !important; }
+  #root > * { display: none !important; }
+
+  /* إظهار فقط صفحة الفاتورة */
+  .invoice-print-root { display: block !important; }
+
+  /* إزالة أشرطة التنقّل والأدوات */
+  .invoice-toolbar,
+  nav,
+  aside,
+  header { display: none !important; }
+
+  /* إزالة الظلال والحدود الزائدة */
+  .shadow-md, .shadow-xl, .shadow-2xl { box-shadow: none !important; }
+
+  /* إظهار جميع التابات */
+  .hidden.print\:block { display: block !important; }
+
+  /* إعدادات الصفحة */
+  @page {
+    size: A4;
+    margin: 15mm 10mm;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11px;
+  }
+
+  /* ألوان قابلة للطباعة */
+  .text-muted-foreground { color: #555 !important; }
+  .text-primary { color: #2d5a1b !important; }
+  .text-destructive { color: #c00 !important; }
+  .text-green-600 { color: #166534 !important; }
+  .text-red-600 { color: #991b1b !important; }
+
+  /* إزالة الخلفيات الثقيلة */
+  .bg-card, .bg-muted\/30, .bg-secondary\/40 {
+    background: white !important;
+  }
+
+  /* جدول البنود في الطباعة */
+  .invoice-lines-table { border: 1px solid #ddd; }
+  .invoice-lines-table th, .invoice-lines-table td {
+    border: 1px solid #ddd;
+    padding: 4px 6px !important;
+  }
+
+  /* شريط التابات مخفي */
+  .border-b.border-border\/60 { display: none !important; }
 }
