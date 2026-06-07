@@ -1293,7 +1293,7 @@ export function CreateInvoicePage() {
       {/* ── مودال حركة المادة ── */}
       {itemMovementsId !== null && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setItemMovementsId(null)}>
-          <div className="w-full max-w-2xl rounded-xl border bg-card shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-3xl rounded-xl border bg-card shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div className="flex items-center gap-2 font-semibold"><TrendingUp className="h-4 w-4 text-primary" /> حركة المادة — {itemMovementsId.name}</div>
               <button type="button" className="rounded p-1 hover:bg-accent" onClick={() => setItemMovementsId(null)}><X className="h-4 w-4" /></button>
@@ -1309,6 +1309,7 @@ export function CreateInvoicePage() {
                         <tr>
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">التاريخ</th>
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">النوع</th>
+                          <th className="py-2 px-2 text-right font-medium text-muted-foreground">المستودع</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">الكمية</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">الوحدة</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">قبل</th>
@@ -1323,6 +1324,7 @@ export function CreateInvoicePage() {
                             <tr key={m.id} className="border-t border-border/40 hover:bg-accent/30">
                               <td className="py-1.5 px-2 text-muted-foreground">{new Date(m.movementDate).toLocaleDateString('ar-IQ')}</td>
                               <td className={cn('py-1.5 px-2 font-medium', info.color)}>{info.label}</td>
+                              <td className="py-1.5 px-2">{m.warehouseName}</td>
                               <td className="py-1.5 px-2 text-center num-display font-semibold">{m.quantity}</td>
                               <td className="py-1.5 px-2 text-center">{m.unitName}</td>
                               <td className="py-1.5 px-2 text-center num-display text-muted-foreground">{m.quantityBefore}</td>

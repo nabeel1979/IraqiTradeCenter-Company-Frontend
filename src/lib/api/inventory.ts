@@ -303,6 +303,7 @@ export interface ItemMovementDto {
   quantityAfter: number;
   unitName: string;
   warehouseId: number;
+  warehouseName: string;
   referenceType?: string | null;
   referenceNumber?: string | null;
   unitCost?: number | null;
