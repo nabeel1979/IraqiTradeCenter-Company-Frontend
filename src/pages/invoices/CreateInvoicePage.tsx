@@ -142,6 +142,7 @@ export function CreateInvoicePage() {
   const [itemCardId, setItemCardId] = useState<number | null>(null);
   const [itemMovementsId, setItemMovementsId] = useState<{ id: number; name: string } | null>(null);
   const [itemStockId, setItemStockId] = useState<{ id: number; name: string } | null>(null);
+  const [stockUomId, setStockUomId] = useState<number | null>(null); // وحدة قياس جرد المخزون المختارة
 
   const itemCardQuery = useQuery({
     queryKey: ['item-card', itemCardId],
@@ -157,6 +158,13 @@ export function CreateInvoicePage() {
     queryKey: ['item-stock', itemStockId?.id],
     queryFn: () => inventoryApi.getStockPerWarehouse(itemStockId!.id),
     enabled: itemStockId != null,
+  });
+  // بيانات وحدات المادة للجرد (تستخدم نفس cache بطاقة المادة)
+  const itemStockDetailQuery = useQuery({
+    queryKey: ['item-card', itemStockId?.id],
+    queryFn: () => inventoryApi.get(itemStockId!.id),
+    enabled: itemStockId != null,
+    staleTime: 5 * 60_000,
   });
 
   // ── بيانات الفاتورة المحمَّلة (تعديل) ──
@@ -932,7 +940,7 @@ export function CreateInvoicePage() {
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-2 text-xs hover:bg-accent"
-              onClick={() => { setItemStockId({ id: lineMenu.itemId, name: lineMenu.itemName }); setLineMenu(null); }}
+              onClick={() => { setItemStockId({ id: lineMenu.itemId, name: lineMenu.itemName }); setStockUomId(null); setLineMenu(null); }}
             >
               <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />
               جرد المخزون
@@ -1338,41 +1346,92 @@ export function CreateInvoicePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setItemStockId(null)}>
           <div className="w-full max-w-md rounded-xl border bg-card shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b px-4 py-3">
-              <div className="flex items-center gap-2 font-semibold"><ClipboardList className="h-4 w-4 text-primary" /> جرد المخزون — {itemStockId.name}</div>
-              <button type="button" className="rounded p-1 hover:bg-accent" onClick={() => setItemStockId(null)}><X className="h-4 w-4" /></button>
+              <div className="flex items-center gap-2 font-semibold">
+                <ClipboardList className="h-4 w-4 text-primary" /> جرد المخزون — {itemStockId.name}
+              </div>
+              <button type="button" className="rounded p-1 hover:bg-accent" onClick={() => setItemStockId(null)}>
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="max-h-[60vh] overflow-auto p-1">
+
+            {/* مختار وحدة القياس */}
+            {(itemStockDetailQuery.data?.units?.length ?? 0) > 1 && (() => {
+              const units = itemStockDetailQuery.data!.units;
+              const activeUomId = stockUomId ?? units.find(u => u.isBase)?.unitOfMeasureId ?? units[0].unitOfMeasureId;
+              return (
+                <div className="flex items-center gap-2 border-b px-4 py-2">
+                  <span className="text-xs text-muted-foreground">وحدة القياس:</span>
+                  <div className="flex gap-1 flex-wrap">
+                    {units.map(u => (
+                      <button
+                        key={u.unitOfMeasureId}
+                        type="button"
+                        onClick={() => setStockUomId(u.unitOfMeasureId)}
+                        className={cn(
+                          'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                          activeUomId === u.unitOfMeasureId
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted hover:bg-accent'
+                        )}
+                      >
+                        {u.unitName ?? '—'}
+                        {u.isBase && <span className="ml-1 text-[9px] opacity-60">أساسية</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="max-h-[55vh] overflow-auto p-1">
               {itemStockQuery.isLoading
                 ? <div className="py-8 text-center text-sm text-muted-foreground">جارٍ التحميل...</div>
                 : (itemStockQuery.data?.length ?? 0) === 0
                   ? <div className="py-8 text-center text-sm text-muted-foreground">لا توجد بيانات مخزون</div>
-                  : (
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="py-2 px-3 text-right font-medium">المستودع</th>
-                          <th className="py-2 px-3 text-center font-medium">الرمز</th>
-                          <th className="py-2 px-3 text-left font-medium">المخزون</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(itemStockQuery.data as ItemWarehouseStockDto[]).map(s => (
-                          <tr key={s.warehouseId} className="border-t border-border/40">
-                            <td className="py-2 px-3">{s.warehouseName}</td>
-                            <td className="py-2 px-3 text-center font-mono text-xs text-muted-foreground">{s.warehouseCode}</td>
-                            <td className={cn('py-2 px-3 text-left num-display font-bold', s.netStock > 0 ? 'text-green-600' : 'text-destructive')}>{s.netStock}</td>
-                          </tr>
-                        ))}
-                        <tr className="border-t-2 border-border bg-muted/30 font-semibold">
-                          <td className="py-2 px-3">الإجمالي</td>
-                          <td />
-                          <td className="py-2 px-3 text-left num-display">
-                            {(itemStockQuery.data as ItemWarehouseStockDto[]).reduce((s, r) => s + r.netStock, 0)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  )
+                  : (() => {
+                      const units = itemStockDetailQuery.data?.units ?? [];
+                      const activeUomId = stockUomId ?? units.find(u => u.isBase)?.unitOfMeasureId ?? null;
+                      const activeUnit = units.find(u => u.unitOfMeasureId === activeUomId);
+                      const factor = activeUnit?.conversionFactor ?? 1;
+                      const unitName = activeUnit?.unitName ?? (units.find(u => u.isBase)?.unitName ?? '');
+                      const stocks = itemStockQuery.data as ItemWarehouseStockDto[];
+                      const convertQty = (base: number) => {
+                        const converted = base / factor;
+                        return Number.isInteger(converted) ? converted : parseFloat(converted.toFixed(3));
+                      };
+                      const totalBase = stocks.reduce((s, r) => s + r.netStock, 0);
+                      return (
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="py-2 px-3 text-right font-medium">المستودع</th>
+                              <th className="py-2 px-3 text-center font-medium text-xs text-muted-foreground">الرمز</th>
+                              <th className="py-2 px-3 text-left font-medium">
+                                المخزون {unitName && <span className="text-xs font-normal text-muted-foreground">({unitName})</span>}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stocks.map(s => (
+                              <tr key={s.warehouseId} className="border-t border-border/40">
+                                <td className="py-2 px-3">{s.warehouseName}</td>
+                                <td className="py-2 px-3 text-center font-mono text-xs text-muted-foreground">{s.warehouseCode}</td>
+                                <td className={cn('py-2 px-3 text-left num-display font-bold', s.netStock > 0 ? 'text-green-600' : 'text-destructive')}>
+                                  {convertQty(s.netStock)}
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="border-t-2 border-border bg-muted/30 font-semibold">
+                              <td className="py-2 px-3">الإجمالي</td>
+                              <td />
+                              <td className="py-2 px-3 text-left num-display">
+                                {convertQty(totalBase)}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      );
+                    })()
               }
             </div>
           </div>
