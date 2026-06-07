@@ -16,6 +16,8 @@ import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { accountingApi, type PostJournalEntryPayload, type UpdateVoucherEntryPayload } from '@/lib/api/accounting';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi, type CashBoxDto } from '@/lib/api/cashBoxes';
+import { BranchSelect } from '@/components/branches/BranchSelect';
+import { useBranchContext } from '@/lib/branches/useBranchContext';
 import { financialManagementApi } from '@/lib/api/financialManagement';
 import { currenciesApi } from '@/lib/api/currencies';
 import { currencyRateBulletinsApi } from '@/lib/api/currencyRateBulletins';
@@ -367,6 +369,7 @@ export function VoucherEntryPage() {
   // ‎false = الوصف تلقائي → نُعيد توليده عند تغيير الصندوق أو اللغة
   const [isDescCustom, setIsDescCustom] = useState(false);
   const [manualNumber, setManualNumber] = useState('');
+  const [branchId, setBranchId] = useState<number | null>(null);
   // ‎سعر صرف يدوي للقيد بتاريخ سابق بعملة غير مُسعَّرة في نشرة الأسعار.
   // ‎العملية: 1=ضرب الافتراضي، 2=قسمة (مطابقة لسطور النشرة).
   const [manualRate, setManualRate] = useState<number | ''>('');
@@ -386,6 +389,8 @@ export function VoucherEntryPage() {
   // ‎التعبئة الافتراضية من إعادة ملئه مرة واحدة (حتى يبقى الحقل فارغاً
   // ‎ينتظر إدخالاً جديداً للسند التالي).
   const skipDefaultCounterFillRef = useRef(false);
+
+  const { requiresBranch } = useBranchContext();
 
   // ── في وضع التعديل: نحمّل القيد الموجود ونملأ الحقول منه (مرة واحدة)
   const editEntryQuery = useQuery({
@@ -425,6 +430,7 @@ export function VoucherEntryPage() {
     if (!entry) return;
     setEntryDate(toIsoLocalDate(entry.entryDate));
     setManualNumber(entry.manualNumber ?? '');
+    setBranchId((entry as any).branchId ?? null);
   }, [isEditMode, editEntryQuery.data]);
 
   useEffect(() => {
@@ -789,6 +795,9 @@ export function VoucherEntryPage() {
         defaultValue: `العملة ${(currency || '').toUpperCase()} غير مُسعَّرة في نشرة الأسعار بتاريخ القيد — أدخِل سعر صرف يدوياً.`,
       });
     }
+    if (requiresBranch && branchId == null) {
+      return 'يجب اختيار الفرع';
+    }
     return null;
   };
 
@@ -837,6 +846,7 @@ export function VoucherEntryPage() {
           description: descToSave,
           currency,
           postImmediately,
+          branchId: branchId ?? null,
           manualNumber: manualNumber.trim() || null,
           manualExchangeRate: effManualRate,
           manualExchangeRateOperation: effManualRateOp,
@@ -852,6 +862,7 @@ export function VoucherEntryPage() {
         currency,
         postImmediately,
         voucherTypeId: voucherType.id,
+        branchId: branchId ?? null,
         manualNumber: manualNumber.trim() || null,
         manualExchangeRate: effManualRate,
         manualExchangeRateOperation: effManualRateOp,
@@ -1658,6 +1669,12 @@ export function VoucherEntryPage() {
                 dir="ltr"
               />
             </div>
+
+            <BranchSelect
+              className="md:col-span-4"
+              value={branchId}
+              onChange={setBranchId}
+            />
           </div>
 
           {error && (

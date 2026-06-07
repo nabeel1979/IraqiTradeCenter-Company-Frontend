@@ -1,39 +1,68 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Receipt, Search, FileText } from 'lucide-react';
+import { Plus, Receipt, Search, BookOpen, Pencil } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { invoicesApi } from '@/lib/api/invoices';
-import { formatIQD, formatDate } from '@/lib/utils';
+import { invoiceTypesApi, type InvoiceCategory } from '@/lib/api/invoiceTypes';
+import { formatMoney, formatDate } from '@/lib/utils';
+import type { SalesInvoiceDto } from '@/types/api';
+import { findCategoryRoute } from '@/pages/invoices/invoiceRoutes';
+import { InvoiceViewDialog } from '@/pages/invoices/components/InvoiceViewDialog';
+import { StatusBadge } from '@/pages/invoices/components/StatusBadge';
+import { usePermissions } from '@/lib/auth/usePermissions';
+import { PERMS } from '@/lib/auth/permissions';
 
-function StatusBadge({ status }: { status: string }) {
-  const { t } = useTranslation();
-  const map: Record<string, { labelKey: string; variant: any }> = {
-    Paid: { labelKey: 'invoices.status.paid', variant: 'success' },
-    PartiallyPaid: { labelKey: 'invoices.status.partiallyPaid', variant: 'warning' },
-    Issued: { labelKey: 'invoices.status.issued', variant: 'default' },
-    Draft: { labelKey: 'invoices.status.draft', variant: 'muted' },
-    Cancelled: { labelKey: 'invoices.status.cancelled', variant: 'destructive' },
-  };
-  const cfg = map[status];
-  return <Badge variant={cfg?.variant ?? 'muted'}>{cfg ? t(cfg.labelKey) : status}</Badge>;
+interface InvoicesListPageProps {
+  category: InvoiceCategory;
 }
 
-export function InvoicesListPage() {
+export function InvoicesListPage({ category }: InvoicesListPageProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { can } = usePermissions();
+  const canEdit = can(PERMS.Sales.Invoices.Update);
+  const routeCfg = findCategoryRoute(category);
+  const isSupplierSide = category === 2 || category === 3;
+  const partyColLabel = isSupplierSide ? 'المورد' : t('invoices.list.colCustomer');
+
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [detail, setDetail] = useState<SalesInvoiceDto | null>(null);
+
+  const openJournalEntry = (inv: SalesInvoiceDto) => {
+    if (!inv.journalEntryId) return;
+    navigate(`/accounting/journal/${inv.journalEntryId}/view`);
+  };
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['invoices', search, status],
-    queryFn: () => invoicesApi.list({ search: search || undefined, status: status || undefined, pageSize: 50 }),
+    queryKey: ['invoices', category, search, status],
+    queryFn: () => invoicesApi.list({
+      category,
+      search: search || undefined,
+      status: status || undefined,
+      pageSize: 50,
+    }),
   });
+
+  const typesQuery = useQuery({
+    queryKey: ['invoice-types', 'enabled'],
+    queryFn: () => invoiceTypesApi.list(true),
+  });
+
+  const defaultType = useMemo(() => {
+    const types = (typesQuery.data ?? []).filter(tp => tp.category === category);
+    return types.find(tp => tp.code === routeCfg.systemCode) ?? types[0];
+  }, [typesQuery.data, category, routeCfg.systemCode]);
+
+  const newInvoiceUrl = defaultType
+    ? `/invoices/new?typeId=${defaultType.id}`
+    : '/invoices/new';
 
   if (isLoading) return <LoadingSpinner text={t('invoices.list.loading')} />;
   if (isError) {
@@ -49,38 +78,36 @@ export function InvoicesListPage() {
   const invoices = data?.items ?? [];
 
   return (
-    <div className="space-y-5">
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-3 p-4">
-          <div className="relative flex-1 min-w-[260px]">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={t('invoices.list.searchPlaceholder')}
-              className="pr-10"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-          <select
-            className="h-10 rounded-md border border-input bg-secondary/40 px-3 text-sm"
-            value={status}
-            onChange={e => setStatus(e.target.value)}
-          >
-            <option value="">{t('invoices.list.allStatuses')}</option>
-            <option value="Paid">{t('invoices.status.paid')}</option>
-            <option value="PartiallyPaid">{t('invoices.status.partiallyPaid')}</option>
-            <option value="Issued">{t('invoices.status.issued')}</option>
-            <option value="Draft">{t('invoices.status.draft')}</option>
-            <option value="Cancelled">{t('invoices.status.cancelled')}</option>
-          </select>
-          <Link to="/invoices/new" className="mr-auto">
-            <Button>
-              <Plus className="h-4 w-4" />
-              {t('invoices.list.newInvoice')}
-            </Button>
-          </Link>
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      <div className="invoice-toolbar !relative !top-auto">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t('invoices.list.searchPlaceholder')}
+            className="h-8 pr-10 text-sm"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="invoice-select w-auto min-w-[140px]"
+          value={status}
+          onChange={e => setStatus(e.target.value)}
+        >
+          <option value="">{t('invoices.list.allStatuses')}</option>
+          <option value="Paid">{t('invoices.status.paid')}</option>
+          <option value="PartiallyPaid">{t('invoices.status.partiallyPaid')}</option>
+          <option value="Issued">{t('invoices.status.issued')}</option>
+          <option value="Draft">{t('invoices.status.draft')}</option>
+          <option value="Cancelled">{t('invoices.status.cancelled')}</option>
+        </select>
+        <Link to={newInvoiceUrl} className="mr-auto">
+          <Button size="sm">
+            <Plus className="h-4 w-4" />
+            {t('invoices.list.newInvoice')}
+          </Button>
+        </Link>
+      </div>
 
       {invoices.length === 0 ? (
         <EmptyState
@@ -88,50 +115,82 @@ export function InvoicesListPage() {
           title={t('invoices.list.emptyTitle')}
           description={t('invoices.list.emptyDescription')}
           action={
-            <Link to="/invoices/new">
+            <Link to={newInvoiceUrl}>
               <Button><Plus className="h-4 w-4" />{t('invoices.list.newInvoice')}</Button>
             </Link>
           }
         />
       ) : (
-        <Card>
+        <Card className="invoice-document overflow-hidden border-0 shadow-md">
+          <div className="invoice-document-accent" />
           <CardContent className="p-0">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{t('invoices.list.colNumber')}</th>
-                  <th>{t('invoices.list.colDate')}</th>
-                  <th>{t('invoices.list.colCustomer')}</th>
-                  <th className="text-left">{t('invoices.list.colTotal')}</th>
-                  <th className="text-left">{t('invoices.list.colPaid')}</th>
-                  <th className="text-left">{t('invoices.list.colRemaining')}</th>
-                  <th>{t('common.status')}</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map(inv => (
-                  <tr key={inv.id}>
-                    <td>
-                      <span className="num-display text-xs">{inv.invoiceNumber}</span>
-                    </td>
-                    <td className="text-sm text-muted-foreground">{formatDate(inv.invoiceDate)}</td>
-                    <td className="font-medium">{inv.customerName ?? '—'}</td>
-                    <td className="text-left num-display">{formatIQD(inv.totalAmount)}</td>
-                    <td className="text-left num-display text-success">{formatIQD(inv.paidAmount)}</td>
-                    <td className="text-left num-display text-muted-foreground">
-                      {formatIQD(inv.remainingAmount)}
-                    </td>
-                    <td><StatusBadge status={inv.status} /></td>
-                    <td>
-                      <button className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground">
-                        <FileText className="h-4 w-4" />
-                      </button>
-                    </td>
+            <div className="table-scroll">
+              <table className="invoice-lines-table">
+                <thead>
+                  <tr>
+                    <th>{t('invoices.list.colNumber')}</th>
+                    <th>{t('invoices.list.colDate')}</th>
+                    <th>{partyColLabel}</th>
+                    <th>العملة</th>
+                    <th className="text-left">{t('invoices.list.colTotal')}</th>
+                    <th className="text-left">{t('invoices.list.colPaid')}</th>
+                    <th className="text-left">{t('invoices.list.colRemaining')}</th>
+                    <th>{t('common.status')}</th>
+                    <th className="text-center w-24">الإجراءات</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {invoices.map(inv => {
+                    const cur = inv.currency ?? 'IQD';
+                    return (
+                      <tr key={inv.id} className="cursor-pointer" onClick={() => setDetail(inv)}>
+                        <td>
+                          <span className="num-display text-xs font-semibold">{inv.invoiceNumber}</span>
+                        </td>
+                        <td className="text-sm text-muted-foreground">{formatDate(inv.invoiceDate)}</td>
+                        <td className="font-medium">{inv.customerName ?? '—'}</td>
+                        <td className="num-display text-xs text-muted-foreground">{cur}</td>
+                        <td className="text-left num-display font-medium">{formatMoney(inv.totalAmount, cur)}</td>
+                        <td className="text-left num-display text-success">{formatMoney(inv.paidAmount, cur)}</td>
+                        <td className="text-left num-display text-muted-foreground">
+                          {formatMoney(inv.remainingAmount, cur)}
+                        </td>
+                        <td><StatusBadge status={inv.status} /></td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              title="عرض الفاتورة"
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              onClick={() => setDetail(inv)}
+                            >
+                              <Receipt className="h-4 w-4" />
+                            </button>
+                            {canEdit && (
+                              <button
+                                title={inv.status === 'Cancelled' ? 'لا يمكن تعديل فاتورة ملغاة' : 'تعديل الفاتورة'}
+                                disabled={inv.status === 'Cancelled'}
+                                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-primary disabled:opacity-40"
+                                onClick={() => navigate(`/invoices/${inv.id}/edit`)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            )}
+                            <button
+                              title={inv.journalEntryId ? 'عرض القيد' : 'لا يوجد قيد'}
+                              disabled={!inv.journalEntryId}
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                              onClick={() => openJournalEntry(inv)}
+                            >
+                              <BookOpen className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -140,6 +199,14 @@ export function InvoicesListPage() {
         <div className="text-center text-xs text-muted-foreground">
           {t('invoices.list.totalCount', { count: data.totalCount })}
         </div>
+      )}
+
+      {detail && (
+        <InvoiceViewDialog
+          invoice={detail}
+          partyLabel={partyColLabel}
+          onClose={() => setDetail(null)}
+        />
       )}
     </div>
   );

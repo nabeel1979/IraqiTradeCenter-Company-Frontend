@@ -31,6 +31,7 @@ import {
   type UpsertJournalVoucherTypePayload,
   type VoucherNature,
 } from '@/lib/api/journalVoucherTypes';
+import { branchesApi } from '@/lib/api/branches';
 import type { AccountDto } from '@/types/api';
 
 function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
@@ -399,6 +400,14 @@ function VoucherTypeDialog({
   const [displayOrder, setDisplayOrder] = useState(existing?.displayOrder ?? 100);
   const [nature, setNature] = useState<VoucherNature>(existing?.nature ?? 'Mixed');
   const [showInSidebar, setShowInSidebar] = useState<boolean>(existing?.showInSidebar ?? false);
+  const [branchId, setBranchId] = useState<number | null>(existing?.branchId ?? null);
+
+  const branchesQuery = useQuery({
+    queryKey: ['branches', 'list'],
+    queryFn: () => branchesApi.getAll(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const branches = branchesQuery.data?.data ?? [];
 
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -433,6 +442,7 @@ function VoucherTypeDialog({
         displayOrder,
         nature,
         showInSidebar,
+        branchId: branchId ?? null,
       };
       return isNew
         ? journalVoucherTypesApi.create(payload)
@@ -621,6 +631,22 @@ function VoucherTypeDialog({
               </div>
             </div>
           </div>
+
+          {branches.length > 1 && (
+            <div>
+              <label className="mb-1 block text-[11px] text-muted-foreground">الفرع (اختياري)</label>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-secondary/40 px-2 text-sm"
+                value={branchId ?? ''}
+                onChange={e => setBranchId(e.target.value === '' ? null : Number(e.target.value))}
+              >
+                <option value="">— كل الفروع —</option>
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.nameAr}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <label className="flex items-center gap-2 rounded-md border border-input bg-secondary/30 p-2 text-xs">
             <input

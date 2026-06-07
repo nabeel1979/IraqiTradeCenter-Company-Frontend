@@ -97,12 +97,16 @@ export interface UserListItemDto {
   id: string;
   fullName: string;
   phone: string;
+  email?: string | null;
+  contactPhone?: string | null;
+  mobile?: string | null;
   isActive: boolean;
   mustChangePassword?: boolean;
   createdAt: string;
   roles: string[];
   cashBoxCount: number;
   hasAvatar?: boolean;
+  isSystemAdmin?: boolean;
 }
 
 export interface UserPermissionOverrideDto {
@@ -120,6 +124,9 @@ export interface UserDetailDto {
   id: string;
   fullName: string;
   phone: string;
+  email?: string | null;
+  contactPhone?: string | null;
+  mobile?: string | null;
   isActive: boolean;
   mustChangePassword?: boolean;
   createdAt: string;
@@ -128,6 +135,7 @@ export interface UserDetailDto {
   cashBoxes: UserCashBoxAssignmentDto[];
   effectivePermissions: string[];
   isSuperAdmin: boolean;
+  isSystemAdmin?: boolean;
   avatarBase64?: string | null;
 }
 
@@ -139,6 +147,9 @@ export interface UserCreatePayload {
   roleIds?: number[];
   mustChangePassword?: boolean;
   avatarBase64?: string | null;
+  email?: string | null;
+  contactPhone?: string | null;
+  mobile?: string | null;
 }
 
 export interface UserUpdatePayload {
@@ -148,11 +159,17 @@ export interface UserUpdatePayload {
   isActive?: boolean;
   mustChangePassword?: boolean;
   avatarBase64?: string | null;
+  email?: string | null;
+  contactPhone?: string | null;
+  mobile?: string | null;
 }
 
 export interface ResetPasswordResponseDto {
   temporaryPassword: string;
   mustChangePassword: boolean;
+  credentialsUrl: string;
+  credentialsUrlCopyUsername: string;
+  credentialsUrlCopyPassword: string;
 }
 
 export interface MeDto {
@@ -164,6 +181,8 @@ export interface MeDto {
   roles: string[];
   permissions: string[];
   cashBoxIds: number[];
+  branchIds?: number[];
+  defaultBranchId?: number | null;
   isSuperAdmin: boolean;
   avatarBase64?: string | null;
 }
@@ -213,6 +232,7 @@ export interface CustomerDto {
   creditLimit: number;
   currentBalance: number;
   assignedSalesRepId?: number;
+  accountId?: number | null;
   isActive: boolean;
 }
 
@@ -283,6 +303,7 @@ export interface SalesInvoiceDto {
   id: number;
   invoiceNumber: string;
   invoiceDate: string;
+  currency?: string;
   customerId: number;
   customerName?: string;
   salesRepId?: number;
@@ -293,6 +314,15 @@ export interface SalesInvoiceDto {
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
+  invoiceTypeId?: number | null;
+  financialPartyId?: number | null;
+  settlementType?: number;
+  paymentMeansAccountId?: number | null;
+  warehouseId?: number | null;
+  additionAmount?: number;
+  discountPercentage?: number;
+  taxRate?: number;
+  notes?: string | null;
   journalEntryId?: number;
   lines: SalesInvoiceLineDto[];
 }
@@ -301,6 +331,7 @@ export interface SalesInvoiceLineDto {
   id: number;
   itemId: number;
   itemName: string;
+  unitOfMeasureId?: number;
   unitName: string;
   quantity: number;
   unitPrice: number;
@@ -407,6 +438,11 @@ export interface AccountDto {
    * يُحجب التعديل والحذف من شجرة الحسابات.
    */
   isManagedByFinancialManagement?: boolean;
+  /**
+   * هل الحساب مُدار من نافذة المستودعات؟ يُنشأ تلقائياً عند إضافة مستودع.
+   * يُحجب التعديل والحذف وإضافة الفروع من شجرة الحسابات.
+   */
+  isLockedForWarehouse?: boolean;
   /** مرتبط بإعدادات تسوية الحسابات */
   isLinkedToAccountSettlement?: boolean;
   /** أدوار الارتباط: Transit | FxGain | FxLoss | FxDiscount */
@@ -781,6 +817,9 @@ export interface FinancialPartyDto {
   /** رمز السويفت (SWIFT/BIC) — خاص بأطراف نوع المصرف. */
   swiftCode?: string | null;
   isActive: boolean;
+  /** نوع السعر الافتراضي — ItemPriceType (3=جملة، 4=مفرد، 5=خاص، 6=تصدير) */
+  defaultSalesPriceType?: number | null;
+  showInStore?: boolean;
   mustChangePassword?: boolean;
   createdAt: string;
 }
@@ -814,6 +853,8 @@ export interface CreateFinancialPartyPayload {
   notes?: string | null;
   bankAccountNumber?: string | null;
   swiftCode?: string | null;
+  defaultSalesPriceType?: number | null;
+  showInStore?: boolean;
 }
 
 export interface UpdateFinancialPartyPayload {
@@ -832,4 +873,6 @@ export interface UpdateFinancialPartyPayload {
   bankAccountNumber?: string | null;
   swiftCode?: string | null;
   isActive: boolean;
+  defaultSalesPriceType?: number | null;
+  showInStore?: boolean;
 }

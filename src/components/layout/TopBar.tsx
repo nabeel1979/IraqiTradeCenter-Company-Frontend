@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
 import { useLocale, localizedName } from '@/lib/i18n';
 import { LicenseBadge } from '@/components/license/LicenseBadge';
+import { isParentHost } from '@/lib/platform';
 
 /**
  * المسارات المُعرَّفة في النظام كمفاتيح ترجمة. أنماط ديناميكية مثل
@@ -22,10 +23,12 @@ import { LicenseBadge } from '@/components/license/LicenseBadge';
  */
 const STATIC_ROUTE_KEYS: string[] = [
   '/',
-  '/invoices', '/invoices/new',
+  '/invoices', '/invoices/sales', '/invoices/purchase', '/invoices/purchase-return', '/invoices/sales-return',
+  '/invoices/new', '/invoices/constants', '/invoices/types', '/invoices/settings',
   '/customers',
   '/sales-reps',
-  '/inventory', '/inventory/movements',
+  '/inventory', '/inventory/movements', '/inventory/categories', '/inventory/units',
+  '/inventory/constants', '/inventory/colors', '/inventory/warehouses', '/inventory/new',
   '/orders',
   '/accounting/accounts', '/accounting/accounts/trash',
   '/system/trash',
@@ -46,6 +49,7 @@ const STATIC_ROUTE_KEYS: string[] = [
   '/financial-management/account-settlements',
   '/accounting/voucher-types',
   '/settings', '/settings/menu', '/settings/users', '/settings/roles',
+  '/settings/constants', '/settings/branches', '/settings/countries', '/settings/cities',
 ];
 
 function useRouteMeta(pathname: string): { title: string; description?: string } {
@@ -444,8 +448,8 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
             </button>
           )}
 
-          {/* ‎شارة ترخيص النظام */}
-          <LicenseBadge />
+          {/* ‎شارة ترخيص النظام — مخفيّة في الشركة الأم (تعمل بشكل مستمر) */}
+          {!isParentHost() && <LicenseBadge />}
 
           {/* ساعة رقمية */}
           <div

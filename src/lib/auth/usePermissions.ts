@@ -32,6 +32,8 @@ export function usePermissions() {
       setMe({
         permissions:  data.permissions,
         cashBoxIds:   data.cashBoxIds,
+        branchIds:    data.branchIds ?? [],
+        defaultBranchId: data.defaultBranchId ?? null,
         roles:        data.roles,
         isSuperAdmin: data.isSuperAdmin,
         mustChangePassword: data.mustChangePassword,

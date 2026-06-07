@@ -52,6 +52,7 @@ const JOURNAL_DATE_FILTER_KEY = 'itc:journal-entries:date-range';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
+import { BranchFilterSelect } from '@/components/branches/BranchSelect';
 import { useAuthStore } from '@/lib/auth/auth-store';
 import { formatAmount, formatDate, cn, extractApiError } from '@/lib/utils';
 import { usePermissions } from '@/lib/auth/usePermissions';
@@ -837,6 +838,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   // ‎علامة: هل لمس المستخدم فلتر التاريخ؟ — إن لم يلمسه نعيّنه افتراضياً "من بداية السنة → اليوم"
   const userTouchedDatesRef = useRef(!!initialRestore?.fromDate || !!initialRestore?.toDate);
   const [voucherTypeFilter, setVoucherTypeFilter] = useState<number | ''>(initialRestore?.voucherTypeFilter ?? '');
+  const [branchFilter, setBranchFilter] = useState<number | ''>('');
   const [pageNumber, setPageNumber] = useState(initialRestore?.pageNumber ?? 1);
   const [pageSize, setPageSize] = useState<number>(initialRestore?.pageSize ?? 50);
   const [highlightEntryId, setHighlightEntryId] = useState<number | null>(
@@ -986,7 +988,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   }, [userNs]);
 
   const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ['journal-entries', search, status, fromDate, toDate, voucherTypeFilter, pageNumber, pageSize, isLocked],
+    queryKey: ['journal-entries', search, status, fromDate, toDate, voucherTypeFilter, branchFilter, pageNumber, pageSize, isLocked],
     queryFn: () =>
       accountingApi.getJournalEntries({
         search: search || undefined,
@@ -994,6 +996,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         voucherTypeId: voucherTypeFilter === '' ? undefined : Number(voucherTypeFilter),
+        branchId: branchFilter === '' ? undefined : Number(branchFilter),
         // ‎نافذة "القيود اليومية" تعرض جميع القيود (يدوية + متولّدة من أي
         // نوع سند، بما فيها التي لها صفحات مخصّصة في القائمة الجانبية).
         // ‎للتنقّل إلى نافذة المصدر استخدم زر "أصل القيد" (FileText) داخل البطاقة.
@@ -1053,7 +1056,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
   );
 
   const { data: draftCountData } = useQuery({
-    queryKey: ['journal-entries', 'draft-count', search, fromDate, toDate, voucherTypeFilter, isLocked],
+    queryKey: ['journal-entries', 'draft-count', search, fromDate, toDate, voucherTypeFilter, branchFilter, isLocked],
     queryFn: () =>
       accountingApi.getJournalEntries({
         search: search || undefined,
@@ -1061,6 +1064,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         voucherTypeId: voucherTypeFilter === '' ? undefined : Number(voucherTypeFilter),
+        branchId: branchFilter === '' ? undefined : Number(branchFilter),
         pageNumber: 1,
         pageSize: 1,
       }),
@@ -1184,6 +1188,7 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
       /* ignore */
     }
     if (!isLocked) setVoucherTypeFilter('');
+    setBranchFilter('');
     setPageNumber(1);
   };
 
@@ -1272,6 +1277,13 @@ export function JournalEntriesPage({ lockedVoucherCode }: JournalEntriesPageProp
               ))}
             </select>
           )}
+
+          <BranchFilterSelect
+            value={branchFilter}
+            onChange={v => { setBranchFilter(v); setPageNumber(1); }}
+            showAllOption
+            selectClassName="h-9"
+          />
 
           <div className="flex items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2">
             <CalendarRange className="h-3.5 w-3.5 text-muted-foreground" />

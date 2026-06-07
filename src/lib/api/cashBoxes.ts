@@ -23,6 +23,7 @@ export interface CashBoxDto {
   currencies: CashBoxCurrencyDto[];
   /** ‎الحساب المرتبط له سطور قيود — لا يُسمح بالحذف */
   hasMovements?: boolean;
+  branchId?: number | null;
 }
 
 export interface UpsertCashBoxCurrencyPayload {
@@ -41,6 +42,7 @@ export interface UpsertCashBoxPayload {
   isActive: boolean;
   displayOrder: number;
   currencies: UpsertCashBoxCurrencyPayload[];
+  branchId?: number | null;
 }
 
 export interface CashBoxBalanceDto {

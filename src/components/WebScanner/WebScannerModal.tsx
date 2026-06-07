@@ -3,16 +3,13 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { X, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
-import { WebScanApp, checkBridgeHealth } from '@/lib/webscanner/embed';
+import { WebScanApp, getBridgeStatus, getBridgeUrl } from '@/lib/webscanner/embed';
 import { pagesToPdfBlob, pagesToJpgBlobs } from '@/lib/webscanPdf';
-import { SCANNER_SETUP_PAGE, SCANNER_SETUP_EXE } from '@/lib/scannerPool';
+import { SCANNER_SETUP_PAGE, SCANNER_SETUP_ZIP } from '@/lib/scannerPool';
 import './WebScannerModal.css';
 
-const BRIDGE_URL =
-  import.meta.env.VITE_SCANNER_BRIDGE_URL ?? 'http://127.0.0.1:5100';
-
 const BRIDGE_DOWNLOAD_PATH =
-  import.meta.env.VITE_SCANNER_BRIDGE_DOWNLOAD_URL ?? SCANNER_SETUP_EXE();
+  import.meta.env.VITE_SCANNER_BRIDGE_DOWNLOAD_URL ?? SCANNER_SETUP_ZIP();
 
 function formatDuration(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -43,7 +40,7 @@ function BridgeSetupPanel({ bridgeUrl, onRecheck, rechecking }: BridgeSetupPanel
       <div className="webscan-bridge-panel__actions">
         <a
           href={BRIDGE_DOWNLOAD_PATH}
-          download
+          download="WebScanBridgeSetup.zip"
           className="webscan-modal-btn webscan-modal-btn--primary webscan-bridge-panel__download"
         >
           {t('webScanner.downloadBridge')}
@@ -93,25 +90,25 @@ export function WebScannerModal({ isOpen, onClose, onAddToArchive }: WebScannerM
   const [addPercent, setAddPercent] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
 
-  const checkBridge = useCallback(async () => {
-    const ok = await checkBridgeHealth(BRIDGE_URL);
-    setBridgeStatus(ok ? 'ready' : 'missing');
-    return ok;
+  const checkBridge = useCallback(async (force = false) => {
+    const status = await getBridgeStatus(force);
+    setBridgeStatus(status.online ? 'ready' : 'missing');
+    return status.online;
   }, []);
 
   useEffect(() => {
     if (!isOpen) return undefined;
     setBridgeStatus('checking');
-    void checkBridge();
+    void checkBridge(true);
     return undefined;
   }, [isOpen, checkBridge]);
 
   const handleRecheckBridge = async () => {
     setBridgeRechecking(true);
     try {
-      const ok = await checkBridge();
+      const ok = await checkBridge(true);
       if (!ok) {
-        toast.warning(t('webScanner.bridgeUnavailable', { url: BRIDGE_URL }));
+        toast.warning(t('webScanner.bridgeUnavailable', { url: getBridgeUrl() }));
       }
     } finally {
       setBridgeRechecking(false);
@@ -129,7 +126,7 @@ export function WebScannerModal({ isOpen, onClose, onAddToArchive }: WebScannerM
     setPageCount(0);
     appRef.current = new WebScanApp({
       root,
-      bridgeUrl: BRIDGE_URL,
+      bridgeUrl: getBridgeUrl(),
       compact: true,
       labels: {
         scanner: t('webScanner.embed.scanner'),
@@ -332,7 +329,7 @@ export function WebScannerModal({ isOpen, onClose, onAddToArchive }: WebScannerM
           )}
           {bridgeStatus === 'missing' && (
             <BridgeSetupPanel
-              bridgeUrl={BRIDGE_URL}
+              bridgeUrl={getBridgeUrl()}
               onRecheck={handleRecheckBridge}
               rechecking={bridgeRechecking}
             />

@@ -8,6 +8,7 @@ export interface AccountStatementParams {
   currency?: string;     // null = all currencies
   includeDraft?: boolean;
   includeOpeningEntries?: boolean;
+  branchId?: number | null;
 }
 
 export type JournalEntryType = 1 | 2; // 1=Normal, 2=Opening
@@ -26,6 +27,7 @@ export interface PostJournalEntryPayload {
   currency?: string;
   postImmediately?: boolean;
   voucherTypeId?: number | null;
+  branchId?: number | null;
   /** رقم يدوي اختياري — شيك، إيصال خارجي، … (قابل للبحث) */
   manualNumber?: string | null;
   /** سعر صرف يدوي اختياري (حين لا توجد نشرة تُسعّر العملة بتاريخ القيد) */
@@ -42,6 +44,7 @@ export interface UpdateJournalEntryPayload {
   currency: string;
   postImmediately?: boolean;
   voucherTypeId?: number | null;
+  branchId?: number | null;
   /** رقم يدوي اختياري — شيك، إيصال خارجي، … */
   manualNumber?: string | null;
   /** سعر صرف يدوي اختياري (حين لا توجد نشرة تُسعّر العملة بتاريخ القيد) */
@@ -57,6 +60,7 @@ export interface UpdateVoucherEntryPayload {
   description: string;
   currency: string;
   postImmediately?: boolean;
+  branchId?: number | null;
   /** رقم يدوي اختياري للسند */
   manualNumber?: string | null;
   /** سعر صرف يدوي اختياري (حين لا توجد نشرة تُسعّر العملة بتاريخ السند) */
@@ -69,6 +73,7 @@ export interface UpdateVoucherEntryPayload {
 export interface JournalEntriesListParams {
   pageNumber?: number; pageSize?: number; status?: string; search?: string;
   fromDate?: string; toDate?: string; voucherTypeId?: number;
+  branchId?: number;
   /** عند true: استبعد القيود التي نوع سندها مفعَّل في القائمة الجانبية */
   excludeSidebarVoucherTypes?: boolean;
 }
@@ -183,6 +188,7 @@ export const accountingApi = {
     leavesOnly?: boolean;
     includeDraft?: boolean;
     includeOpeningEntries?: boolean;
+    branchId?: number | null;
   }) => {
     const res = await api.get<ApiResponse<AccountBalancesDto>>('/accounts/balances', {
       params: {
@@ -195,6 +201,7 @@ export const accountingApi = {
         leavesOnly: params.leavesOnly ?? true,
         includeDraft: params.includeDraft ?? false,
         includeOpeningEntries: params.includeOpeningEntries ?? true,
+        branchId: params.branchId ?? undefined,
       },
     });
     return res.data.data!;
@@ -208,6 +215,7 @@ export const accountingApi = {
     leavesOnly?: boolean;
     includeDraft?: boolean;
     includeOpeningEntries?: boolean;
+    branchId?: number | null;
   }) => {
     const res = await api.get<ApiResponse<TrialBalanceDto>>('/accounts/trial-balance', {
       params: {
@@ -219,6 +227,7 @@ export const accountingApi = {
         leavesOnly: params.leavesOnly ?? true,
         includeDraft: params.includeDraft ?? false,
         includeOpeningEntries: params.includeOpeningEntries ?? true,
+        branchId: params.branchId ?? undefined,
       },
     });
     return res.data.data!;

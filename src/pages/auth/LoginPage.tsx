@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import {
-  User, Lock, ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, KeyRound,
+  User, Lock, ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, KeyRound, Mail,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -20,7 +20,7 @@ import { cn, extractApiError } from '@/lib/utils';
 import { AuthPageShell } from './AuthPageShell';
 
 const REMEMBER_KEY = 'iqtc_remember';
-type Step = 'login' | 'change';
+type Step = 'login' | 'change' | 'forgot';
 
 interface RememberedCreds {
   username: string;
@@ -124,6 +124,19 @@ export function LoginPage() {
     },
   });
 
+  const forgotMutation = useMutation({
+    mutationFn: () => authApi.forgotPassword({ username: username.trim() }),
+    onSuccess: res => {
+      if (!res.success) return;
+      toast.success(res.data?.message ?? t('login.forgot.success'));
+      setStep('login');
+      setCurrentPassword('');
+    },
+    onError: (e: unknown) => {
+      toast.error(extractApiError(e, t('login.forgot.failed')));
+    },
+  });
+
   const changeMutation = useMutation({
     mutationFn: () => authApi.changePassword({ currentPassword, newPassword }),
     onSuccess: async res => {
@@ -192,7 +205,17 @@ export function LoginPage() {
 
   const iconPad = isRtl ? 'pr-10' : 'pl-10';
   const pwdPad = isRtl ? 'pl-10 pr-10' : 'pr-10 pl-10';
-  const isPending = loginMutation.isPending || changeMutation.isPending;
+  const handleForgotSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const u = username.trim();
+    if (u.length < 3) {
+      toast.error(t('login.errors.usernameTooShort'));
+      return;
+    }
+    forgotMutation.mutate();
+  };
+
+  const isPending = loginMutation.isPending || changeMutation.isPending || forgotMutation.isPending;
 
   const passwordField = (
     id: string,
@@ -232,7 +255,7 @@ export function LoginPage() {
 
   return (
     <AuthPageShell
-      showBrand={step === 'login'}
+      showBrand={step === 'login' || step === 'forgot'}
       header={step === 'change' ? (
         <div className="mb-4 text-center sm:mb-5">
           <div className="mx-auto mb-2 flex justify-center sm:mb-3">
@@ -250,7 +273,58 @@ export function LoginPage() {
         </div>
       ) : undefined}
     >
-      {step === 'login' ? (
+      {step === 'forgot' ? (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mb-3 gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={() => setStep('login')}
+            disabled={isPending}
+          >
+            {isRtl ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}
+            {t('login.backToLogin')}
+          </Button>
+
+          <div className="mb-3 sm:mb-4">
+            <h2 className="font-display text-base font-medium sm:text-lg">{t('login.forgot.title')}</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('login.forgot.subtitle')}</p>
+          </div>
+
+          <form onSubmit={handleForgotSubmit} className="space-y-3 sm:space-y-3.5">
+            <div className="space-y-1">
+              <Label htmlFor="forgot-username" className="text-xs sm:text-sm">{t('login.forgot.usernameLabel')}</Label>
+              <div className="relative">
+                <User className={cn('absolute top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground', isRtl ? 'right-3' : 'left-3')} />
+                <Input
+                  id="forgot-username"
+                  type="text"
+                  placeholder={t('login.usernamePlaceholder')}
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  className={cn('h-10 sm:h-11', iconPad)}
+                  autoComplete="username"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  disabled={isPending}
+                />
+              </div>
+              <p className="text-[10px] leading-snug text-muted-foreground sm:text-[11px]">{t('login.forgot.hint')}</p>
+            </div>
+
+            <Button type="submit" size="lg" className="h-10 w-full gap-2 glow-primary sm:h-11" disabled={isPending}>
+              {forgotMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4" />
+              )}
+              {forgotMutation.isPending ? t('login.forgot.submitting') : t('login.forgot.submit')}
+            </Button>
+          </form>
+        </>
+      ) : step === 'login' ? (
         <>
           <div className="mb-3 sm:mb-4">
             <h2 className="font-display text-base font-medium sm:text-lg">{t('login.welcome')}</h2>
@@ -289,6 +363,17 @@ export function LoginPage() {
               () => setShowCurrent(s => !s),
               'current-password',
             )}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setStep('forgot')}
+                disabled={isPending}
+                className="text-xs text-primary hover:underline disabled:opacity-50 sm:text-sm"
+              >
+                {t('login.forgotPassword')}
+              </button>
+            </div>
 
             <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground sm:text-sm">
               <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">

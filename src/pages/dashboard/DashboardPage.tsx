@@ -278,7 +278,7 @@ export function DashboardPage() {
                 <CardTitle>{t('dashboard.recentInvoices')}</CardTitle>
                 <CardDescription>{t('dashboard.lastFourInvoices')}</CardDescription>
               </div>
-              <Link to="/invoices" className="text-xs text-primary hover:underline">
+              <Link to="/invoices/sales" className="text-xs text-primary hover:underline">
                 {t('dashboard.viewAll')} {isRtl ? '←' : '→'}
               </Link>
             </div>

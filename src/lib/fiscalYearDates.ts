@@ -85,25 +85,46 @@ export function clipDateRangeToFiscalYear(
   return { from: f, to: t };
 }
 
-/** نطاق افتراضي: من بداية السنة المالية → نهاية الفترة المحاسبية (وليس دائماً «اليوم»). */
-export function fiscalYearDateRange(
+/** من بداية السنة المالية → اليوم التقويمي (الافتراضي للتقارير). */
+export function fiscalYearStartToTodayRange(
   fy: FiscalYearDto | null | undefined,
-  opts?: { capToToday?: boolean }
 ): { from: string; to: string } {
   const today = todayIsoLocal();
   if (!fy) {
     const y = new Date().getFullYear();
-    return {
-      from: `${y}-01-01`,
-      to: today,
-    };
+    return { from: `${y}-01-01`, to: today };
   }
   const from = (fy.startDate ?? '').slice(0, 10) || today;
-  const fyEnd = (fy.endDate ?? '').slice(0, 10);
-  const useFyEnd = opts?.capToToday === false;
-  let to = useFyEnd ? (fyEnd || today) : fiscalYearReportEndDate(fy);
+  let to = today;
   if (to < from) to = from;
   return { from, to };
+}
+
+/** من بداية السنة المالية → نهايتها (السنة المالية كاملة). */
+export function fiscalYearFullRange(
+  fy: FiscalYearDto | null | undefined,
+): { from: string; to: string } {
+  const today = todayIsoLocal();
+  if (!fy) {
+    const y = new Date().getFullYear();
+    return { from: `${y}-01-01`, to: today };
+  }
+  const from = (fy.startDate ?? '').slice(0, 10) || today;
+  const to = (fy.endDate ?? '').slice(0, 10) || today;
+  return { from, to: to < from ? from : to };
+}
+
+/**
+ * نطاق افتراضي للفلاتر:
+ * - `capToToday !== false` (افتراضي): من بداية السنة → اليوم.
+ * - `capToToday === false`: السنة المالية كاملة (بداية → نهاية).
+ */
+export function fiscalYearDateRange(
+  fy: FiscalYearDto | null | undefined,
+  opts?: { capToToday?: boolean }
+): { from: string; to: string } {
+  if (opts?.capToToday === false) return fiscalYearFullRange(fy);
+  return fiscalYearStartToTodayRange(fy);
 }
 
 /** تاريخ افتراضي لقيد جديد: اليوم ضمن نطاق السنة النشطة، وإلا بداية السنة. */

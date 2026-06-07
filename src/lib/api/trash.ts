@@ -30,6 +30,12 @@ interface TrashListResponse {
   supportedTypes: string[];
 }
 
+export interface PurgeAllResult {
+  deleted: number;
+  failed: number;
+  errors: string[];
+}
+
 export const trashApi = {
   list: async (): Promise<{ items: TrashItemDto[]; supportedTypes: string[] }> => {
     const res = await api.get<TrashListResponse>('/trash');
@@ -49,5 +55,13 @@ export const trashApi = {
       `/trash/${encodeURIComponent(entityType)}/${id}/permanent`,
     );
     return res.data;
+  },
+  purgeAll: async (entityType?: string): Promise<PurgeAllResult> => {
+    const params = entityType ? { entityType } : {};
+    const res = await api.delete<{ success: boolean; data: PurgeAllResult }>(
+      '/trash/purge-all',
+      { params },
+    );
+    return res.data.data;
   },
 };

@@ -1,5 +1,7 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { toast } from 'sonner';
+import { isParentHost } from '@/lib/platform';
+import { getRuntimeConfig } from '@/lib/runtime-config';
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -11,14 +13,24 @@ declare module 'axios' {
 const TOKEN_KEY = 'iqtc_token';
 
 // ════════════════════════════════════════
-// API Base URL - من Environment Variables
+// API Base URL - ديناميكي وقت التشغيل
 // ════════════════════════════════════════
-// في dev: يستخدم Vite proxy تلقائياً (/api → VITE_API_URL → localhost:5050)
-// في build: يستخدم VITE_API_URL مباشرة (https://api-company.gcc.iq)
-// تسجيل الدخول: عبر /parent-api → VITE_PARENT_API_URL (parent API - SSO)
-const API_BASE_URL = import.meta.env.DEV 
-  ? '/api'
-  : `${import.meta.env.VITE_API_URL}/api`;
+// القيم تأتي من /runtime-config.js (window.__ITC_CONFIG__) ويمكن تعديلها
+// على السيرفر مباشرةً دون إعادة بناء عند تغيير السيرفر أو الدومين.
+//   • الشركة الأم → parentApiBaseUrl
+//   • الشركات     → companyApiBaseUrl (API مشترك واحد + تحليل المستأجر)
+// في dev: يستخدم Vite proxy تلقائياً.
+function resolveApiBaseUrl(): string {
+  if (import.meta.env.DEV) return '/api';
+  const cfg = getRuntimeConfig();
+  return isParentHost() ? cfg.parentApiBaseUrl : cfg.companyApiBaseUrl;
+}
+const API_BASE_URL = resolveApiBaseUrl();
+
+/** عنوان API الحالي — للتنزيلات الثنائية (fetch) خارج axios. */
+export function getApiBaseUrl(): string {
+  return resolveApiBaseUrl();
+}
 
 export const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,

@@ -1,12 +1,23 @@
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { AuthGuard } from '@/lib/auth/auth-guard';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { ChangePasswordPage } from '@/pages/auth/ChangePasswordPage';
+import { ResetCredentialsPage } from '@/pages/auth/ResetCredentialsPage';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { InvoicesListPage } from '@/pages/invoices/InvoicesListPage';
 import { CreateInvoicePage } from '@/pages/invoices/CreateInvoicePage';
+import { InvoiceConstantsHubPage } from '@/pages/invoices/InvoiceConstantsHubPage';
+import { InvoiceTypesPage } from '@/pages/invoices/InvoiceTypesPage';
+import { InvoiceSettingsPage } from '@/pages/invoices/InvoiceSettingsPage';
 import { ItemsListPage } from '@/pages/inventory/ItemsListPage';
+import { ItemFormPage } from '@/pages/inventory/ItemFormPage';
+import { ItemCategoriesPage } from '@/pages/inventory/ItemCategoriesPage';
+import { UnitsOfMeasurePage } from '@/pages/inventory/UnitsOfMeasurePage';
+import { ItemColorsPage } from '@/pages/inventory/ItemColorsPage';
+import { ItemConstantsPage } from '@/pages/inventory/ItemConstantsPage';
+import { WarehousesPage } from '@/pages/inventory/WarehousesPage';
 import { StockMovementsPage } from '@/pages/inventory/StockMovementsPage';
 import { CustomersListPage } from '@/pages/customers/CustomersListPage';
 import { SalesRepsListPage } from '@/pages/sales-reps/SalesRepsListPage';
@@ -37,6 +48,12 @@ import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { MenuSettingsPage } from '@/pages/settings/MenuSettingsPage';
 import { UsersPage } from '@/pages/settings/UsersPage';
 import { RolesPage } from '@/pages/settings/RolesPage';
+import { BranchesPage } from '@/pages/settings/BranchesPage';
+import { CountriesPage } from '@/pages/settings/CountriesPage';
+import { CitiesPage } from '@/pages/settings/CitiesPage';
+import { SystemConstantsPage } from '@/pages/settings/SystemConstantsPage';
+import { SubscribersPage } from '@/pages/subscribers/SubscribersPage';
+import { isParentHost } from '@/lib/platform';
 
 /**
  * Wrappers صغيرة تُجبر إعادة تركيب المكون عند تغيير الـ URL بين
@@ -46,6 +63,11 @@ import { RolesPage } from '@/pages/settings/RolesPage';
 function VoucherEntryRoute() {
   const { code, id } = useParams<{ code: string; id?: string }>();
   return <VoucherEntryPage key={`${code ?? ''}-${id ?? 'new'}`} />;
+}
+
+function CompanyOnlyRoute({ children }: { children: ReactNode }) {
+  if (isParentHost()) return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 function CreateJournalEntryRoute({ viewOnly = false }: { viewOnly?: boolean }) {
@@ -64,6 +86,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/reset-credentials/:token" element={<ResetCredentialsPage />} />
       <Route
         path="/change-password"
         element={
@@ -82,12 +105,27 @@ export default function App() {
         <Route index element={<DashboardPage />} />
 
         {/* Invoices */}
-        <Route path="invoices" element={<InvoicesListPage />} />
+        <Route path="invoices" element={<Navigate to="/invoices/sales" replace />} />
+        <Route path="invoices/sales" element={<InvoicesListPage category={1} />} />
+        <Route path="invoices/purchase" element={<InvoicesListPage category={2} />} />
+        <Route path="invoices/purchase-return" element={<InvoicesListPage category={3} />} />
+        <Route path="invoices/sales-return" element={<InvoicesListPage category={4} />} />
         <Route path="invoices/new" element={<CreateInvoicePage />} />
+        <Route path="invoices/:id/edit" element={<CreateInvoicePage />} />
+        <Route path="invoices/constants" element={<InvoiceConstantsHubPage />} />
+        <Route path="invoices/types" element={<InvoiceTypesPage />} />
+        <Route path="invoices/settings" element={<InvoiceSettingsPage />} />
 
         {/* Inventory */}
-        <Route path="inventory" element={<ItemsListPage />} />
         <Route path="inventory/movements" element={<StockMovementsPage />} />
+        <Route path="inventory/constants" element={<ItemConstantsPage />} />
+        <Route path="inventory/colors" element={<ItemColorsPage />} />
+        <Route path="inventory/categories" element={<ItemCategoriesPage />} />
+        <Route path="inventory/units" element={<UnitsOfMeasurePage />} />
+        <Route path="inventory/warehouses" element={<WarehousesPage />} />
+        <Route path="inventory/new" element={<ItemFormPage />} />
+        <Route path="inventory/:id" element={<ItemFormPage />} />
+        <Route path="inventory" element={<ItemsListPage />} />
 
         {/* Customers */}
         <Route path="customers" element={<CustomersListPage />} />
@@ -135,6 +173,15 @@ export default function App() {
         <Route path="settings/menu" element={<MenuSettingsPage />} />
         <Route path="settings/users" element={<UsersPage />} />
         <Route path="settings/roles" element={<RolesPage />} />
+        <Route path="settings/branches" element={<CompanyOnlyRoute><BranchesPage /></CompanyOnlyRoute>} />
+        <Route path="settings/constants" element={<CompanyOnlyRoute><SystemConstantsPage /></CompanyOnlyRoute>} />
+        <Route path="settings/countries" element={<CompanyOnlyRoute><CountriesPage /></CompanyOnlyRoute>} />
+        <Route path="settings/cities" element={<CompanyOnlyRoute><CitiesPage /></CompanyOnlyRoute>} />
+        <Route path="system/countries" element={<Navigate to="/settings/countries" replace />} />
+        <Route path="system/cities" element={<Navigate to="/settings/cities" replace />} />
+
+        {/* Parent — Subscribers */}
+        <Route path="subscribers" element={<SubscribersPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { DatabaseUpdateGate } from '@/components/system/DatabaseUpdateGate';
 
 /**
  * Layout متجاوب يدعم الجوال:
@@ -45,6 +46,7 @@ export function Layout() {
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-background">
+      <DatabaseUpdateGate />
       {/* Overlay للجوال — يظهر فقط عند فتح الدراور */}
       {sidebarOpen && (
         <button
@@ -60,8 +62,8 @@ export function Layout() {
       {/* ms-72 = margin-inline-start: يتبع dir تلقائياً (يمين في RTL، يسار في LTR) */}
       <div className="flex h-[100dvh] flex-col lg:ms-72">
         <TopBar onOpenSidebar={() => setSidebarOpen(true)} />
-        <main className="flex-1 min-h-0 overflow-hidden px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6 animate-fade-in">
-          <div className="h-full overflow-y-auto">
+        <main className="flex flex-1 min-h-0 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6">
             <Outlet />
           </div>
         </main>

@@ -51,6 +51,18 @@ export function formatIQD(amount: number | null | undefined, opts: { decimals?: 
   return symbol ? `${formatted}\u00A0${getIqdSymbol()}` : formatted;
 }
 
+/** تنسيق مبلغ مع رمز العملة — IQD يستخدم د.ع/‏IQD حسب اللغة، غير ذلك يُعرض كود العملة. */
+export function formatMoney(amount: number | null | undefined, currency = 'IQD', opts: { decimals?: number } = {}) {
+  if (amount == null) return '—';
+  const { decimals = currency === 'IQD' ? 0 : 2 } = opts;
+  const formatted = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(amount);
+  if (currency === 'IQD') return `${formatted}\u00A0${getIqdSymbol()}`;
+  return `${formatted}\u00A0${currency}`;
+}
+
 /** تنسيق مبلغ بدون رمز عملة، يعرض الكسور (افتراضياً 3 خانات عشرية مع إخفاء الأصفار اللاحقة) */
 export function formatAmount(amount: number | null | undefined, decimals = 3) {
   if (amount == null) return '—';

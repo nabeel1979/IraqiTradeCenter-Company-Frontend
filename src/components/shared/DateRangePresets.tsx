@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import {
   clipDateRangeToFiscalYear,
-  fiscalYearReportEndDate,
+  fiscalYearFullRange,
+  fiscalYearStartToTodayRange,
   pickWorkingFiscalYear,
   todayIsoLocal,
 } from '@/lib/fiscalYearDates';
@@ -83,20 +84,22 @@ export function DateRangePresets({
         ? clipDateRangeToFiscalYear(from, to, currentFiscalYear)
         : { from, to };
 
-    // ‎السنة المالية (إن وُجدت) — تأتي أولاً
+    // ‎السنة المالية (إن وُجدت) — «من البداية ولغاية اليوم» أولاً (الافتراضي)
     if (currentFiscalYear) {
-      const fyStart = (currentFiscalYear.startDate ?? '').slice(0, 10);
-      const fyEnd = (currentFiscalYear.endDate ?? '').slice(0, 10);
-      const fyTo = fiscalYearReportEndDate(currentFiscalYear);
-      if (fyStart && fyEnd) {
-        list.push({ id: 'fy-full', labelKey: 'dateRange.presets.fyFull', from: fyStart, to: fyEnd });
-      }
-      if (fyStart) {
+      const startToToday = fiscalYearStartToTodayRange(currentFiscalYear);
+      const fullFy = fiscalYearFullRange(currentFiscalYear);
+      list.push({
+        id: 'fy-to-today',
+        labelKey: 'dateRange.presets.fyToToday',
+        from: startToToday.from,
+        to: startToToday.to,
+      });
+      if (fullFy.from && fullFy.to) {
         list.push({
-          id: 'fy-to-today',
-          labelKey: 'dateRange.presets.fyToToday',
-          from: fyStart,
-          to: fyTo,
+          id: 'fy-full',
+          labelKey: 'dateRange.presets.fyFull',
+          from: fullFy.from,
+          to: fullFy.to,
         });
       }
     }

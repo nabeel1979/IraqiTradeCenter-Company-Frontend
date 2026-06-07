@@ -3,6 +3,7 @@ import { Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useLocale } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { CompanyHostBadge } from '@/components/layout/CompanyHostBadge';
 
 interface AuthPageShellProps {
   children: ReactNode;
@@ -42,28 +43,40 @@ export function AuthPageShell({ children, showBrand = true, header }: AuthPageSh
       </button>
 
       <div className="relative flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-6 sm:py-10">
-        <div className="w-full max-w-[min(100%,22rem)] sm:max-w-[26rem] md:max-w-[28rem]">
+        {/* تخطيط متجاوب: عمود واحد على الجوال، عمودان (هوية + نموذج) على الشاشات الكبيرة */}
+        <div
+          className={cn(
+            'w-full',
+            showBrand
+              ? 'lg:grid lg:max-w-5xl lg:grid-cols-2 lg:items-center lg:gap-12 xl:gap-16'
+              : 'max-w-[min(100%,22rem)] sm:max-w-[26rem] md:max-w-[28rem]',
+          )}
+        >
+          {/* لوحة الهوية */}
           {header ?? (showBrand && (
-            <div className="mb-4 text-center sm:mb-5">
-              <div className="mb-2 inline-flex sm:mb-3">
+            <div className="mb-4 text-center sm:mb-5 lg:mb-0 lg:text-start">
+              <div className="mb-3 inline-flex sm:mb-4 lg:mb-5">
                 <img
                   src="/logo.png?v=3"
                   alt={t('app.name')}
-                  className="h-[4.5rem] w-[4.5rem] object-contain sm:h-20 sm:w-20"
+                  className="h-24 w-24 object-contain sm:h-28 sm:w-28 lg:h-36 lg:w-36"
                   draggable={false}
                 />
               </div>
-              <h1 className="font-display text-xl font-semibold tracking-tight sm:text-2xl">
+              <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl lg:text-4xl">
                 {t('app.name')}
               </h1>
-              <p className="mt-1 text-[9px] uppercase tracking-[0.2em] text-primary/70 sm:text-[10px] sm:tracking-[0.22em]">
+              <p className="mt-1.5 text-[10px] uppercase tracking-[0.2em] text-primary/70 sm:text-[11px] sm:tracking-[0.22em] lg:mt-2 lg:text-xs">
                 {t('app.wholesale')}
               </p>
-              <div className="mx-auto mt-2 h-px w-10 bg-gradient-to-r from-transparent via-primary to-transparent" />
+              <div className="mx-auto mt-2.5 h-px w-12 bg-gradient-to-r from-transparent via-primary to-transparent lg:mx-0 lg:w-20" />
+
+              <CompanyHostBadge compact className="mt-4 lg:mt-6" />
             </div>
           ))}
 
-          <div className="rounded-xl border border-border/60 bg-card/40 p-4 shadow-2xl shadow-black/20 backdrop-blur-xl animate-slide-up sm:p-5 md:p-6">
+          {/* بطاقة النموذج */}
+          <div className="mx-auto w-full max-w-[min(100%,22rem)] rounded-xl border border-border/60 bg-card/40 p-4 shadow-2xl shadow-black/20 backdrop-blur-xl animate-slide-up sm:max-w-[26rem] sm:p-5 md:p-6 lg:mx-0 lg:max-w-none">
             {children}
           </div>
         </div>

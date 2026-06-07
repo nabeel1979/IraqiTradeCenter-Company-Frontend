@@ -29,13 +29,16 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         // ‎الأصول الثابتة المُضمّنة في الـ precache أيضاً
-        includeAssets: ['favicon.svg', 'logo.png'],
+        includeAssets: ['favicon.svg', 'logo-parent.png'],
         manifest: {
-          name: 'مركز التجارة العراقي',
-          short_name: 'تجارة العراقي',
-          description: 'لوحة الشركة - مركز التجارة العراقي',
-          theme_color: '#0F0F11',
-          background_color: '#0F0F11',
+          // ‎id فريد للشركة الأم — يضمن أن وندوز/Edge يثبّتها كتطبيق مستقل
+          // ‎بجانب تطبيق الشركات (المختلف في الـ id والأيقونة) على نفس الجهاز.
+          id: 'itc-parent',
+          name: 'مركز التجارة العراقي — الشركة الأم',
+          short_name: 'الشركة الأم',
+          description: 'لوحة الإدارة الرئيسية — الشركة الأم لمركز التجارة العراقي',
+          theme_color: '#6D8632',
+          background_color: '#14160F',
           display: 'standalone',
           orientation: 'portrait',
           dir: 'rtl',
@@ -43,14 +46,17 @@ export default defineConfig(({ mode }) => {
           start_url: '/',
           scope: '/',
           icons: [
-            { src: '/logo.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-            { src: '/logo.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+            { src: '/logo-parent.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+            { src: '/logo-parent.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
           ],
         },
         workbox: {
           // ‎حد أقصى للملف الواحد في الـ precache: 5 MB (assets vendor كبيرة)
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,svg,png,woff2,ico}'],
+          // ‎لا تُخزِّن runtime-config.js في الـ precache — يجب أن يُجلَب من الشبكة
+          // ‎دائماً حتى تظهر تعديلات السيرفر/الدومين فوراً دون إعادة بناء.
+          globIgnores: ['**/runtime-config.js'],
           // ‎SPA: أي route غير معروف يُعاد إلى index.html من الـ cache
           navigateFallback: '/index.html',
           // ‎استثنِ:

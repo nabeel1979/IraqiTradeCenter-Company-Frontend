@@ -7,7 +7,7 @@ import {
   Building2, Upload, Save, X, Image as ImageIcon, Phone, MapPin, Mail, Globe,
   FileText, ListChecks, ChevronLeft, Coins, Users, Shield, Settings as SettingsIcon,
   Languages, DatabaseBackup, PlugZap, Info, HardDrive, Cloud, KeyRound, FolderTree,
-  ChevronDown, ChevronRight, PlugZap as TestIcon, CheckCircle2, XCircle, AlertTriangle, Loader2, Download, Plus, Trash2,
+  ChevronDown, ChevronRight, PlugZap as TestIcon, CheckCircle2, XCircle, AlertTriangle, Loader2, Download, Plus, Trash2, Copy,
   type LucideIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -22,6 +22,9 @@ import { formatFileSize } from '@/lib/api/attachments';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { Label } from '@/components/ui/label';
 import { CurrenciesManager } from '@/components/settings/CurrenciesManager';
+import { EmailSettingsSection } from '@/components/settings/EmailSettingsSection';
+import { ContactPointsSection } from '@/components/settings/ContactPointsSection';
+import { integrationApi } from '@/lib/api/integration';
 import { PermissionGate } from '@/lib/auth/PermissionGate';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
@@ -96,6 +99,22 @@ export function SettingsPage() {
       Component: PrintingSection,
     },
     {
+      id: 'email',
+      icon: Mail,
+      title: t('settings.sections.email.title'),
+      description: t('settings.sections.email.description'),
+      permission: PERMS.System.CompanySettings.Update,
+      Component: EmailSettingsSectionWrapper,
+    },
+    {
+      id: 'contacts',
+      icon: Phone,
+      title: t('settings.sections.contacts.title'),
+      description: t('settings.sections.contacts.description'),
+      permission: PERMS.System.CompanySettings.Read,
+      Component: ContactPointsSectionWrapper,
+    },
+    {
       id: 'currencies',
       icon: Coins,
       title: t('settings.sections.currencies.title', { defaultValue: 'Currencies & Exchange Rates' }),
@@ -144,9 +163,9 @@ export function SettingsPage() {
     {
       id: 'integrations',
       icon: PlugZap,
-      title: t('settings.sections.notifications.title'),
-      description: t('settings.sections.notifications.description'),
-      badge: { label: t('common.comingSoon', { defaultValue: 'Soon' }), tone: 'muted' as const },
+      title: t('settings.sections.integrations.title', { defaultValue: 'تكامل النظام الرئيسي' }),
+      description: t('settings.sections.integrations.description', { defaultValue: 'ربط منصة الأم بالشركة — طلبيات وترخيص' }),
+      permission: PERMS.System.CompanySettings.Read,
       Component: IntegrationsSection,
     },
     {
@@ -636,6 +655,17 @@ function PrintingSection({ settings, onLocalChange }: SectionContentProps) {
       </CardContent>
     </Card>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// قسم: البريد الإلكتروني (Zoho SMTP)
+// ─────────────────────────────────────────────────────────────────────────
+function EmailSettingsSectionWrapper(_props: SectionContentProps) {
+  return <EmailSettingsSection />;
+}
+
+function ContactPointsSectionWrapper(_props: SectionContentProps) {
+  return <ContactPointsSection />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1930,19 +1960,111 @@ function ProviderRadio({
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// قسم: التكاملات (Placeholder)
+// قسم: التكامل مع النظام الرئيسي (Parent)
 // ─────────────────────────────────────────────────────────────────────────
 function IntegrationsSection() {
   const { t } = useTranslation();
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['integration-status'],
+    queryFn: () => integrationApi.getStatus(),
+  });
+
+  const copyText = async (label: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(t('settings.integrations.copied', { field: label }));
+    } catch {
+      toast.error(t('settings.integrations.copyFailed'));
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center gap-2 p-10 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          {t('common.loading', { defaultValue: 'جاري التحميل...' })}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <p className="text-sm text-destructive">{t('settings.integrations.loadError')}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+            {t('common.retry', { defaultValue: 'إعادة المحاولة' })}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
-      <CardContent className="p-5">
-        <ComingSoon
-          title={t('settings.sections.notifications.title')}
-          description={t('settings.sections.notifications.description')}
-        />
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="space-y-4 p-5">
+          <p className="text-sm text-muted-foreground">{t('settings.integrations.intro')}</p>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <InfoRow label={t('settings.integrations.parentApi')} value={data.parentApiUrl} />
+            <InfoRow label={t('settings.integrations.parentSite')} value={data.parentSiteUrl} />
+            <InfoRow label={t('settings.integrations.companyKey')} value={data.companyKey} />
+            <InfoRow
+              label={t('settings.integrations.license')}
+              value={
+                data.licenseActive
+                  ? t('settings.integrations.licenseActive', { date: data.licenseEndDate?.slice(0, 10) ?? '—' })
+                  : t('settings.integrations.licenseInactive')
+              }
+            />
+            <InfoRow label={t('settings.integrations.authKey')} value={data.authKeyHint} />
+            <InfoRow
+              label={t('settings.integrations.parentDb')}
+              value={
+                data.parentSubscriber && 'found' in data.parentSubscriber && data.parentSubscriber.found
+                  ? t('settings.integrations.parentDbLinked', {
+                      db: data.parentSubscriber.databaseName ?? '—',
+                      end: data.parentSubscriber.endDate ?? '—',
+                    })
+                  : t('settings.integrations.parentDbMissing')
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <h3 className="text-sm font-semibold">{t('settings.integrations.webhookTitle')}</h3>
+          <p className="text-xs text-muted-foreground">{t('settings.integrations.webhookHint')}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 break-all rounded border bg-secondary/40 px-2 py-1.5 text-xs" dir="ltr">
+              {data.webhookIncomingOrders}
+            </code>
+            <Button type="button" variant="outline" size="sm" onClick={() => void copyText(t('settings.integrations.webhookTitle'), data.webhookIncomingOrders)}>
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.integrations.headerName')}: <span className="font-mono">{data.integrationHeader}</span>
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-2 p-5 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">{t('settings.integrations.roadmap')}</p>
+          <ul className="list-inside list-disc space-y-1">
+            <li>{data.features.incomingOrders ? '✓' : '○'} {t('settings.integrations.featureOrders')}</li>
+            <li>{data.features.ssoLogin ? '✓' : '○'} {t('settings.integrations.featureSso')}</li>
+            <li>{data.features.licensePushFromParent ? '✓' : '○'} {t('settings.integrations.featureLicense')}</li>
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

@@ -20,6 +20,7 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { cn, extractApiError, formatAmount } from '@/lib/utils';
 import { financialManagementApi } from '@/lib/api/financialManagement';
+import { ITEM_SALE_PRICE_TYPES } from '@/lib/api/inventory';
 import { accountingApi } from '@/lib/api/accounting';
 import { currenciesApi } from '@/lib/api/currencies';
 import { useActiveFiscalYear } from '@/hooks/useActiveFiscalYear';
@@ -69,6 +70,10 @@ function isBankLikeKind(kind: FinancialPartyKind): boolean {
 
 function hasContactTab(kind: FinancialPartyKind): boolean {
   return kind !== 'CashBox';
+}
+
+function isTradingKind(kind: FinancialPartyKind): boolean {
+  return kind === 'Customer' || kind === 'Supplier';
 }
 
 function canAccessKind(kind: FinancialPartyKind, can: (p: string) => boolean): boolean {
@@ -260,7 +265,7 @@ interface PartyDialogProps {
   onRequestDelete: () => void;
 }
 
-type PartyTab = 'basic' | 'contact';
+type PartyTab = 'basic' | 'contact' | 'pricing' | 'store';
 
 type PartyCurrencySnapshot = { currency: string; debit: string; credit: string; iban: string };
 
@@ -289,6 +294,8 @@ function serializePartyFormSnapshot(input: {
   bankAccountNumber: string;
   swiftCode: string;
   isActive: boolean;
+  defaultSalesPriceType: number | null;
+  showInStore: boolean;
   rows: PartyCurrencySnapshot[];
 }): string {
   return JSON.stringify({
@@ -304,6 +311,8 @@ function serializePartyFormSnapshot(input: {
     bankAccountNumber: input.bankAccountNumber.trim(),
     swiftCode: input.swiftCode.trim().toUpperCase(),
     isActive: input.isActive,
+    defaultSalesPriceType: input.defaultSalesPriceType,
+    showInStore: input.showInStore,
     currencies: normalizePartyCurrencyRows(input.rows),
   });
 }
@@ -364,9 +373,20 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
   const [bankAccountNumber, setBankAccountNumber] = useState(editing?.bankAccountNumber ?? '');
   const [swiftCode, setSwiftCode]   = useState(editing?.swiftCode ?? '');
   const [isActive, setIsActive]     = useState(editing?.isActive ?? true);
+  const [defaultSalesPriceType, setDefaultSalesPriceType] = useState<number | null>(
+    editing?.defaultSalesPriceType ?? 4,
+  );
+  const [showInStore, setShowInStore] = useState(editing?.showInStore ?? false);
 
   const isBankLike = isBankLikeKind(kind);
   const showContact = hasContactTab(kind);
+  const showTradingTabs = isTradingKind(kind);
+
+  const partyTabs = useMemo((): PartyTab[] => [
+    'basic',
+    ...(showContact ? ['contact' as const] : []),
+    ...(showTradingTabs ? ['pricing' as const, 'store' as const] : []),
+  ], [showContact, showTradingTabs]);
 
   // ‎عند إنشاء طرف جديد: نُهيّئ صفّاً افتراضياً بالعملة الرئيسية (isBase) للنظام —
   // ‎يبقى قابلاً للتغيير أو الحذف. نُنفّذها مرّة واحدة بعد تحميل قائمة العملات.
@@ -476,6 +496,8 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
       notes: notes.trim() || null,
       bankAccountNumber: isBankLike ? (bankAccountNumber.trim() || null) : null,
       swiftCode: isBankLike ? (swiftCode.trim() || null) : null,
+      defaultSalesPriceType: showTradingTabs ? defaultSalesPriceType : null,
+      showInStore: showTradingTabs ? showInStore : false,
     };
     if (editing) {
       updateMut.mutate({ ...payload, isActive });
@@ -502,14 +524,16 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
       bankAccountNumber: editing.bankAccountNumber ?? '',
       swiftCode: editing.swiftCode ?? '',
       isActive: editing.isActive,
+      defaultSalesPriceType: editing.defaultSalesPriceType ?? 4,
+      showInStore: editing.showInStore ?? false,
       rows: partyDtoToCurrencyRows(editing),
     });
   }, [editing]);
 
   const currentSnapshot = useMemo(() => serializePartyFormSnapshot({
     nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes,
-    bankAccountNumber, swiftCode, isActive, rows,
-  }), [nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes, bankAccountNumber, swiftCode, isActive, rows]);
+    bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, rows,
+  }), [nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes, bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, rows]);
 
   // ‎في التعديل: زر الحفظ معطّل حتى يتغيّر شيء في البطاقة.
   const isDirty = !editing || currentSnapshot !== initialSnapshot;
@@ -520,7 +544,7 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
       <div
         className={cn(
           'w-full rounded-xl border border-border bg-card shadow-2xl',
-          isBankLike ? 'max-w-3xl' : 'max-w-xl',
+          isBankLike || showTradingTabs ? 'max-w-3xl' : 'max-w-xl',
         )}
         onClick={e => e.stopPropagation()}
       >
@@ -551,13 +575,13 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-border">
-          {(['basic', ...(showContact ? ['contact'] : [])] as PartyTab[]).map(tb => (
+        <div className="flex border-b border-border overflow-x-auto">
+          {partyTabs.map(tb => (
             <button
               key={tb}
               onClick={() => setTab(tb)}
               className={cn(
-                'flex-1 py-2.5 text-sm font-medium transition-colors',
+                'flex-1 min-w-[5.5rem] py-2.5 text-sm font-medium transition-colors whitespace-nowrap px-2',
                 tab === tb ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -768,6 +792,59 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
                   className="w-full rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
+            </div>
+          )}
+
+          {tab === 'pricing' && showTradingTabs && (
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm font-medium">{t('financialManagement.parties.pricing.title')}</div>
+                <p className="mt-1 text-xs text-muted-foreground">{t('financialManagement.parties.pricing.hint')}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {ITEM_SALE_PRICE_TYPES.map(pt => {
+                  const active = (defaultSalesPriceType ?? 4) === pt.value;
+                  return (
+                    <label
+                      key={pt.value}
+                      className={cn(
+                        'inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                        active
+                          ? 'border-primary/50 bg-primary/10 font-medium text-primary'
+                          : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/30 hover:text-foreground',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="defaultSalesPriceType"
+                        value={pt.value}
+                        checked={active}
+                        onChange={() => setDefaultSalesPriceType(pt.value)}
+                        className="sr-only"
+                      />
+                      {pt.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {tab === 'store' && showTradingTabs && (
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm font-medium">{t('financialManagement.parties.store.title')}</div>
+                <p className="mt-1 text-xs text-muted-foreground">{t('financialManagement.parties.store.hint')}</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={showInStore}
+                  onChange={e => setShowInStore(e.target.checked)}
+                  className="accent-primary"
+                />
+                {t('financialManagement.parties.store.showInStore')}
+              </label>
             </div>
           )}
         </div>

@@ -12,5 +12,7 @@ export function scannerPoolUrl(file = ''): string {
 }
 
 export const SCANNER_SETUP_PAGE = () => scannerPoolUrl('');
-/** Single self-contained installer (WebScanner_v2). */
+/** حزمة ZIP (exe + bat + ps1) — الطريقة الموصى بها؛ المتصفح أقل حجباً من .exe مباشر. */
+export const SCANNER_SETUP_ZIP = () => scannerPoolUrl('WebScanBridgeSetup.zip');
+/** @deprecated استخدم SCANNER_SETUP_ZIP — التنزيل المباشر لـ exe قد يُحجب كفيروس */
 export const SCANNER_SETUP_EXE = () => scannerPoolUrl('WebScanBridgeSetup.exe');

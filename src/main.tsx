@@ -77,6 +77,15 @@ if (typeof window !== 'undefined') {
   }
 }
 
+import { isCompanyHost } from './lib/platform';
+
+// ════════════════════════════════════════════════════════════════════
+// Company Theme: بني/ذهبي — iraqitradecenter_company.gcc.iq أو subdomain شركة
+// ════════════════════════════════════════════════════════════════════
+if (typeof window !== 'undefined' && isCompanyHost()) {
+  document.documentElement.classList.add('theme-company');
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 },

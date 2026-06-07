@@ -23,6 +23,7 @@ export interface JournalVoucherTypeDto {
   showInSidebar: boolean;
   linkedEntryCount: number;
   canDelete: boolean;
+  branchId?: number | null;
 }
 
 export interface UpsertJournalVoucherTypePayload {
@@ -36,6 +37,7 @@ export interface UpsertJournalVoucherTypePayload {
   displayOrder: number;
   nature: VoucherNature;
   showInSidebar: boolean;
+  branchId?: number | null;
 }
 
 export const journalVoucherTypesApi = {

@@ -647,11 +647,12 @@ function AccountNode({
   const lockedForParties = account.isLockedForParties === true;
   // ‎حساب مُدار من الإدارة المالية (نوع أو طرف) — لا تعديل ولا حذف من الشجرة.
   const fmManaged = account.isManagedByFinancialManagement === true;
-  const canAddChild = account.level < MAX_LEVEL && !blocked && !inactive && !lockedForParties && !fmManaged;
+  const whManaged = account.isLockedForWarehouse === true;
+  const canAddChild = account.level < MAX_LEVEL && !blocked && !inactive && !lockedForParties && !fmManaged && !whManaged;
   // ‎الحساب الذي له أبناء لا يقبل الحذف (يجب حذف أبنائه أولاً) — نخفي الأيقونة
   // ‎بدلاً من إظهارها وفشل العملية لاحقاً.
-  const canDelete = !blocked && !hasChildren && !fmManaged;
-  const canEdit = !fmManaged;
+  const canDelete = !blocked && !hasChildren && !fmManaged && !whManaged;
+  const canEdit = !fmManaged && !whManaged;
 
   // ‎نُبرز هذا الحساب بإطار/خلفية مميّزة عند مطابقة البحث ليلفت النظر بسهولة
   const isSearchHit = !!q && accountSearchHaystack(account.code, account.nameAr, account.nameEn).includes(q);
@@ -726,6 +727,17 @@ function AccountNode({
               {t('accountsTree.fmManagedBadge')}
             </span>
           )
+        )}
+
+        {whManaged && (
+          <Link
+            to="/inventory/warehouses"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400 transition-colors hover:border-amber-500/70 hover:bg-amber-500/20 hover:text-amber-300"
+            title="مُدار من نافذة المستودعات"
+          >
+            <Lock className="h-3 w-3" />
+            مستودع
+          </Link>
         )}
 
         {account.isLinkedToAccountSettlement && (

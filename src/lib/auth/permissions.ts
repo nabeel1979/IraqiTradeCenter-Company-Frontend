@@ -187,6 +187,24 @@ export const PERMS = {
       Run:    'System.MediaBackup.Run',
     },
   },
+  Branches: {
+    Branches: {
+      Read:               'Branches.Branches.Read',
+      Create:             'Branches.Branches.Create',
+      Update:             'Branches.Branches.Update',
+      Delete:             'Branches.Branches.Delete',
+      ViewAll:            'Branches.Branches.ViewAll',
+      CrossBranchPosting: 'Branches.Branches.CrossBranchPosting',
+    },
+  },
+  Parent: {
+    Subscribers: {
+      Read:   'Parent.Subscribers.Read',
+      Create: 'Parent.Subscribers.Create',
+      Update: 'Parent.Subscribers.Update',
+      Delete: 'Parent.Subscribers.Delete',
+    },
+  },
 } as const;
 
 export const ACTION_LABELS_AR: Record<string, string> = {
@@ -204,7 +222,8 @@ export const ACTION_LABELS_AR: Record<string, string> = {
   Apply:    'تطبيق',
   Generate: 'توليد',
   Topup:    'شحن',
-  Run:      'تشغيل',
+  Run:                'تشغيل',
+  CrossBranchPosting: 'تحريك في فرع آخر',
 };
 
 export const MODULE_LABELS_AR: Record<string, string> = {
@@ -213,4 +232,6 @@ export const MODULE_LABELS_AR: Record<string, string> = {
   Inventory:           'المخزون',
   System:              'النظام',
   FinancialManagement: 'الإدارة المالية',
+  Branches:            'الفروع',
+  Parent:              'الشركة الأم',
 };

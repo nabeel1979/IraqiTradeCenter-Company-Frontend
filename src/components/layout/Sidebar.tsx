@@ -4,11 +4,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, Receipt, Package, Users, UserCog, Inbox,
-  BookOpen, Settings, LogOut, Sparkles, TrendingUp, ChevronDown,
+  BookOpen, Settings, LogOut, TrendingUp, ChevronDown,
   Calculator, ShoppingCart, Warehouse, FolderTree, Scale,
   ChevronsDown, ChevronsUp, FileText, CalendarRange, Coins, Tag,
   Wallet, ArrowDownLeft, ArrowUpRight, X, Trash2, Activity,
   Landmark, Building2, CreditCard, ArrowLeftRight,
+  Settings2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth/auth-store';
@@ -19,6 +20,9 @@ import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import { useLocale, localizedVoucherTypeName } from '@/lib/i18n';
+import { isParentHost } from '@/lib/platform';
+import { SidebarBrand } from '@/components/layout/SidebarBrand';
+import { INVOICE_CATEGORY_ROUTES } from '@/pages/invoices/invoiceRoutes';
 
 interface NavItem {
   to: string;
@@ -34,6 +38,10 @@ interface NavItem {
    * المستخدم يملك صلاحية قراءة <i>واحدة</i> على الأقل من القائمة.
    */
   permissionAny?: string[];
+  /** يظهر فقط على واجهة الشركات (وليس الشركة الأم). */
+  companyOnly?: boolean;
+  /** مطابقة مسار حرفية (لصفحات الفواتير المتجاورة مثل sales / sales-return). */
+  exact?: boolean;
 }
 
 export interface NavGroup {
@@ -77,12 +85,26 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    key: 'parent',
+    titleKey: 'sidebar.groups.parent',
+    icon: Building2,
+    items: [
+      { to: '/subscribers', labelKey: 'sidebar.items.subscribers', icon: Building2, permission: PERMS.Parent.Subscribers.Read },
+    ],
+  },
+  {
     key: 'invoices',
     titleKey: 'sidebar.groups.invoices',
     icon: ShoppingCart,
     items: [
-      { to: '/invoices', labelKey: 'sidebar.items.invoices', icon: Receipt, permission: PERMS.Sales.Invoices.Read },
-      { to: '/invoices/new', labelKey: 'sidebar.items.newInvoice', icon: Sparkles, permission: PERMS.Sales.Invoices.Create },
+      ...INVOICE_CATEGORY_ROUTES.map(r => ({
+        to: `/invoices/${r.path}`,
+        labelKey: r.sidebarKey,
+        icon: Receipt as React.ComponentType<{ className?: string }>,
+        permission: PERMS.Sales.Invoices.Read,
+        exact: true,
+      })),
+      { to: '/invoices/constants', labelKey: 'sidebar.items.invoiceSettings', icon: Settings2, permission: PERMS.Sales.Invoices.Read, exact: true },
       { to: '/orders', labelKey: 'sidebar.items.incomingOrders', icon: Inbox, permission: PERMS.Sales.Orders.Read },
       { to: '/customers', labelKey: 'sidebar.items.customers', icon: Users, permission: PERMS.Sales.Customers.Read },
       { to: '/sales-reps', labelKey: 'sidebar.items.salesReps', icon: UserCog, permission: PERMS.Sales.SalesReps.Read },
@@ -94,6 +116,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Warehouse,
     items: [
       { to: '/inventory', labelKey: 'sidebar.items.items', icon: Package, permission: PERMS.Inventory.Items.Read },
+      { to: '/inventory/constants', labelKey: 'sidebar.items.itemConstants', icon: Settings2, permission: PERMS.Inventory.Items.Read },
       { to: '/inventory/movements', labelKey: 'sidebar.items.stockMovements', icon: TrendingUp, permission: PERMS.Inventory.Movements.Read },
     ],
   },
@@ -163,6 +186,13 @@ export const NAV_GROUPS: NavGroup[] = [
     mandatory: true,
     items: [
       { to: '/settings', labelKey: 'sidebar.items.companySettings', icon: Settings, permission: PERMS.System.CompanySettings.Read },
+      {
+        to: '/settings/constants',
+        labelKey: 'sidebar.items.systemConstants',
+        icon: Settings2,
+        companyOnly: true,
+        permissionAny: [PERMS.Branches.Branches.Read, PERMS.System.CompanySettings.Read],
+      },
       { to: '/system/audit', labelKey: 'sidebar.items.audit', icon: Activity, permission: PERMS.System.Audit.Read },
       { to: '/system/trash', labelKey: 'sidebar.items.trash', icon: Trash2, permission: PERMS.System.Trash.Read },
     ],
@@ -242,9 +272,11 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
   // فلترة الـ items داخل كل مجموعة بناءً على صلاحية القراءة، ثم إخفاء المجموعات الفارغة (إلا direct).
   const permissionFiltered: NavGroup[] = useMemo(() => {
     return groupsWithVouchers
+      .filter(g => g.key !== 'parent' || isParentHost())
       .map(g => ({
         ...g,
         items: g.items.filter(i => {
+          if (i.companyOnly && isParentHost()) return false;
           if (i.permission && !can(i.permission)) return false;
           if (i.permissionAny && !canAny(...i.permissionAny)) return false;
           return true;
@@ -288,28 +320,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
         </button>
       )}
 
-      {/* Brand — clickable, navigates to dashboard */}
-      <NavLink
-        to="/"
-        title={t('sidebar.homeLink')}
-        onClick={onClose}
-        className="group relative flex h-20 items-center gap-3 border-b border-border px-6 transition-colors hover:bg-primary/10"
-      >
-        <img
-          src="/logo.png?v=3"
-          alt={t('app.name')}
-          className="h-12 w-12 object-contain transition-transform group-hover:scale-105"
-          draggable={false}
-        />
-        <div>
-          <h1 className="font-display text-base font-semibold leading-none tracking-tight transition-colors group-hover:text-primary">
-            {t('app.name')}
-          </h1>
-          <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-primary/70">
-            {t('app.subtitle')}
-          </p>
-        </div>
-      </NavLink>
+      {/* Brand — شركة على واجهة الشركات، مركز التجارة على الشركة الأم */}
+      <SidebarBrand onClose={onClose} />
 
       {/* شريط أدوات الطي العام */}
       <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-2">
@@ -372,9 +384,10 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
 
           // عرض كمجموعة قابلة للطي
           const collapsed = isCollapsed(group.key);
-          const groupHasActive = group.items.some(i =>
-            location.pathname === i.to || (i.to !== '/' && location.pathname.startsWith(i.to))
-          );
+          const groupHasActive = group.items.some(i => {
+            if (i.exact) return location.pathname === i.to;
+            return location.pathname === i.to || (i.to !== '/' && location.pathname.startsWith(i.to + '/'));
+          });
 
           return (
             <div key={group.key} className="mb-1">
@@ -411,8 +424,9 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                     : 'ml-3 border-l border-border/40 pl-3',
                 )}>
                   {group.items.map(item => {
-                    const isActive = location.pathname === item.to ||
-                      (item.to !== '/' && location.pathname.startsWith(item.to));
+                    const isActive = item.exact
+                      ? location.pathname === item.to
+                      : location.pathname === item.to || (item.to !== '/' && location.pathname.startsWith(item.to + '/'));
                     const ItemIcon = item.icon;
                     const dynItem = item as NavItem & { dynamicLabel?: string };
                     const label = dynItem.dynamicLabel ?? (item.labelKey ? t(item.labelKey) : '');

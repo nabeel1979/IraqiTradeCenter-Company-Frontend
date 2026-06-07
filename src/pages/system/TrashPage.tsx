@@ -18,13 +18,19 @@ import {
   CalendarRange,
   Coins,
   ArrowRightLeft,
+  RefreshCw,
+  Package,
+  Palette,
+  Ruler,
+  ListOrdered,
+  Warehouse,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
-import { trashApi, type TrashItemDto } from '@/lib/api/trash';
+import { trashApi, type TrashItemDto, type PurgeAllResult } from '@/lib/api/trash';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import { cn } from '@/lib/utils';
@@ -44,6 +50,11 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   ArrowRightLeft,
   Trash2,
   AlertTriangle,
+  Package,
+  Palette,
+  Ruler,
+  ListOrdered,
+  Warehouse,
 };
 
 function formatRelative(iso?: string | null): string {
@@ -139,6 +150,8 @@ export function TrashPage() {
   const [restoreTarget, setRestoreTarget] = useState<TrashItemDto | null>(null);
   const [permanentTarget, setPermanentTarget] = useState<TrashItemDto | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [purgeAllOpen, setPurgeAllOpen] = useState(false);
+  const [purgeAllResult, setPurgeAllResult] = useState<PurgeAllResult | null>(null);
 
   const canRestore = can(PERMS.System.Trash.Restore);
   const canPurge = can(PERMS.System.Trash.Purge);
@@ -159,6 +172,15 @@ export function TrashPage() {
     qc.invalidateQueries({ queryKey: ['fiscal-years'] });
     qc.invalidateQueries({ queryKey: ['currency-rate-bulletins'] });
     qc.invalidateQueries({ queryKey: ['cash-box-transfers'] });
+    qc.invalidateQueries({ queryKey: ['items'] });
+    qc.invalidateQueries({ queryKey: ['item-colors-manage'] });
+    qc.invalidateQueries({ queryKey: ['item-colors'] });
+    qc.invalidateQueries({ queryKey: ['item-categories-manage'] });
+    qc.invalidateQueries({ queryKey: ['item-categories'] });
+    qc.invalidateQueries({ queryKey: ['units-of-measure-manage'] });
+    qc.invalidateQueries({ queryKey: ['item-units'] });
+    qc.invalidateQueries({ queryKey: ['item-indexes'] });
+    qc.invalidateQueries({ queryKey: ['warehouses-manage'] });
   };
 
   const restoreMut = useMutation({
@@ -190,6 +212,18 @@ export function TrashPage() {
       invalidateAll();
       setPermanentTarget(null);
       setActionError(null);
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { errors?: string[] } } };
+      setActionError(e.response?.data?.errors?.join(' / ') ?? t('common.connectionError'));
+    },
+  });
+
+  const purgeAllMut = useMutation({
+    mutationFn: () => trashApi.purgeAll(typeFilter !== 'all' ? typeFilter : undefined),
+    onSuccess: result => {
+      setPurgeAllResult(result);
+      invalidateAll();
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { errors?: string[] } } };
@@ -256,6 +290,18 @@ export function TrashPage() {
                 </p>
               </div>
             </div>
+            {/* زر مسح الكل */}
+            {canPurge && total > 0 && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="shrink-0"
+                onClick={() => { setActionError(null); setPurgeAllResult(null); setPurgeAllOpen(true); }}
+              >
+                <Trash2 className="h-3.5 w-3.5 me-1.5" />
+                {typeFilter === 'all' ? 'مسح الكل' : `مسح ${countsByType.get(typeFilter)?.label ?? typeFilter}`}
+              </Button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -404,6 +450,93 @@ export function TrashPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── نافذة مسح الكل ── */}
+      {purgeAllOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => { if (!purgeAllMut.isPending) setPurgeAllOpen(false); }} />
+          <div className="relative flex w-full max-w-md flex-col rounded-lg border border-border bg-card shadow-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2 text-destructive">
+                <Trash2 className="h-4 w-4" />
+                {typeFilter === 'all' ? 'مسح جميع محتويات السلة' : `مسح جميع عناصر: ${countsByType.get(typeFilter)?.label ?? typeFilter}`}
+              </h3>
+              <button type="button" onClick={() => { if (!purgeAllMut.isPending) { setPurgeAllOpen(false); setPurgeAllResult(null); } }}
+                className="rounded-md p-1 text-muted-foreground hover:bg-accent">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="px-4 py-4 space-y-3 text-sm">
+              {actionError && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <div>{actionError}</div>
+                </div>
+              )}
+
+              {purgeAllResult ? (
+                /* نتيجة المسح */
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    {purgeAllResult.failed === 0
+                      ? <><span className="text-green-600">✓</span> اكتمل المسح بنجاح</>
+                      : <><AlertTriangle className="h-4 w-4 text-amber-500" /> اكتمل المسح مع بعض الأخطاء</>
+                    }
+                  </div>
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span className="text-green-600 font-medium">حُذف: {purgeAllResult.deleted}</span>
+                    {purgeAllResult.failed > 0 && <span className="text-destructive font-medium">فشل: {purgeAllResult.failed}</span>}
+                  </div>
+                  {purgeAllResult.errors.length > 0 && (
+                    <div className="rounded border bg-muted/50 p-2 text-xs space-y-1 max-h-32 overflow-y-auto">
+                      {purgeAllResult.errors.map((e, i) => (
+                        <div key={i} className="text-destructive">{e}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* تأكيد قبل المسح */
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-xs">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                    <div>
+                      سيتم <span className="font-bold">حذف نهائي</span> لـ{' '}
+                      <span className="font-bold text-destructive">
+                        {typeFilter === 'all'
+                          ? `${filtered.filter(i => i.canPurge !== false && i.entityId !== 0).length} عنصر`
+                          : `${filtered.filter(i => i.canPurge !== false && i.entityId !== 0).length} عنصر من نوع ${countsByType.get(typeFilter)?.label ?? typeFilter}`}
+                      </span>{' '}
+                      — <span className="font-bold">لا يمكن التراجع عن هذه العملية.</span>
+                    </div>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    العناصر المحمية وعناصر الأخطاء لن تُحذف تلقائياً.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+              <Button type="button" variant="outline"
+                disabled={purgeAllMut.isPending}
+                onClick={() => { setPurgeAllOpen(false); setPurgeAllResult(null); setActionError(null); }}>
+                {purgeAllResult ? 'إغلاق' : 'إلغاء'}
+              </Button>
+              {!purgeAllResult && (
+                <Button type="button" variant="destructive"
+                  disabled={purgeAllMut.isPending}
+                  onClick={() => purgeAllMut.mutate()}>
+                  {purgeAllMut.isPending
+                    ? <><RefreshCw className="h-3.5 w-3.5 me-1.5 animate-spin" />جارٍ المسح...</>
+                    : <><Trash2 className="h-3.5 w-3.5 me-1.5" />تأكيد المسح النهائي</>}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!restoreTarget}

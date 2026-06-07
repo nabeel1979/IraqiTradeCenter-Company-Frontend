@@ -16,6 +16,7 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
 import { accountingApi } from '@/lib/api/accounting';
 import { currenciesApi } from '@/lib/api/currencies';
+import { BranchFilterSelect } from '@/components/branches/BranchSelect';
 import { useActiveFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { formatAmount, cn } from '@/lib/utils';
@@ -357,8 +358,10 @@ export function AccountBalancesPage() {
   );
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [fmOptionsOpen, setFmOptionsOpen] = useState(false);
+  const [branchFilter, setBranchFilter] = useState<number | ''>('');
   const optionsPanelRef = useRef<HTMLDivElement>(null);
   const fmOptionsPanelRef = useRef<HTMLDivElement>(null);
+
   const fmSelectAllRef = useRef<HTMLInputElement>(null);
 
   // ── التنفيذ اليدوي (زر "عرض الأرصدة")
@@ -412,7 +415,7 @@ export function AccountBalancesPage() {
 
   const handleRun = () => {
     setTriggered(true);
-    setRunKeys({ from, to, accountId, currency, valuated, maxLevel, leavesOnly, includeDraft, includeOpeningEntries });
+    setRunKeys({ from, to, accountId, currency, valuated, maxLevel, leavesOnly, includeDraft, includeOpeningEntries, branchFilter });
   };
 
   // ── جلب البيانات (فقط بعد الضغط على "عرض الأرصدة")
@@ -427,6 +430,7 @@ export function AccountBalancesPage() {
       leavesOnly,
       includeDraft,
       includeOpeningEntries,
+      branchId: branchFilter === '' ? null : Number(branchFilter),
     }),
     enabled: !!runKeys && !!from && !!to,
   });
@@ -836,6 +840,16 @@ export function AccountBalancesPage() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="min-w-[140px]">
+              <Label className="mb-1 text-[11px] text-muted-foreground">الفرع</Label>
+              <BranchFilterSelect
+                value={branchFilter}
+                onChange={setBranchFilter}
+                showAllOption
+                className="w-full"
+                selectClassName="h-8 w-full"
+              />
             </div>
             <div ref={optionsPanelRef} className="relative flex items-end gap-2">
               {canReadParties && (

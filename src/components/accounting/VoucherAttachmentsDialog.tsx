@@ -75,7 +75,7 @@ export function VoucherAttachmentsDialog({ open, onClose, entryId, subtitle }: V
     let active = true;
     const check = async () => {
       const status = await getBridgeStatus();
-      if (active) setScannerReady(status.online && status.devices.length > 0);
+      if (active) setScannerReady(status.online);
     };
     void check();
     const onFocus = () => void check();
@@ -327,11 +327,11 @@ export function VoucherAttachmentsDialog({ open, onClose, entryId, subtitle }: V
             <Button
               size="sm"
               variant="outline"
-              className={`gap-2 ${scannerReady === false ? 'opacity-50' : ''}`}
-              disabled={uploadMut.isPending || scannerReady === false}
+              className={`gap-2 ${scannerReady === false ? 'border-amber-500/40 text-amber-600 dark:text-amber-400' : ''}`}
+              disabled={uploadMut.isPending}
               title={
                 scannerReady === false
-                  ? t('attachments.scannerOffline')
+                  ? t('attachments.scannerOfflineOpen')
                   : t('attachments.scanButtonTip')
               }
               onClick={() => setScannerOpen(true)}
@@ -339,9 +339,7 @@ export function VoucherAttachmentsDialog({ open, onClose, entryId, subtitle }: V
               {scannerReady === null ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <ScanLine
-                  className={`h-4 w-4 ${scannerReady === false ? 'text-muted-foreground' : ''}`}
-                />
+                <ScanLine className="h-4 w-4" />
               )}
               {t('attachments.scanButton')}
             </Button>
@@ -514,7 +512,10 @@ export function VoucherAttachmentsDialog({ open, onClose, entryId, subtitle }: V
 
     <WebScannerModal
       isOpen={scannerOpen}
-      onClose={() => setScannerOpen(false)}
+      onClose={() => {
+        setScannerOpen(false);
+        void getBridgeStatus(true).then(s => setScannerReady(s.online));
+      }}
       onAddToArchive={handleScannerUpload}
     />
     </>

@@ -29,9 +29,19 @@ interface AuthState {
   permissionSet: Set<string>;
   /** معرّفات الصناديق المسموحة للمستخدم (فارغة = ممنوع كلياً، إلا إن كان SuperAdmin). */
   cashBoxIds: number[];
+  branchIds: number[];
+  defaultBranchId: number | null;
   setUser: (user: User) => void;
-  /** تحديث جزئي للصلاحيات/الصناديق (يُستدعى بعد /users/me أو بعد refresh). */
-  setMe: (data: { permissions: string[]; cashBoxIds: number[]; roles: string[]; isSuperAdmin: boolean; mustChangePassword?: boolean; avatarBase64?: string | null }) => void;
+  setMe: (data: {
+    permissions: string[];
+    cashBoxIds: number[];
+    branchIds?: number[];
+    defaultBranchId?: number | null;
+    roles: string[];
+    isSuperAdmin: boolean;
+    mustChangePassword?: boolean;
+    avatarBase64?: string | null;
+  }) => void;
   hasPermission: (code: string) => boolean;
   hasAnyPermission: (...codes: string[]) => boolean;
   logout: () => void;
@@ -44,6 +54,8 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       permissionSet: new Set<string>(),
       cashBoxIds: [],
+      branchIds: [],
+      defaultBranchId: null,
 
       setUser: user => {
         const isSuperAdmin = resolveIsSuperAdmin(user);
@@ -58,6 +70,8 @@ export const useAuthStore = create<AuthState>()(
       setMe: data => set(state => ({
         permissionSet: new Set(data.permissions),
         cashBoxIds: data.cashBoxIds,
+        branchIds: data.branchIds ?? state.branchIds,
+        defaultBranchId: data.defaultBranchId ?? state.defaultBranchId,
         user: state.user ? {
           ...state.user,
           roles: data.roles,
@@ -83,7 +97,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         localStorage.removeItem('iqtc_token');
         localStorage.removeItem('iqtc_auth');
-        set({ user: null, isAuthenticated: false, permissionSet: new Set(), cashBoxIds: [] });
+        set({ user: null, isAuthenticated: false, permissionSet: new Set(), cashBoxIds: [], branchIds: [], defaultBranchId: null });
         if (typeof window !== 'undefined') {
           window.location.replace('/login');
         }

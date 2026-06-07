@@ -2,8 +2,12 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo.png?v=3" />
-    <link rel="apple-touch-icon" href="/logo.png?v=3" />
+
+    <!-- إعدادات وقت التشغيل: روابط API والنطاقات (قابلة للتعديل على السيرفر) -->
+    <script src="/runtime-config.js"></script>
+
+    <link rel="icon" type="image/png" href="/logo-parent.png?v=1" />
+    <link rel="apple-touch-icon" href="/logo-parent.png?v=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" id="itc-theme-color" content="#0E0F14" />
     <meta name="color-scheme" id="itc-color-scheme" content="dark" />
@@ -38,18 +42,41 @@
           document.documentElement.setAttribute('lang', 'ar');
           document.documentElement.setAttribute('dir', 'rtl');
         }
+        // تمييز واجهة الشركات عن الشركة الأم (عنوان، أيقونة، ثيم)
+        try {
+          var cfg = window.__ITC_CONFIG__ || {};
+          var companyHost = cfg.companyHost || 'iraqitradecenter_company.gcc.iq';
+          var suffix = cfg.companyDomainSuffix || '.iraqi-trade-center.iq';
+          var host = window.location.hostname;
+          var isCompany = host === companyHost ||
+            (host.endsWith(suffix) && host !== suffix.replace(/^\./, '') && host.indexOf('.') === host.lastIndexOf('.'));
+          if (isCompany) {
+            document.documentElement.classList.add('theme-company');
+            document.title = 'مركز التجارة العراقي - لوحة الشركة';
+            var setMeta = function (name, val) {
+              var el = document.querySelector('meta[name="' + name + '"]');
+              if (el) el.setAttribute('content', val);
+            };
+            setMeta('application-name', 'مركز التجارة العراقي - لوحة الشركة');
+            setMeta('apple-mobile-web-app-title', 'لوحة الشركة');
+            var icon = document.querySelector('link[rel="icon"]');
+            var apple = document.querySelector('link[rel="apple-touch-icon"]');
+            if (icon) icon.setAttribute('href', '/logo.png?v=1');
+            if (apple) apple.setAttribute('href', '/logo.png?v=1');
+          }
+        } catch (e) { /* ignore */ }
       })();
     </script>
 
     <!-- PWA meta -->
-    <meta name="application-name" content="مركز التجارة العراقي" />
+    <meta name="application-name" content="مركز التجارة العراقي — الشركة الأم" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="تجارة العراقي" />
+    <meta name="apple-mobile-web-app-title" content="الشركة الأم" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="format-detection" content="telephone=no" />
 
-    <title>مركز التجارة العراقي - لوحة الشركة</title>
+    <title>الشركة الأم — مركز التجارة العراقي</title>
 
     <!-- Premium Typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

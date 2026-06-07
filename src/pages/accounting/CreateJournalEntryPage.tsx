@@ -40,6 +40,8 @@ import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
 import { VoucherAttachmentsDialog } from '@/components/accounting/VoucherAttachmentsDialog';
 import { voucherAttachmentsApi } from '@/lib/api/attachments';
 import { formatAmount, cn, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
+import { BranchSelect } from '@/components/branches/BranchSelect';
+import { useBranchContext } from '@/lib/branches/useBranchContext';
 import type { AccountDto } from '@/types/api';
 import { useLocale, localizedAccountName, localizedVoucherTypeName } from '@/lib/i18n';
 
@@ -137,6 +139,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const [entryType, setEntryType] = useState<JournalEntryType>(1);
   const [voucherTypeId, setVoucherTypeId] = useState<number | null>(null);
   const [postImmediately, setPostImmediately] = useState(true);
+  const [branchId, setBranchId] = useState<number | null>(null);
   const [lines, setLines] = useState<FormLine[]>([newLine(true), newLine(false)]);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -146,6 +149,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const voucherTypeAppliedRef = useRef<number | null>(null);
   const linesFileInputRef = useRef<HTMLInputElement>(null);
   const [importingLines, setImportingLines] = useState(false);
+  const { requiresBranch } = useBranchContext();
 
   // ‎حالة الفترة المحاسبية لتاريخ القيد: تتبدّل مع كل تعديل لـ entryDate.
   // ‎عندما تكون الفترة مغلقة/مقفلة (أو السنة مغلقة) ⇒ الصفحة قراءة فقط:
@@ -306,6 +310,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     setCurrency(e.currency || 'IQD');
     setEntryType(e.entryType === 'Opening' ? 2 : 1);
     setVoucherTypeId(e.voucherTypeId ?? null);
+    setBranchId((e as { branchId?: number | null }).branchId ?? null);
     voucherTypeAppliedRef.current = e.voucherTypeId ?? null; // تجنّب إعادة ملء الأسطر للمحفوظ
     // ‎في وضع التعديل: استرجع حالة الترحيل من القيد المحفوظ
     setPostImmediately(e.status !== 'Draft');
@@ -450,6 +455,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         currency,
         postImmediately,
         voucherTypeId: voucherTypeId ?? null,
+        branchId: branchId ?? null,
         manualNumber: manualNumber.trim() || null,
         lines: lines.map(l => ({
           accountId: l.accountId!,
@@ -518,6 +524,9 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     if (!isBalanced) return t('createJournalEntry.validation.notBalanced');
     if (isOriginalOutsideActiveFY && activeFiscalYear) {
       return t('createJournalEntry.validation.outsideFY', { name: activeFiscalYear.name });
+    }
+    if (requiresBranch && branchId == null) {
+      return 'يجب اختيار الفرع';
     }
     return null;
   };
@@ -1044,6 +1053,12 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             dir="ltr"
           />
         </div>
+
+        <BranchSelect
+          className="md:col-span-2"
+          value={branchId}
+          onChange={setBranchId}
+        />
       </div>
 
       {/* البنود - يأخذ كامل المساحة المتبقية */}

@@ -36,6 +36,7 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
 import { accountingApi } from '@/lib/api/accounting';
 import { currenciesApi } from '@/lib/api/currencies';
+import { BranchFilterSelect } from '@/components/branches/BranchSelect';
 import { useActiveFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { printTrialBalance } from '@/lib/printUtils';
@@ -195,6 +196,7 @@ export function TrialBalancePage() {
   );
   const [optionsOpen, setOptionsOpen] = useState(false);
   const optionsPanelRef = useRef<HTMLDivElement>(null);
+  const [branchFilter, setBranchFilter] = useState<number | ''>('');
 
   // إعدادات الشركة (للوكو/الترويسة على نافذة الطباعة)
   const companyQuery = useQuery({
@@ -244,7 +246,7 @@ export function TrialBalancePage() {
 
   // ── جلب البيانات
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['trial-balance', from, to, currency, valuated, maxLevel, leavesOnly, includeDraft, includeOpeningEntries],
+    queryKey: ['trial-balance', from, to, currency, valuated, maxLevel, leavesOnly, includeDraft, includeOpeningEntries, branchFilter],
     queryFn: () => accountingApi.getTrialBalance({
       from, to,
       currency: currency || null,
@@ -253,6 +255,7 @@ export function TrialBalancePage() {
       leavesOnly,
       includeDraft,
       includeOpeningEntries,
+      branchId: branchFilter === '' ? null : Number(branchFilter),
     }),
     enabled: !!from && !!to,
   });
@@ -505,6 +508,16 @@ export function TrialBalancePage() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div>
+              <Label className="mb-1 text-[11px] text-muted-foreground">الفرع</Label>
+              <BranchFilterSelect
+                value={branchFilter}
+                onChange={setBranchFilter}
+                showAllOption
+                className="w-full"
+                selectClassName="h-8 w-full"
+              />
             </div>
             <div ref={optionsPanelRef} className="relative flex items-end gap-2">
               <Button

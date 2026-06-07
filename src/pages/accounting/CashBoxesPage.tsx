@@ -15,6 +15,7 @@ import { CashBoxTransferDialog } from '@/components/accounting/CashBoxTransferDi
 import { cn, extractApiError, formatAmount } from '@/lib/utils';
 import { accountingApi } from '@/lib/api/accounting';
 import { companySettingsApi } from '@/lib/api/companySettings';
+import { BranchFilterSelect } from '@/components/branches/BranchSelect';
 import { printCashBoxBalances, printCashBoxTransfer } from '@/lib/printUtils';
 import {
   cashBoxesApi,
@@ -108,8 +109,16 @@ export function CashBoxesPage({ mode }: { mode: CashBoxesPageMode }) {
   });
   const company = companyQuery.data ?? null;
 
+  const [branchFilter, setBranchFilter] = useState<number | ''>('');
+
   const activeCount = boxes.filter(b => b.isActive).length;
-  const balances = balancesQuery.data ?? [];
+  const allBalances = balancesQuery.data ?? [];
+  const balances = branchFilter === ''
+    ? allBalances
+    : allBalances.filter(b => {
+        const box = boxById.get(b.cashBoxId);
+        return box?.branchId === branchFilter;
+      });
   const transfers = transfersQuery.data ?? [];
 
   const openTransferFor = (defaults?: typeof transferDefaults) => {
@@ -127,7 +136,13 @@ export function CashBoxesPage({ mode }: { mode: CashBoxesPageMode }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <BranchFilterSelect
+          value={branchFilter}
+          onChange={setBranchFilter}
+          showAllOption
+        />
+        <div className="flex items-center gap-2">
         {canCreateTransfer && (
           <Button
             onClick={() => openTransferFor()}
@@ -141,6 +156,7 @@ export function CashBoxesPage({ mode }: { mode: CashBoxesPageMode }) {
             {t('cashBoxes.newTransfer')}
           </Button>
         )}
+        </div>
       </div>
 
       {mode === 'balances' && canReadBalances && (

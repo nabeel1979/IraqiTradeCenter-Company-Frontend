@@ -35,7 +35,7 @@ export const usersApi = {
   },
 
   remove: async (id: string) => {
-    const res = await api.delete<ApiResponse<unknown>>(`/users/${id}`);
+    const res = await api.delete<ApiResponse<{ removedContacts?: string[] }>>(`/users/${id}`);
     return res.data;
   },
 

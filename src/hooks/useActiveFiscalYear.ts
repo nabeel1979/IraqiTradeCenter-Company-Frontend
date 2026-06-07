@@ -45,7 +45,7 @@ export function useActiveFiscalYear() {
     fiscalYears: yearsQuery.data ?? [],
     isLoading: yearsQuery.isLoading,
     datesReady,
-    /** من بداية السنة المالية النشطة → نهاية الفترة المحاسبية (للفلاتر الافتراضية). */
+    /** من بداية السنة المالية النشطة → اليوم (للفلاتر الافتراضية). */
     defaultFromDate: defaultDateRange.from,
     defaultToDate: defaultDateRange.to,
   };

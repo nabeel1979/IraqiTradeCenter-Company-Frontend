@@ -50,6 +50,7 @@ import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { JournalEntryViewDialog } from '@/components/accounting/JournalEntryViewDialog';
 import { StatementRowActionsMenu } from '@/components/accounting/StatementRowActionsMenu';
 import { accountingApi } from '@/lib/api/accounting';
+import { BranchFilterSelect } from '@/components/branches/BranchSelect';
 import {
   CASH_BOX_TRANSFERS_PATH,
   navigateJournalEntrySource,
@@ -606,6 +607,7 @@ export function AccountStatementPage() {
   );
   const [includeOpeningEntries, setIncludeOpeningEntries] = useState(true);
   const [currencyPanelOpen, setCurrencyPanelOpen] = useState(false);
+  const [branchFilter, setBranchFilter] = useState<number | ''>('');
 
   /** معرّف القيد المعروض حالياً في النافذة المنبثقة (null = الـ Dialog مغلق) */
   const [viewEntryId, setViewEntryId] = useState<number | null>(null);
@@ -837,7 +839,7 @@ export function AccountStatementPage() {
   );
 
   const statementQuery = useQuery<AccountStatementDto>({
-    queryKey: ['account-statement', from, to, accountId, apiCurrency, includeOpeningEntries],
+    queryKey: ['account-statement', from, to, accountId, apiCurrency, includeOpeningEntries, branchFilter],
     queryFn: () =>
       accountingApi.getAccountStatement({
         from,
@@ -845,6 +847,7 @@ export function AccountStatementPage() {
         accountId: accountId ?? undefined,
         currency: apiCurrency,
         includeOpeningEntries,
+        branchId: branchFilter === '' ? null : Number(branchFilter),
       }),
     enabled: submitted && !!from && !!to,
   });
@@ -1732,6 +1735,13 @@ export function AccountStatementPage() {
             )}
           </div>
         </div>
+
+        <BranchFilterSelect
+          value={branchFilter}
+          onChange={setBranchFilter}
+          showAllOption
+          selectClassName="h-9"
+        />
 
         <label
           className="flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2.5 text-xs"
