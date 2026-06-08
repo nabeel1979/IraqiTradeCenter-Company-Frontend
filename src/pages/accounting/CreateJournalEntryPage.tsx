@@ -646,12 +646,8 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         navigate(`/accounting/vouchers/${loadedEntry.voucherTypeCode}/${loadedEntry.id}/edit`);
         return;
       }
-      if (loadedEntry.source === 'SalesInvoice' && loadedEntry.referenceId) {
-        navigate(`/sales/invoices/${loadedEntry.referenceId}`);
-        return;
-      }
-      if (loadedEntry.source === 'PurchaseInvoice' && loadedEntry.referenceId) {
-        navigate(`/purchases/invoices/${loadedEntry.referenceId}`);
+      if ((loadedEntry.source === 'SalesInvoice' || loadedEntry.source === 'PurchaseInvoice') && loadedEntry.referenceId) {
+        navigate(`/invoices/${loadedEntry.referenceId}/edit`);
         return;
       }
       navigate(`/accounting/journal/${loadedEntry.id}/view`);

@@ -97,12 +97,16 @@ export async function navigateJournalEntrySource(
     return;
   }
 
-  if (entry.source === 'SalesInvoice' && entry.referenceId) {
-    navigate(`/sales/invoices/${entry.referenceId}`);
-    return;
-  }
-  if (entry.source === 'PurchaseInvoice' && entry.referenceId) {
-    navigate(`/purchases/invoices/${entry.referenceId}`);
+  // ‎كل الفواتير (مبيعات/شراء/مرتجعات) تُخزَّن بمصدر SalesInvoice وتُفتح في نفس الصفحة.
+  const isInvoiceSource =
+    entry.source === 'SalesInvoice' ||
+    entry.source === 'PurchaseInvoice' ||
+    entry.referenceType === 'SalesInvoice';
+  if (isInvoiceSource && entry.referenceId) {
+    navigate(
+      `/invoices/${entry.referenceId}/edit`,
+      returnState ? { state: returnState } : undefined,
+    );
     return;
   }
 

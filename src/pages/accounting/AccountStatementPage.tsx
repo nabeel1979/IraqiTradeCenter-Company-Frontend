@@ -483,10 +483,10 @@ function resolveSourceLink(
   }
   switch (src) {
     case 'SalesInvoice':
-      if (refId) return { href: `/sales/invoices/${refId}`, label: t('accountStatement.sources.salesInvoice') };
+      if (refId) return { href: `/invoices/${refId}/edit`, label: t('accountStatement.sources.salesInvoice') };
       break;
     case 'PurchaseInvoice':
-      if (refId) return { href: `/purchases/invoices/${refId}`, label: t('accountStatement.sources.purchaseInvoice') };
+      if (refId) return { href: `/invoices/${refId}/edit`, label: t('accountStatement.sources.purchaseInvoice') };
       break;
     case 'Payment':
       if (refId) return { href: `/finance/payments/${refId}`, label: t('accountStatement.sources.paymentReceipt') };
@@ -505,8 +505,8 @@ function resolveSourceLink(
       break;
     default:
       if (refId) {
-        if (refType.toLowerCase().includes('sales')) return { href: `/sales/invoices/${refId}`, label: t('accountStatement.sources.salesInvoice') };
-        if (refType.toLowerCase().includes('purchase')) return { href: `/purchases/invoices/${refId}`, label: t('accountStatement.sources.purchaseInvoice') };
+        if (refType.toLowerCase().includes('sales')) return { href: `/invoices/${refId}/edit`, label: t('accountStatement.sources.salesInvoice') };
+        if (refType.toLowerCase().includes('purchase')) return { href: `/invoices/${refId}/edit`, label: t('accountStatement.sources.purchaseInvoice') };
       }
       break;
   }
