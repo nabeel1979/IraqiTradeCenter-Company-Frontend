@@ -27,7 +27,9 @@ export function InvoiceConstantsHubPage() {
     mutationFn: () => invoicesApi.regenerateEntries(selectedType === '' ? undefined : (selectedType as number)),
     onSuccess: (data) => {
       setResult(data);
-      toast.success(`تمت إعادة توليد ${data.processed} قيد`);
+      if (data.errors > 0) setShowErrors(true);
+      if (data.processed > 0) toast.success(`تمت إعادة توليد ${data.processed} قيد`);
+      else if (data.errors > 0) toast.error(`فشل التوليد — ${data.errors} خطأ`);
     },
     onError: (e: unknown) => toast.error(extractApiError(e) ?? 'فشلت العملية'),
   });
