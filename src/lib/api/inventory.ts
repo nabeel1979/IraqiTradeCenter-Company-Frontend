@@ -102,6 +102,7 @@ export interface ItemDetailDto {
   stockBaseQuantity: number;
   minimumStockLevel: number;
   maximumStockLevel: number;
+  openingStock: number;
   isActive: boolean;
   isAvailableForSale: boolean;
   showInStore: boolean;
@@ -308,6 +309,7 @@ export interface ItemMovementDto {
   referenceId?: number | null;
   referenceNumber?: string | null;
   unitCost?: number | null;
+  unitPrice?: number | null;
   notes?: string | null;
   partyName?: string | null;
 }
@@ -317,6 +319,55 @@ export interface ItemWarehouseStockDto {
   warehouseName: string;
   warehouseCode: string;
   netStock: number;
+}
+
+const stripReversalSuffix = (rt?: string | null) => (rt ?? '').replace(/Reversal$/, '');
+
+/** هل الحركة حركة عكس (ناتجة عن تعديل/حذف مستند)؟ */
+export function isReversalMovement(m: ItemMovementDto): boolean {
+  return m.referenceType?.endsWith('Reversal') ?? false;
+}
+
+/**
+ * يُرجع الحركات الفعّالة فقط لعرضها في التقارير:
+ * - يُخفي حركات العكس (Reversal).
+ * - يُخفي الحركات الأصلية المُلغاة بعد تعديل المستند، ويعتمد آخر تعديل فقط.
+ * المنطق: لكل مستند (نوع المرجع + رقمه) إن وُجدت حركة عكس، تُعرض الحركات
+ * المُسجّلة بعد آخر عملية عكس فقط (أي نتيجة آخر تعديل).
+ */
+export function effectiveMovements(movements: ItemMovementDto[]): ItemMovementDto[] {
+  const lastReversalByGroup = new Map<string, number>();
+  for (const m of movements) {
+    if (!isReversalMovement(m)) continue;
+    const key = `${stripReversalSuffix(m.referenceType)}#${m.referenceId ?? 0}`;
+    const t = new Date(m.movementDate).getTime();
+    if (t > (lastReversalByGroup.get(key) ?? 0)) lastReversalByGroup.set(key, t);
+  }
+  return movements.filter(m => {
+    if (isReversalMovement(m)) return false;
+    const key = `${stripReversalSuffix(m.referenceType)}#${m.referenceId ?? 0}`;
+    const lr = lastReversalByGroup.get(key);
+    if (lr == null) return true;
+    return new Date(m.movementDate).getTime() >= lr;
+  });
+}
+
+export interface ItemStockCountRowDto {
+  itemId: number;
+  itemCode: string;
+  itemName: string;
+  itemNameEn?: string | null;
+  categoryName?: string | null;
+  categoryNameEn?: string | null;
+  baseUnitName: string;
+  baseUnitNameEn?: string | null;
+  warehouseId: number;
+  warehouseName: string;
+  warehouseNameEn?: string | null;
+  warehouseCode: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
 }
 
 export const inventoryApi = {
@@ -548,10 +599,14 @@ export const inventoryApi = {
     return res.data;
   },
 
-  getMovements: async (itemId: number, opts: { take?: number; fromDate?: string; toDate?: string } = {}) => {
-    const params: Record<string, unknown> = { take: opts.take ?? 200 };
+  getMovements: async (
+    itemId: number,
+    opts: { take?: number; fromDate?: string; toDate?: string; warehouseId?: number } = {},
+  ) => {
+    const params: Record<string, unknown> = { take: opts.take ?? 500 };
     if (opts.fromDate) params.fromDate = opts.fromDate;
     if (opts.toDate) params.toDate = opts.toDate;
+    if (opts.warehouseId) params.warehouseId = opts.warehouseId;
     const res = await api.get<ApiResponse<ItemMovementDto[]>>(`/items/${itemId}/movements`, { params });
     return res.data.data ?? [];
   },
@@ -559,6 +614,27 @@ export const inventoryApi = {
   getStockPerWarehouse: async (itemId: number) => {
     const res = await api.get<ApiResponse<ItemWarehouseStockDto[]>>(`/items/${itemId}/stock`);
     return res.data.data ?? [];
+  },
+
+  getStockCount: async (
+    opts: { warehouseId?: number; categoryId?: number; search?: string; includeZero?: boolean; itemId?: number } = {},
+  ) => {
+    const params: Record<string, unknown> = {};
+    if (opts.warehouseId) params.warehouseId = opts.warehouseId;
+    if (opts.categoryId) params.categoryId = opts.categoryId;
+    if (opts.search) params.search = opts.search;
+    if (opts.includeZero) params.includeZero = true;
+    if (opts.itemId) params.itemId = opts.itemId;
+    const res = await api.get<ApiResponse<ItemStockCountRowDto[]>>('/items/stock-count', { params });
+    return res.data.data ?? [];
+  },
+
+  /** معالجة/إعادة احتساب أرصدة جميع المواد من سجل الحركات */
+  recalcStock: async () => {
+    const res = await api.post<ApiResponse<{ totalItems: number; changedCount: number; changed: { id: number; code: string; nameAr: string; oldBalance: number; newBalance: number }[] }>>(
+      '/items/recalculate-stock',
+    );
+    return res.data.data;
   },
 };
 

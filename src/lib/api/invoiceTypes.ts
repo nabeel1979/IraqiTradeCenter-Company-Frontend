@@ -25,6 +25,8 @@ export interface InvoiceTypeDto {
   inventoryAccountId?: number | null;
   discountAccountId?: number | null;
   additionAccountId?: number | null;
+  profitAccountId?: number | null;
+  lossAccountId?: number | null;
   postDiscountAndAddition: boolean;
   generatesJournalEntry: boolean;
   affectsInventory: boolean;
@@ -122,6 +124,26 @@ export const invoiceTypesApi = {
   },
   remove: async (id: number) => {
     const res = await api.delete<ApiResponse<unknown>>(`/invoices/types/${id}`);
+    return res.data;
+  },
+};
+
+export interface RegenerateEntriesResult {
+  processed: number;
+  errors: number;
+  skipped: number;
+  total: number;
+  backupFile?: string | null;
+  backupError?: string | null;
+  errorDetails: { id: number; invoiceNumber: string; error: string }[];
+}
+
+export const invoicesApi = {
+  regenerateEntries: async (invoiceTypeId?: number): Promise<RegenerateEntriesResult> => {
+    const res = await api.post<{ success: boolean } & RegenerateEntriesResult>(
+      '/salesinvoices/regenerate-entries',
+      { invoiceTypeId: invoiceTypeId ?? null },
+    );
     return res.data;
   },
 };

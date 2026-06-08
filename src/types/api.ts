@@ -324,7 +324,19 @@ export interface SalesInvoiceDto {
   taxRate?: number;
   notes?: string | null;
   journalEntryId?: number;
+  expenseDistributionMethod?: number;
   lines: SalesInvoiceLineDto[];
+  expenses?: SalesInvoiceExpenseDto[];
+}
+
+export interface SalesInvoiceExpenseDto {
+  id: number;
+  accountId: number;
+  accountCode: string;
+  accountName: string;
+  debitAmount: number;
+  creditAmount: number;
+  description?: string | null;
 }
 
 export interface SalesInvoiceLineDto {
@@ -443,6 +455,8 @@ export interface AccountDto {
    * يُحجب التعديل والحذف وإضافة الفروع من شجرة الحسابات.
    */
   isLockedForWarehouse?: boolean;
+  /** مقفل للقيد اليدوي (أرباح/خسائر…) — لا يُستخدم في القيود/السندات اليدوية */
+  isLockedForManualPosting?: boolean;
   /** مرتبط بإعدادات تسوية الحسابات */
   isLinkedToAccountSettlement?: boolean;
   /** أدوار الارتباط: Transit | FxGain | FxLoss | FxDiscount */

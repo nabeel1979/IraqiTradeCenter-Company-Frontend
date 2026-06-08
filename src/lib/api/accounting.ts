@@ -110,6 +110,7 @@ export interface CreateAccountPayload {
   parentId?: number | null;
   isLeaf: boolean;
   description?: string | null;
+  isLockedForManualPosting?: boolean;
 }
 
 export interface UpdateAccountPayload {
@@ -119,6 +120,7 @@ export interface UpdateAccountPayload {
   nature: number;
   description?: string | null;
   isActive: boolean;
+  isLockedForManualPosting?: boolean;
 }
 
 export const accountingApi = {

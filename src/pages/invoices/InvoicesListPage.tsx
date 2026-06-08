@@ -23,7 +23,7 @@ interface InvoicesListPageProps {
 }
 
 export function InvoicesListPage({ category }: InvoicesListPageProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { can } = usePermissions();
   const canEdit = can(PERMS.Sales.Invoices.Update);
@@ -65,6 +65,18 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
   const newInvoiceUrl = defaultType
     ? `/invoices/new?typeId=${defaultType.id}`
     : '/invoices/new';
+
+  // ‎اسم نوع الفاتورة ديناميكي للحالة الفارغة (شراء/مبيع/مردود…)
+  const isArabic = (i18n.language || 'ar').startsWith('ar');
+  const categoryFallback: Record<number, { ar: string; en: string }> = {
+    1: { ar: 'مبيعات', en: 'sales' },
+    2: { ar: 'شراء', en: 'purchase' },
+    3: { ar: 'مردود شراء', en: 'purchase return' },
+    4: { ar: 'مردود مبيع', en: 'sales return' },
+  };
+  const typeName = defaultType
+    ? (isArabic ? defaultType.nameAr : (defaultType.nameEn || defaultType.nameAr))
+    : (isArabic ? categoryFallback[category]?.ar : categoryFallback[category]?.en) ?? '';
 
   if (isLoading) return <LoadingSpinner text={t('invoices.list.loading')} />;
   if (isError) {
@@ -115,7 +127,7 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
         <EmptyState
           icon={Receipt}
           title={t('invoices.list.emptyTitle')}
-          description={t('invoices.list.emptyDescription')}
+          description={t('invoices.list.emptyDescription', { type: typeName })}
           action={
             <Link to={newInvoiceUrl}>
               <Button><Plus className="h-4 w-4" />{t('invoices.list.newInvoice')}</Button>

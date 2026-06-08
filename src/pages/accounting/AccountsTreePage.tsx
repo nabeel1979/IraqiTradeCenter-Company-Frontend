@@ -157,6 +157,7 @@ interface FormState {
   description: string;
   isActive: boolean;
   isLeaf: boolean;
+  isLockedForManualPosting: boolean;
 }
 
 /**
@@ -206,6 +207,7 @@ function initFormFromAccount(a?: AccountDto, parent?: AccountDto | null): FormSt
       description: '',
       isActive: a.isActive,
       isLeaf: isParent ? false : a.isLeaf,
+      isLockedForManualPosting: a.isLockedForManualPosting ?? false,
     };
   }
   // إنشاء جديد: نقترح كوداً تحت الأب — تسلسل تصاعدي يأخذ بعين الاعتبار
@@ -220,6 +222,7 @@ function initFormFromAccount(a?: AccountDto, parent?: AccountDto | null): FormSt
     description: '',
     isActive: true,
     isLeaf: true,
+    isLockedForManualPosting: false,
   };
 }
 
@@ -504,6 +507,18 @@ function AccountFormModal({
                 className="h-4 w-4 cursor-pointer accent-primary"
               />
               {t('accountsTree.form.isActive')}
+            </label>
+          )}
+          {form.isLeaf && (
+            <label className="flex cursor-pointer items-center gap-2 text-xs"
+              title="يمنع استخدام الحساب في القيود/السندات اليدوية — يتحرك فقط عبر قيود الفواتير (مثل حسابات الأرباح/الخسائر)">
+              <input
+                type="checkbox"
+                checked={form.isLockedForManualPosting}
+                onChange={e => setForm(f => ({ ...f, isLockedForManualPosting: e.target.checked }))}
+                className="h-4 w-4 cursor-pointer accent-primary"
+              />
+              مقفل للقيد اليدوي
             </label>
           )}
         </div>
@@ -1108,6 +1123,7 @@ export function AccountsTreePage() {
           parentId: parentAccount?.id ?? null,
           isLeaf: form.isLeaf,
           description: form.description || null,
+          isLockedForManualPosting: form.isLockedForManualPosting,
         },
         addAnother,
       });
@@ -1121,6 +1137,7 @@ export function AccountsTreePage() {
           nature: form.nature,
           description: form.description || null,
           isActive: form.isActive,
+          isLockedForManualPosting: form.isLockedForManualPosting,
         },
       });
     }

@@ -42,6 +42,8 @@ const EMPTY: UpsertInvoiceTypePayload = {
   inventoryAccountId: null,
   discountAccountId: null,
   additionAccountId: null,
+  profitAccountId: null,
+  lossAccountId: null,
   postDiscountAndAddition: false,
   generatesJournalEntry: true,
   affectsInventory: true,
@@ -161,6 +163,8 @@ export function InvoiceTypesPage() {
       inventoryAccountId: row.inventoryAccountId ?? null,
       discountAccountId: row.discountAccountId ?? null,
       additionAccountId: row.additionAccountId ?? null,
+      profitAccountId: row.profitAccountId ?? null,
+      lossAccountId: row.lossAccountId ?? null,
       postDiscountAndAddition: row.postDiscountAndAddition ?? false,
       generatesJournalEntry: row.generatesJournalEntry,
       affectsInventory: row.affectsInventory,
@@ -337,6 +341,24 @@ export function InvoiceTypesPage() {
                   <AccountPicker accounts={leafAccounts} value={form.additionAccountId ?? null}
                     onChange={id => setForm(f => ({ ...f, additionAccountId: id }))} allowClear />
                 </div>
+                {form.category === 1 && (
+                  <>
+                    <p className="text-xs text-muted-foreground md:col-span-2">
+                      في فواتير البيع: تُرحَّل الكلفة إلى حساب المخزون، ويُرحَّل الفارق (البيع − الكلفة) إلى حساب الأرباح أو الخسائر.
+                      يُفضّل قفل هذين الحسابين للقيد اليدوي من شجرة الحسابات.
+                    </p>
+                    <div className="space-y-1">
+                      <Label>حساب الأرباح</Label>
+                      <AccountPicker accounts={leafAccounts} value={form.profitAccountId ?? null}
+                        onChange={id => setForm(f => ({ ...f, profitAccountId: id }))} allowClear />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>حساب الخسائر</Label>
+                      <AccountPicker accounts={leafAccounts} value={form.lossAccountId ?? null}
+                        onChange={id => setForm(f => ({ ...f, lossAccountId: id }))} allowClear />
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t pt-3">

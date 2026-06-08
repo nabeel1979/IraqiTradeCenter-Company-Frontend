@@ -2551,66 +2551,102 @@ export interface InvoicePrintData {
 }
 
 const INVOICE_EXTRA_STYLES = `
+  /* ===== سمة فاتورة راقية: كحلي عميق + لمسة ذهبية ===== */
+  /* رأس المستند: شريط علوي ذهبي رفيع للفاتورة */
+  .preview-page { position: relative; }
+  .preview-page::before { content: ''; position: absolute; top: 0; inset-inline: 0; height: 4px;
+    background: linear-gradient(90deg, #13314f 0%, #c79a3f 50%, #13314f 100%); border-radius: 4px 4px 0 0; }
+  .doc-header { border-bottom: 2px solid #13314f !important; }
+  .doc-header .brand .titles h1 { color: #13314f; letter-spacing: .2px; }
+
   /* شريط عنوان الفاتورة */
-  .inv-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    background: #1f2d3d; color: #fff; border-radius: 8px; padding: 10px 18px; margin: 14px 0 16px; }
-  .inv-banner .inv-banner-title { font-size: 18px; font-weight: 800; letter-spacing: .3px; }
+  .inv-banner { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: linear-gradient(135deg, #13314f 0%, #21507c 100%); color: #fff;
+    border-radius: 10px; padding: 14px 22px; margin: 16px 0 18px; overflow: hidden;
+    border: 1px solid #0c2438; }
+  .inv-banner::before { content: ''; position: absolute; inset-inline-start: 0; top: 0; bottom: 0; width: 6px;
+    background: linear-gradient(180deg, #e3c87a, #c79a3f); }
+  .inv-banner .inv-banner-title { font-size: 20px; font-weight: 800; letter-spacing: .4px;
+    text-shadow: 0 1px 2px rgba(0,0,0,.2); }
   .inv-banner .inv-banner-no { text-align: left; }
-  .inv-banner .inv-banner-no .lbl { font-size: 9px; color: #9fb3c8; display: block; }
-  .inv-banner .inv-banner-no .val { font-size: 17px; font-weight: 800; font-family: 'Segoe UI', monospace; }
+  .inv-banner .inv-banner-no .lbl { font-size: 9px; color: #d8c79a; display: block; letter-spacing: .5px;
+    text-transform: uppercase; }
+  .inv-banner .inv-banner-no .val { font-size: 18px; font-weight: 800; color: #f4e9c8;
+    font-family: 'Segoe UI', monospace; }
 
   /* صناديق المعلومات (العميل + بيانات الفاتورة) */
-  .inv-info { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
-  .info-card { border: 1px solid #d8dee6; border-radius: 8px; overflow: hidden; }
-  .info-card > h3 { font-size: 10.5px; font-weight: 700; color: #fff; background: #34495e;
-    margin: 0; padding: 5px 12px; letter-spacing: .2px; }
-  .info-card .info-body { padding: 8px 12px; }
+  .inv-info { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .info-card { border: 1px solid #d8dee6; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(15,42,67,.05); }
+  .info-card > h3 { font-size: 10.5px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, #13314f, #21507c);
+    margin: 0; padding: 6px 14px; letter-spacing: .3px; }
+  .info-card.party > h3 { border-bottom: 2px solid #c79a3f; }
+  .info-card .info-body { padding: 9px 14px; }
   .info-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-    padding: 3px 0; border-bottom: 1px dotted #eceff3; font-size: 11.5px; }
+    padding: 4px 0; border-bottom: 1px dotted #eceff3; font-size: 11.5px; }
   .info-row:last-child { border-bottom: none; }
   .info-row .k { color: #7b8794; font-weight: 500; }
-  .info-row .v { font-weight: 700; color: #1f2d3d; text-align: left; }
+  .info-row .v { font-weight: 700; color: #13314f; text-align: left; }
   .info-row .v.mono { font-family: monospace; }
-  .info-card.party .party-name { font-size: 15px; font-weight: 800; color: #1f2d3d; margin-bottom: 2px; }
+  .info-card.party .party-name { font-size: 16px; font-weight: 800; color: #13314f; margin-bottom: 3px; }
   .info-card.party .party-code { font-size: 10px; color: #8a94a0; font-family: monospace; }
 
   /* عناوين الأقسام */
-  .section-title { font-size: 11px; font-weight: 700; color: #fff; background: #34495e;
-    padding: 5px 12px; border-radius: 6px 6px 0 0; margin-top: 16px; margin-bottom: 0;
-    display: flex; align-items: center; gap: 6px; }
-  .section-title.gift { background: #a96414; }
-  .section-title.expense { background: #1d4e89; }
+  .section-title { font-size: 11px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, #13314f, #21507c);
+    padding: 6px 14px; border-radius: 6px 6px 0 0; margin-top: 18px; margin-bottom: 0;
+    display: flex; align-items: center; gap: 6px; border-inline-start: 4px solid #c79a3f; }
+  .section-title.gift { background: linear-gradient(135deg, #8a5412, #b87a26); border-inline-start-color: #f0c674; }
+  .section-title.expense { background: linear-gradient(135deg, #143b6b, #1d4e89); border-inline-start-color: #7fb0e8; }
   .section-title + table { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 
   /* جدول البنود */
-  table.inv-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-  table.inv-table thead th { background: #f1f4f8; color: #46566a; font-weight: 700;
-    padding: 6px 8px; border: 1px solid #d8dee6; }
-  table.inv-table tbody td { padding: 5px 8px; border: 1px solid #e2e7ee; }
-  table.inv-table tbody tr:nth-child(even) td { background: #f9fafc; }
-  table.inv-table tfoot th { padding: 6px 8px; border: 1px solid #d8dee6; background: #eef2f6; font-weight: 700; }
-  table.inv-table .item-name { font-weight: 600; color: #1f2d3d; }
+  table.inv-table { width: 100%; border-collapse: collapse; font-size: 11.5px;
+    box-shadow: 0 1px 3px rgba(15,42,67,.05); }
+  table.inv-table thead th { background: #13314f; color: #fff; font-weight: 700;
+    padding: 7px 8px; border: 1px solid #0c2438; letter-spacing: .2px; }
+  table.inv-table tbody td { padding: 6px 8px; border: 1px solid #e2e7ee; }
+  table.inv-table tbody tr:nth-child(even) td { background: #f7f9fc; }
+  table.inv-table tfoot th { padding: 7px 8px; border: 1px solid #d8dee6;
+    background: #eef2f6; color: #13314f; font-weight: 800; }
+  table.inv-table .item-name { font-weight: 600; color: #13314f; }
   table.inv-table .item-code { color: #97a1ad; font-size: 9px; }
   .gift-tag { color: #a96414; font-weight: 700; }
 
   /* لوحة الإجماليات */
   .totals-grid { margin-top: 16px; display: flex; justify-content: flex-start; }
-  .totals-table { border-collapse: collapse; min-width: 290px; font-size: 12px; }
-  .totals-table td { padding: 6px 12px; border: 1px solid #dde1e7; }
-  .totals-table .t-label { color: #46566a; font-weight: 500; background: #f9fafc; }
-  .totals-table .t-value { text-align: left; font-family: monospace; font-weight: 700; }
-  .totals-table tr.grand-total td { background: #1f2d3d; color: #fff; font-size: 15px; font-weight: 800; }
+  .totals-table { border-collapse: collapse; min-width: 310px; font-size: 12px;
+    border: 1px solid #d4dae2; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(15,42,67,.06); }
+  .totals-table td { padding: 7px 14px; border: 1px solid #e3e7ec; }
+  .totals-table .t-label { color: #46566a; font-weight: 500; background: #f7f9fc; }
+  .totals-table .t-value { text-align: left; font-family: monospace; font-weight: 700; color: #13314f; }
+  .totals-table tr.grand-total td { background: linear-gradient(135deg, #13314f, #21507c);
+    color: #f4e9c8; font-size: 15.5px; font-weight: 800; border-color: #0c2438; }
+  .totals-table tr.grand-total .t-value { color: #f4e9c8; }
 
-  .notes-box { border: 1px solid #e2e7ee; border-radius: 6px; padding: 8px 12px; margin-top: 14px;
-    font-size: 11px; color: #46566a; background: #fbfcfd; }
-  .notes-box .nb-title { font-weight: 700; color: #1f2d3d; margin-bottom: 2px; }
-  .settlement-box { border: 1px solid #cfe8d8; background: #f3faf5; border-radius: 6px;
-    padding: 8px 12px; margin-top: 14px; font-size: 11.5px; color: #1f2d3d; }
+  /* المبلغ كتابةً (تفقيط) */
+  .amount-words { display: flex; align-items: center; gap: 12px; margin-top: 12px;
+    border: 1px solid #e6dcc2; background: #fdfaf2; border-radius: 8px; padding: 10px 14px; }
+  .amount-words .aw-label { flex: none; font-size: 10px; font-weight: 800; color: #fff;
+    background: linear-gradient(135deg, #c79a3f, #b8862d); padding: 5px 11px; border-radius: 5px;
+    letter-spacing: .3px; }
+  .amount-words .aw-value { font-size: 12.5px; font-weight: 700; color: #13314f; line-height: 1.6; }
+
+  .notes-box { border: 1px solid #e2e7ee; border-radius: 8px; padding: 9px 14px; margin-top: 14px;
+    font-size: 11px; color: #46566a; background: #fbfcfd; border-inline-start: 4px solid #c79a3f; }
+  .notes-box .nb-title { font-weight: 700; color: #13314f; margin-bottom: 2px; }
+  .settlement-box { border: 1px solid #cfe8d8; background: #f3faf5; border-radius: 8px;
+    padding: 9px 14px; margin-top: 14px; font-size: 11.5px; color: #13314f; }
   .settlement-box.credit { border-color: #f3dcbb; background: #fdf8f1; }
   .settlement-box strong { font-weight: 800; }
 
+  /* التواقيع: لمسة ذهبية على خط التوقيع */
+  .signatures .sig { border-top: 1px solid #c79a3f !important; color: #13314f; font-weight: 600; }
+
   @media (max-width: 600px) {
     .inv-info { grid-template-columns: 1fr; }
+    .amount-words { flex-direction: column; align-items: flex-start; gap: 6px; }
   }
 `;
 
@@ -2718,6 +2754,12 @@ export function printInvoice(
     </div>`;
   };
 
+  // ── المبلغ كتابةً (تفقيط) ──
+  const amountWordsHtml = `<div class="amount-words">
+    <span class="aw-label">المبلغ كتابةً</span>
+    <span class="aw-value">${escapeHtml(tafqeet(data.total, { currency: data.currency }))}</span>
+  </div>`;
+
   // ── ملاحظات ──
   const notesHtml = data.notes
     ? `<div class="notes-box"><div class="nb-title">ملاحظات</div>${escapeHtml(data.notes)}</div>`
@@ -2763,6 +2805,7 @@ export function printInvoice(
     ${giftLines.length > 0 ? buildLinesTable(giftLines, true) : ''}
     ${buildExpensesTable()}
     ${buildTotals()}
+    ${amountWordsHtml}
     ${buildSettlement()}
     ${notesHtml}
     <div class="signatures" style="margin-top:34px">
@@ -2789,4 +2832,246 @@ export function printInvoice(
 </html>`;
 
   openPrintPreview(fullDoc, `${data.invoiceTypeName} — ${data.invoiceNumber ?? ''}`, locale);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// تقارير المستودعات: حركة المادة + جرد المخزون
+// ═══════════════════════════════════════════════════════════════════════════
+
+function ttp(locale: PrintLocale, ar: string, en: string): string {
+  return locale === 'en' ? en : ar;
+}
+
+const REPORT_EXTRA_STYLES = `
+  .rep-filters { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 10px; }
+  .rep-filters .chip { background:#f1f5f9; border:1px solid #cbd5e1; border-radius:999px; padding:3px 11px; font-size:11px; color:#334155; }
+  .rep-filters .chip strong { color:#0f172a; }
+  .rep-summary { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0 12px; }
+  .rep-summary .box { flex:1; min-width:120px; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; background:#fff; }
+  .rep-summary .box .lbl { font-size:10.5px; color:#64748b; margin-bottom:3px; }
+  .rep-summary .box .val { font-size:15px; font-weight:700; }
+  .rep-table { width:100%; border-collapse:collapse; font-size:10.5px; margin-top:4px; }
+  .rep-table th, .rep-table td { border:1px solid #cbd5e1; padding:4px 6px; }
+  .rep-table thead th { background:#1e293b; color:#fff; font-weight:600; font-size:11px; }
+  .rep-table tbody tr:nth-child(even) { background:#f8fafc; }
+  .rep-table tfoot th { background:#e2e8f0; color:#0f172a; font-weight:700; }
+  .rep-badge { display:inline-block; padding:1px 8px; border-radius:999px; font-size:9.5px; font-weight:600; }
+`;
+
+export interface ItemMovementsPrintRow {
+  date: string;
+  typeLabel: string;
+  party: string;
+  warehouse: string;
+  quantity: number;
+  unit: string;
+  unitCost: number | null;
+  before: number;
+  after: number;
+  reference: string;
+  isOut: boolean;
+}
+
+export interface ItemMovementsPrintInput {
+  itemCode: string;
+  itemName: string;
+  unitName?: string;
+  warehouseLabel?: string;
+  fromDate?: string;
+  toDate?: string;
+  rows: ItemMovementsPrintRow[];
+  totalIn: number;
+  totalOut: number;
+  net: number;
+}
+
+export function printItemMovements(
+  input: ItemMovementsPrintInput,
+  company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
+) {
+  const i18n = getPrintI18n(locale);
+  const dir = getPrintDir(locale);
+  const printedAt = formatPrintedAt(locale);
+
+  const filterChips: string[] = [];
+  filterChips.push(`<span class="chip">${ttp(locale, 'المادة', 'Item')} <strong>${escapeHtml(input.itemCode)} — ${escapeHtml(input.itemName)}</strong></span>`);
+  if (input.warehouseLabel)
+    filterChips.push(`<span class="chip">${ttp(locale, 'المستودع', 'Warehouse')} <strong>${escapeHtml(input.warehouseLabel)}</strong></span>`);
+  if (input.fromDate)
+    filterChips.push(`<span class="chip">${ttp(locale, 'من', 'From')} <strong class="num">${escapeHtml(formatDate(input.fromDate))}</strong></span>`);
+  if (input.toDate)
+    filterChips.push(`<span class="chip">${ttp(locale, 'إلى', 'To')} <strong class="num">${escapeHtml(formatDate(input.toDate))}</strong></span>`);
+
+  const rows = input.rows.map((r, idx) => `
+    <tr>
+      <td class="center" style="color:#94a3b8">${idx + 1}</td>
+      <td class="center num" style="white-space:nowrap">${escapeHtml(formatDate(r.date))}</td>
+      <td class="center"><span class="rep-badge" style="background:${r.isOut ? '#fee2e2' : '#dcfce7'};color:${r.isOut ? '#b91c1c' : '#15803d'};">${escapeHtml(r.typeLabel)}</span></td>
+      <td>${escapeHtml(r.party || '—')}</td>
+      <td>${escapeHtml(r.warehouse)}</td>
+      <td class="center num" style="font-weight:700;color:${r.isOut ? '#b91c1c' : '#15803d'};">${r.isOut ? '-' : '+'}${formatAmount(Math.abs(r.quantity), 2)}</td>
+      <td class="center">${escapeHtml(r.unit)}</td>
+      <td class="left num">${r.unitCost != null ? formatAmount(r.unitCost, 3) : '—'}</td>
+      <td class="center num" style="color:#64748b">${formatAmount(r.before, 2)}</td>
+      <td class="center num" style="font-weight:600">${formatAmount(r.after, 2)}</td>
+      <td>${escapeHtml(r.reference || '—')}</td>
+    </tr>`).join('');
+
+  const html = `
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${ttp(locale, 'تقرير حركة المادة', 'Item Movement Report')}</div>
+    <div class="rep-filters">${filterChips.join(' ')}</div>
+    <div class="rep-summary">
+      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الوارد', 'Total In')}</div><div class="val" style="color:#15803d">${formatAmount(input.totalIn, 2)}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الصادر', 'Total Out')}</div><div class="val" style="color:#b91c1c">${formatAmount(input.totalOut, 2)}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'صافي الحركة', 'Net')}</div><div class="val">${formatAmount(input.net, 2)} ${escapeHtml(input.unitName ?? '')}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'عدد الحركات', 'Movements')}</div><div class="val num">${input.rows.length}</div></div>
+    </div>
+    <table class="rep-table">
+      <thead>
+        <tr>
+          <th class="center" style="width:34px">#</th>
+          <th class="center">${ttp(locale, 'التاريخ', 'Date')}</th>
+          <th class="center">${ttp(locale, 'النوع', 'Type')}</th>
+          <th>${ttp(locale, 'المورد/العميل', 'Party')}</th>
+          <th>${ttp(locale, 'المستودع', 'Warehouse')}</th>
+          <th class="center">${ttp(locale, 'الكمية', 'Qty')}</th>
+          <th class="center">${ttp(locale, 'وحدة الجرد', 'Unit')}</th>
+          <th class="left">${ttp(locale, 'السعر', 'Cost')}</th>
+          <th class="center">${ttp(locale, 'الرصيد قبل', 'Before')}</th>
+          <th class="center">${ttp(locale, 'الرصيد بعد', 'After')}</th>
+          <th>${ttp(locale, 'المرجع', 'Reference')}</th>
+        </tr>
+      </thead>
+      <tbody>${rows || `<tr><td colspan="11" class="center" style="padding:16px;color:#94a3b8">${ttp(locale, 'لا توجد حركات', 'No movements')}</td></tr>`}</tbody>
+    </table>
+    <div class="signatures" style="margin-top:30px">
+      <div class="sig">${escapeHtml(i18n.signatures.accountant)}</div>
+      <div class="sig">${ttp(locale, 'أمين المخزن', 'Storekeeper')}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.financialManager)}</div>
+    </div>
+    ${buildFooter(company, ttp(locale, 'تقرير حركة المادة', 'Item Movement Report'))}
+  `;
+
+  const fullDoc = `<!DOCTYPE html>
+<html dir="${dir}" lang="${locale}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${ttp(locale, 'تقرير حركة المادة', 'Item Movement Report')}</title>
+  <style>${PRINT_STYLES}${REPORT_EXTRA_STYLES}
+    @page { size: A4 landscape; margin: 10mm; }
+    .preview-page { max-width: 297mm; }
+    body { direction: ${dir}; }
+  </style>
+</head>
+<body>
+  <div class="preview-page">${html}</div>
+</body>
+</html>`;
+
+  openPrintPreview(fullDoc, ttp(locale, 'تقرير حركة المادة', 'Item Movement Report'), locale);
+}
+
+export interface StockCountPrintRow {
+  code: string;
+  name: string;
+  category: string | null;
+  warehouse: string;
+  unit: string;
+  quantity: number;
+}
+
+export interface StockCountPrintInput {
+  warehouseLabel?: string;
+  categoryLabel?: string;
+  search?: string;
+  rows: StockCountPrintRow[];
+  totalQuantity: number;
+  itemCount: number;
+}
+
+export function printStockCount(
+  input: StockCountPrintInput,
+  company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
+) {
+  const i18n = getPrintI18n(locale);
+  const dir = getPrintDir(locale);
+  const printedAt = formatPrintedAt(locale);
+
+  const filterChips: string[] = [];
+  filterChips.push(`<span class="chip">${ttp(locale, 'المستودع', 'Warehouse')} <strong>${escapeHtml(input.warehouseLabel || ttp(locale, 'الكل', 'All'))}</strong></span>`);
+  if (input.categoryLabel)
+    filterChips.push(`<span class="chip">${ttp(locale, 'التصنيف', 'Category')} <strong>${escapeHtml(input.categoryLabel)}</strong></span>`);
+  if (input.search)
+    filterChips.push(`<span class="chip">${ttp(locale, 'بحث', 'Search')} <strong>${escapeHtml(input.search)}</strong></span>`);
+
+  const rows = input.rows.map((r, idx) => `
+    <tr>
+      <td class="center" style="color:#94a3b8">${idx + 1}</td>
+      <td class="center num" style="white-space:nowrap;color:#1f6f43;font-weight:600">${escapeHtml(r.code)}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(r.category || '—')}</td>
+      <td>${escapeHtml(r.warehouse)}</td>
+      <td class="center num" style="font-weight:700;color:${r.quantity < 0 ? '#b91c1c' : '#0f172a'}">${formatAmount(r.quantity, 2)}</td>
+      <td class="center">${escapeHtml(r.unit)}</td>
+    </tr>`).join('');
+
+  const html = `
+    ${buildBrandHeader(company, printedAt, i18n, locale)}
+    <div class="report-title">${ttp(locale, 'تقرير جرد المخزون', 'Inventory Count Report')}</div>
+    <div class="rep-filters">${filterChips.join(' ')}</div>
+    <div class="rep-summary">
+      <div class="box"><div class="lbl">${ttp(locale, 'عدد السطور', 'Rows')}</div><div class="val num">${input.rows.length}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'عدد المواد', 'Items')}</div><div class="val num">${input.itemCount}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الكمية', 'Total Qty')}</div><div class="val">${formatAmount(input.totalQuantity, 2)}</div></div>
+    </div>
+    <table class="rep-table">
+      <thead>
+        <tr>
+          <th class="center" style="width:34px">#</th>
+          <th class="center">${ttp(locale, 'الرمز', 'Code')}</th>
+          <th>${ttp(locale, 'المادة', 'Item')}</th>
+          <th>${ttp(locale, 'التصنيف', 'Category')}</th>
+          <th>${ttp(locale, 'المستودع', 'Warehouse')}</th>
+          <th class="center">${ttp(locale, 'الكمية', 'Quantity')}</th>
+          <th class="center">${ttp(locale, 'وحدة الجرد', 'Unit')}</th>
+        </tr>
+      </thead>
+      <tbody>${rows || `<tr><td colspan="7" class="center" style="padding:16px;color:#94a3b8">${ttp(locale, 'لا توجد بيانات', 'No data')}</td></tr>`}</tbody>
+      <tfoot>
+        <tr>
+          <th colspan="5" class="center">${ttp(locale, 'الإجمالي', 'Total')}</th>
+          <th class="center num">${formatAmount(input.totalQuantity, 2)}</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="signatures" style="margin-top:30px">
+      <div class="sig">${ttp(locale, 'أمين المخزن', 'Storekeeper')}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.auditor)}</div>
+      <div class="sig">${escapeHtml(i18n.signatures.financialManager)}</div>
+    </div>
+    ${buildFooter(company, ttp(locale, 'تقرير جرد المخزون', 'Inventory Count Report'))}
+  `;
+
+  const fullDoc = `<!DOCTYPE html>
+<html dir="${dir}" lang="${locale}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${ttp(locale, 'تقرير جرد المخزون', 'Inventory Count Report')}</title>
+  <style>${PRINT_STYLES}${REPORT_EXTRA_STYLES}
+    @page { size: A4; margin: 10mm; }
+    body { direction: ${dir}; }
+  </style>
+</head>
+<body>
+  <div class="preview-page">${html}</div>
+</body>
+</html>`;
+
+  openPrintPreview(fullDoc, ttp(locale, 'تقرير جرد المخزون', 'Inventory Count Report'), locale);
 }

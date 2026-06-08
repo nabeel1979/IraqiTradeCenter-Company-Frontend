@@ -6,6 +6,7 @@ import {
   ArrowRight, Save, Package, Layers, ImageIcon, Warehouse, Coins,
   Plus, Youtube, Globe, Hash, Upload, X, ExternalLink, Trash2,
   ChevronLeft, ChevronRight, ZoomIn, SlidersHorizontal, Palette, Ruler, Building2, List,
+  TrendingUp, ClipboardList,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -98,7 +99,7 @@ function detailToForm(d: ItemDetailDto): UpsertItemPayload {
     showInStore: d.showInStore ?? false,
     minimumStockLevel: d.minimumStockLevel,
     maximumStockLevel: d.maximumStockLevel,
-    openingStock: 0,
+    openingStock: d.openingStock ?? 0,
     units: d.units.map(u => ({
       unitOfMeasureId: u.unitOfMeasureId,
       sortOrder: u.sortOrder,
@@ -138,7 +139,7 @@ function serializeItemForm(f: UpsertItemPayload): string {
     manufacturer: f.manufacturer ?? '',
     barcode: f.barcode ?? '',
     youTubeUrl: f.youTubeUrl ?? '',
-    openingStock: 0,
+    openingStock: f.openingStock ?? 0,
     colorIds,
     serialNumbers,
     units,
@@ -951,13 +952,14 @@ export function ItemFormPage() {
                 <Input type="number" min={0} dir="ltr" value={form.maximumStockLevel}
                   onChange={e => setForm(f => f ? { ...f, maximumStockLevel: parseFloat(e.target.value) || 0 } : f)} />
               </div>
-              {!isEdit && (
-                <div className="space-y-1">
-                  <Label>رصيد افتتاحي</Label>
-                  <Input type="number" min={0} dir="ltr" value={form.openingStock}
-                    onChange={e => setForm(f => f ? { ...f, openingStock: parseFloat(e.target.value) || 0 } : f)} />
-                </div>
-              )}
+              <div className="space-y-1">
+                <Label>رصيد افتتاحي</Label>
+                <Input type="number" min={0} dir="ltr" value={form.openingStock}
+                  onChange={e => setForm(f => f ? { ...f, openingStock: parseFloat(e.target.value) || 0 } : f)} />
+                {isEdit && (
+                  <p className="text-[11px] text-muted-foreground">يُسجَّل كحركة «رصيد افتتاحي» ويعدّل الرصيد الحالي تلقائياً</p>
+                )}
+              </div>
               {isEdit && item && (
                 <div className="space-y-1">
                   <Label>الرصيد الحالي</Label>
@@ -965,6 +967,30 @@ export function ItemFormPage() {
                 </div>
               )}
             </div>
+
+            {isEdit && item && (
+              <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/30 p-3">
+                <span className="w-full text-xs font-medium text-muted-foreground">تقارير المادة</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => navigate(`/inventory/movements?itemId=${item.id}&itemCode=${encodeURIComponent(item.code)}&itemName=${encodeURIComponent(item.nameAr)}`)}
+                >
+                  <TrendingUp className="h-4 w-4 text-primary" /> تقرير حركة المادة
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => navigate(`/inventory/stock-count?itemId=${item.id}&itemName=${encodeURIComponent(item.nameAr)}`)}
+                >
+                  <ClipboardList className="h-4 w-4 text-primary" /> تقرير جرد المخزون
+                </Button>
+              </div>
+            )}
 
             <Toggle label="تتبع الأرقام التسلسلية" checked={form.trackSerialNumbers}
               onChange={v => setForm(f => f ? { ...f, trackSerialNumbers: v } : f)} />

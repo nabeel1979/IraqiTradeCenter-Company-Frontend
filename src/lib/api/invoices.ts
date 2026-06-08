@@ -16,6 +16,8 @@ export interface CreateInvoicePayload {
   additionAmount?: number;          // مصاريف/إضافة تُضاف لإجمالي الفاتورة
   notes?: string;
   lines: Array<{ itemId: number; unitOfMeasureId: number; quantity: number; unitPriceOverride?: number; lineDiscount: number; }>;
+  expenses?: Array<{ accountId: number; debitAmount: number; creditAmount: number; description?: string; }>;
+  expenseDistributionMethod?: number;  // 1=قيمة، 2=حجم، 3=وزن
 }
 
 export interface RecordPaymentPayload {

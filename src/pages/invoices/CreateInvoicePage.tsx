@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { ItemImageThumb } from '@/components/inventory/ItemImageThumb';
-import { inventoryApi, ITEM_SALE_PRICE_TYPES, type ItemPriceType, type ItemListDto, type ItemDetailDto, type ItemMovementDto, type ItemWarehouseStockDto } from '@/lib/api/inventory';
+import { inventoryApi, effectiveMovements, ITEM_SALE_PRICE_TYPES, type ItemPriceType, type ItemListDto, type ItemDetailDto, type ItemMovementDto, type ItemWarehouseStockDto } from '@/lib/api/inventory';
 import { financialManagementApi } from '@/lib/api/financialManagement';
 import { invoicesApi, type CreateInvoicePayload } from '@/lib/api/invoices';
 import { invoiceTypesApi, type InvoiceTypeDto, INVOICE_SETTLEMENT_TYPES, INVOICE_PAYMENT_METHODS } from '@/lib/api/invoiceTypes';
@@ -29,7 +29,7 @@ import { writeFmFocus } from '@/pages/financial-management/fmFocus';
 import { resolveUnitPriceForParty } from '@/lib/inventory/partyItemPrice';
 import { invoiceListPathForCategory } from '@/pages/invoices/invoiceRoutes';
 import { InvoiceTotalsPanel } from '@/pages/invoices/components/InvoiceTotalsPanel';
-import { cn, formatMoney, extractApiError } from '@/lib/utils';
+import { cn, formatMoney, formatDate, formatAmount, extractApiError } from '@/lib/utils';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import type { FinancialPartyDto, FinancialPartyKind, AccountDto } from '@/types/api';
@@ -78,6 +78,44 @@ const parseDecimalInput = (value: string) => {
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+// ‎حقل رقمي يحافظ على النص الخام أثناء الكتابة (يسمح بـ "0." و"0.0" و"0.01"…)
+// ‎ويصدر القيمة الرقمية المُحلَّلة عبر onValueChange. يتزامن مع القيمة الخارجية عند فقد التركيز.
+function DecimalInput({
+  value, onValueChange, className, placeholder = '0', disabled,
+}: {
+  value: number;
+  onValueChange: (n: number) => void;
+  className?: string;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [text, setText] = useState(value ? String(value) : '');
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setText(value ? String(value) : '');
+  }, [value, focused]);
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      className={className}
+      placeholder={placeholder}
+      disabled={disabled}
+      value={text}
+      onFocus={e => { setFocused(true); e.currentTarget.select(); }}
+      onBlur={() => { setFocused(false); }}
+      onChange={e => {
+        const raw = e.target.value.replace(/,/g, '');
+        if (raw !== '' && !/^-?\d*\.?\d*$/.test(raw)) return;
+        setText(raw);
+        onValueChange(parseDecimalInput(raw));
+      }}
+    />
+  );
+}
 
 const flattenAccounts = (list: AccountDto[]): AccountDto[] => {
   const result: AccountDto[] = [];
@@ -165,13 +203,36 @@ export function CreateInvoicePage() {
     enabled: itemCardId != null,
   });
   const itemMovementsQuery = useQuery({
-    queryKey: ['item-movements', itemMovementsId?.id, movFromDate, movToDate],
-    queryFn: () => inventoryApi.getMovements(itemMovementsId!.id, {
-      fromDate: movFromDate || undefined,
-      toDate: movToDate || undefined,
-    }),
+    queryKey: ['item-movements', itemMovementsId?.id],
+    queryFn: () => inventoryApi.getMovements(itemMovementsId!.id),
     enabled: itemMovementsId != null,
   });
+
+  // ‎رصيد متسلسل (قبل/بعد) محسوب من الحركات الفعّالة مرتبة زمنياً، مع فلترة الفترة في
+  // ‎الواجهة حتى يبقى "قبل" مساوياً لرصيد نهاية الحركة السابقة وليس لقطة مخزَّنة قديمة.
+  const movementRows = useMemo(() => {
+    const all = effectiveMovements((itemMovementsQuery.data ?? []) as ItemMovementDto[])
+      .slice()
+      .sort((a, b) => {
+        const ta = new Date(a.movementDate).getTime();
+        const tb = new Date(b.movementDate).getTime();
+        return ta !== tb ? ta - tb : a.id - b.id;
+      });
+    const isOut = (t: number) => t === 2 || t === 4 || t === 7;
+    const dayOf = (iso: string) => (iso || '').slice(0, 10);
+    let running = 0;
+    const out: (ItemMovementDto & { runBefore: number; runAfter: number })[] = [];
+    for (const m of all) {
+      const signed = isOut(m.type) ? -m.quantityInBase : m.quantityInBase;
+      const before = running;
+      running += signed;
+      const d = dayOf(m.movementDate);
+      if (movFromDate && d < movFromDate) continue;
+      if (movToDate && d > movToDate) continue;
+      out.push({ ...m, runBefore: before, runAfter: running });
+    }
+    return out;
+  }, [itemMovementsQuery.data, movFromDate, movToDate]);
   const itemStockQuery = useQuery({
     queryKey: ['item-stock', itemStockId?.id],
     queryFn: () => inventoryApi.getStockPerWarehouse(itemStockId!.id),
@@ -485,6 +546,23 @@ export function CreateInvoicePage() {
         }));
         setLines(built);
       } catch { /* تجاهل */ }
+      // ‎تحميل المصاريف المحفوظة
+      if (loadedInvoice.expenses && loadedInvoice.expenses.length > 0) {
+        setExpenseLines(loadedInvoice.expenses.map(e => ({
+          id: `${e.id}`,
+          debitAmount: e.debitAmount,
+          creditAmount: e.creditAmount,
+          accountId: e.accountId,
+          accountName: e.accountName,
+          accountCode: e.accountCode,
+          description: e.description ?? '',
+          accountSearch: '',
+        })));
+      }
+      if (loadedInvoice.expenseDistributionMethod) {
+        setExpenseDistMethod(loadedInvoice.expenseDistributionMethod === 2 ? 'volume'
+          : loadedInvoice.expenseDistributionMethod === 3 ? 'weight' : 'value');
+      }
       setHydrated(true);
     })();
   }, [isEdit, loadedInvoice, invoiceType, typeId, partyKind, todayIso]);
@@ -544,6 +622,14 @@ export function CreateInvoicePage() {
     if (manualNumber && !invoiceNumber.trim()) return toast.error('أدخل رقم الفاتورة اليدوي');
     if (!invoiceDate) return toast.error('اختر تاريخ الفاتورة');
     if (total <= 0) return toast.error('لا يمكن حفظ فاتورة إجماليها صفر');
+    const activeExpenses = expenseLines.filter(e => e.debitAmount > 0 || e.creditAmount > 0);
+    if (activeExpenses.length > 0) {
+      if (activeExpenses.some(e => !e.accountId)) return toast.error('اختر حساباً لكل سطر مصروف');
+      const expDebit = activeExpenses.reduce((s, e) => s + e.debitAmount, 0);
+      const expCredit = activeExpenses.reduce((s, e) => s + e.creditAmount, 0);
+      if (Math.round((expDebit - expCredit) * 1000) !== 0)
+        return toast.error(`قيد المصاريف غير متوازن — المدين ${expDebit.toLocaleString()} ≠ الدائن ${expCredit.toLocaleString()}`);
+    }
     const payload: CreateInvoicePayload = {
       financialPartyId: party.id, invoiceTypeId: typeId ?? undefined,
       warehouseId: showWarehouse ? warehouseId ?? undefined : undefined,
@@ -553,6 +639,10 @@ export function CreateInvoicePage() {
       discountPercentage: discountPct, discountAmount: discountPct > 0 ? 0 : discountAmt,
       additionAmount: additionAmt, notes: notes || undefined,
       lines: lines.map(l => ({ itemId: l.itemId, unitOfMeasureId: l.unitOfMeasureId, quantity: l.quantity, unitPriceOverride: l.unitPrice, lineDiscount: l.isGift ? l.quantity * l.unitPrice : l.lineDiscount })),
+      expenses: expenseLines
+        .filter(e => e.accountId && (e.debitAmount > 0 || e.creditAmount > 0))
+        .map(e => ({ accountId: e.accountId!, debitAmount: e.debitAmount, creditAmount: e.creditAmount, description: e.description || undefined })),
+      expenseDistributionMethod: expenseDistMethod === 'value' ? 1 : expenseDistMethod === 'volume' ? 2 : 3,
     };
     if (isEdit) updateMutation.mutate(payload);
     else createMutation.mutate(payload);
@@ -625,38 +715,26 @@ export function CreateInvoicePage() {
                     </select>
                   </td>
                   <td>
-                    <Input
-                      type="text" inputMode="decimal"
+                    <DecimalInput
                       className="invoice-table-input"
-                      value={l.quantity || ''}
-                      placeholder="0"
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => updateLine(l.origIdx, { quantity: parseDecimalInput(e.target.value) })}
+                      value={l.quantity}
+                      onValueChange={v => updateLine(l.origIdx, { quantity: v })}
                     />
                   </td>
                   <td>
-                    <Input
-                      type="text" inputMode="decimal"
+                    <DecimalInput
                       className="invoice-table-input"
-                      value={l.unitPrice || ''}
-                      placeholder="0"
+                      value={l.unitPrice}
                       disabled={l.isGift}
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => updateLine(l.origIdx, { unitPrice: parseDecimalInput(e.target.value) })}
+                      onValueChange={v => updateLine(l.origIdx, { unitPrice: v })}
                     />
                   </td>
                   <td>
-                    <Input
-                      type="text" inputMode="decimal"
+                    <DecimalInput
                       className="invoice-table-input"
-                      value={lineTotal || ''}
-                      placeholder="0"
+                      value={lineTotal}
                       disabled={l.isGift}
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => {
-                        const tot = parseDecimalInput(e.target.value);
-                        updateLine(l.origIdx, { unitPrice: (tot + l.lineDiscount) / (l.quantity || 1) });
-                      }}
+                      onValueChange={tot => updateLine(l.origIdx, { unitPrice: (tot + l.lineDiscount) / (l.quantity || 1) })}
                     />
                   </td>
                   <td className="text-center">
@@ -765,22 +843,18 @@ export function CreateInvoicePage() {
                   <td className="text-center text-[10px] text-muted-foreground">{idx + 1}</td>
                   {/* مدين */}
                   <td>
-                    <Input
-                      type="text" inputMode="decimal"
+                    <DecimalInput
                       className="invoice-table-input"
-                      value={exp.debitAmount > 0 ? exp.debitAmount : ''}
-                      placeholder="0"
-                      onChange={e => updateExpenseLine(exp.id, { debitAmount: parseDecimalInput(e.target.value) })}
+                      value={exp.debitAmount}
+                      onValueChange={v => updateExpenseLine(exp.id, { debitAmount: v })}
                     />
                   </td>
                   {/* دائن */}
                   <td>
-                    <Input
-                      type="text" inputMode="decimal"
+                    <DecimalInput
                       className="invoice-table-input"
-                      value={exp.creditAmount > 0 ? exp.creditAmount : ''}
-                      placeholder="0"
-                      onChange={e => updateExpenseLine(exp.id, { creditAmount: parseDecimalInput(e.target.value) })}
+                      value={exp.creditAmount}
+                      onValueChange={v => updateExpenseLine(exp.id, { creditAmount: v })}
                     />
                   </td>
                   {/* الحساب — مع بحث فوري */}
@@ -1268,52 +1342,44 @@ export function CreateInvoicePage() {
                 <div>
                   <Label className="invoice-field-label">الخصم %</Label>
                   <div className="relative">
-                    <Input type="text" inputMode="decimal"
+                    <DecimalInput
                       className={cn(NUMERIC_INPUT_CLS, 'pl-7 text-center')}
-                      value={discountPct || ''}
-                      placeholder="0"
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => handleDiscountPct(parseDecimalInput(e.target.value))} />
+                      value={discountPct}
+                      onValueChange={handleDiscountPct} />
                     <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 select-none text-sm font-bold text-muted-foreground">%</span>
                   </div>
                 </div>
                 {/* الخصم مبلغ */}
                 <div>
                   <Label className="invoice-field-label">{t('invoices.create.discountAmt')}</Label>
-                  <Input type="text" inputMode="decimal" className={NUMERIC_INPUT_CLS} placeholder="0"
-                    onFocus={e => e.currentTarget.select()}
-                    value={discountAmt || ''} onChange={e => handleDiscountAmt(parseDecimalInput(e.target.value))} />
+                  <DecimalInput className={NUMERIC_INPUT_CLS}
+                    value={discountAmt} onValueChange={handleDiscountAmt} />
                 </div>
                 {/* الإضافة % */}
                 <div>
                   <Label className="invoice-field-label">الإضافة %</Label>
                   <div className="relative">
-                    <Input type="text" inputMode="decimal"
+                    <DecimalInput
                       className={cn(NUMERIC_INPUT_CLS, 'pl-7 text-center')}
-                      value={additionPct || ''}
-                      placeholder="0"
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => handleAdditionPct(parseDecimalInput(e.target.value))} />
+                      value={additionPct}
+                      onValueChange={handleAdditionPct} />
                     <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 select-none text-sm font-bold text-muted-foreground">%</span>
                   </div>
                 </div>
                 {/* الإضافة مبلغ */}
                 <div>
                   <Label className="invoice-field-label">الإضافة</Label>
-                  <Input type="text" inputMode="decimal" className={NUMERIC_INPUT_CLS} placeholder="0"
-                    onFocus={e => e.currentTarget.select()}
-                    value={additionAmt || ''} onChange={e => handleAdditionAmt(parseDecimalInput(e.target.value))} />
+                  <DecimalInput className={NUMERIC_INPUT_CLS}
+                    value={additionAmt} onValueChange={handleAdditionAmt} />
                 </div>
                 {/* الضريبة % */}
                 <div>
                   <Label className="invoice-field-label">{t('invoices.create.taxPct')}</Label>
                   <div className="relative">
-                    <Input type="text" inputMode="decimal"
+                    <DecimalInput
                       className={cn(NUMERIC_INPUT_CLS, 'pl-7 text-center')}
-                      value={taxRate || ''}
-                      placeholder="0"
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => setTaxRate(parseDecimalInput(e.target.value))} />
+                      value={taxRate}
+                      onValueChange={setTaxRate} />
                     <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 select-none text-sm font-bold text-muted-foreground">%</span>
                   </div>
                 </div>
@@ -1430,14 +1496,14 @@ export function CreateInvoicePage() {
                   <X className="h-3 w-3" />
                 </button>
               )}
-              <span className="ms-auto text-muted-foreground">
-                {itemMovementsQuery.data?.length ?? 0} حركة
+              <span className="ms-auto text-muted-foreground num-display">
+                {movementRows.length} حركة
               </span>
             </div>
             <div className="max-h-[60vh] overflow-auto">
               {itemMovementsQuery.isLoading
                 ? <div className="py-8 text-center text-sm text-muted-foreground">جارٍ التحميل...</div>
-                : (itemMovementsQuery.data?.length ?? 0) === 0
+                : movementRows.length === 0
                   ? <div className="py-8 text-center text-sm text-muted-foreground">لا توجد حركات مسجّلة</div>
                   : (
                     <table className="w-full text-xs">
@@ -1449,31 +1515,28 @@ export function CreateInvoicePage() {
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">المستودع</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">الكمية</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">وحدة الجرد</th>
-                          <th className="py-2 px-2 text-center font-medium text-muted-foreground">السعر</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">قبل</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">بعد</th>
+                          <th className="py-2 px-2 text-center font-medium text-muted-foreground">السعر</th>
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">المرجع</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {(itemMovementsQuery.data as ItemMovementDto[]).map(m => {
-                          const isCorrection = m.referenceType?.endsWith('Reversal') ?? false;
-                          const info = isCorrection
-                            ? { label: 'تصحيح', color: 'text-yellow-600' }
-                            : (MOVEMENT_TYPE_LABELS[m.type] ?? { label: String(m.type), color: '' });
+                        {movementRows.map(m => {
+                          const info = MOVEMENT_TYPE_LABELS[m.type] ?? { label: String(m.type), color: '' };
                           return (
-                            <tr key={m.id} className={cn('border-t border-border/40 hover:bg-accent/30', isCorrection && 'opacity-60')}>
-                              <td className="py-1.5 px-2 text-muted-foreground">{new Date(m.movementDate).toLocaleDateString('ar-IQ')}</td>
+                            <tr key={m.id} className="border-t border-border/40 hover:bg-accent/30">
+                              <td className="py-1.5 px-2 text-muted-foreground">{formatDate(m.movementDate, { short: true })}</td>
                               <td className={cn('py-1.5 px-2 font-medium', info.color)}>{info.label}</td>
                               <td className="py-1.5 px-2 text-muted-foreground">{m.partyName ?? '—'}</td>
                               <td className="py-1.5 px-2">{m.warehouseName}</td>
                               <td className="py-1.5 px-2 text-center num-display font-semibold">{m.quantity}</td>
                               <td className="py-1.5 px-2 text-center">{m.unitName}</td>
+                              <td className="py-1.5 px-2 text-center num-display text-muted-foreground">{formatAmount(m.runBefore, 2)}</td>
+                              <td className="py-1.5 px-2 text-center num-display font-semibold">{formatAmount(m.runAfter, 2)}</td>
                               <td className="py-1.5 px-2 text-center num-display text-muted-foreground">
-                                {m.unitCost != null ? m.unitCost.toLocaleString('ar-IQ', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : '—'}
+                                {m.unitCost != null ? formatAmount(m.unitCost, 3) : '—'}
                               </td>
-                              <td className="py-1.5 px-2 text-center num-display text-muted-foreground">{m.quantityBefore}</td>
-                              <td className="py-1.5 px-2 text-center num-display font-semibold">{m.quantityAfter}</td>
                               <td className="py-1.5 px-2 text-muted-foreground">{m.referenceNumber ?? '—'}</td>
                             </tr>
                           );

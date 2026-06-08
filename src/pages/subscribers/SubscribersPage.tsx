@@ -1491,7 +1491,7 @@ function fmtBytes(n: number): string {
 function fmtDate(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? '—' : d.toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' });
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('ar-IQ-u-nu-latn', { dateStyle: 'short', timeStyle: 'short', numberingSystem: 'latn' });
 }
 
 // ─── تبويب التفعيل: سجل تفعيلات الشركة + وقت الانتهاء (قراءة فقط) ──────────────
@@ -2473,7 +2473,7 @@ function DatabaseTab({
 
             <p className="text-xs text-muted-foreground">
 
-              تم الإنشاء: {new Date(dbStatus.dbProvisionedAt).toLocaleString('ar-IQ')}
+              تم الإنشاء: {new Date(dbStatus.dbProvisionedAt).toLocaleString('ar-IQ-u-nu-latn', { numberingSystem: 'latn' })}
 
             </p>
 

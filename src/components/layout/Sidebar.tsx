@@ -9,7 +9,7 @@ import {
   ChevronsDown, ChevronsUp, FileText, CalendarRange, Coins, Tag,
   Wallet, ArrowDownLeft, ArrowUpRight, X, Trash2, Activity,
   Landmark, Building2, CreditCard, ArrowLeftRight,
-  Settings2,
+  Settings2, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth/auth-store';
@@ -117,7 +117,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/inventory', labelKey: 'sidebar.items.items', icon: Package, permission: PERMS.Inventory.Items.Read },
       { to: '/inventory/constants', labelKey: 'sidebar.items.itemConstants', icon: Settings2, permission: PERMS.Inventory.Items.Read },
-      { to: '/inventory/movements', labelKey: 'sidebar.items.stockMovements', icon: TrendingUp, permission: PERMS.Inventory.Movements.Read },
+      { to: '/inventory/movements', labelKey: 'sidebar.items.stockMovements', icon: TrendingUp, permission: PERMS.Inventory.Movements.Read, exact: true },
+      { to: '/inventory/stock-count', labelKey: 'sidebar.items.stockCount', icon: ClipboardList, permission: PERMS.Inventory.Items.Read, exact: true },
     ],
   },
   {

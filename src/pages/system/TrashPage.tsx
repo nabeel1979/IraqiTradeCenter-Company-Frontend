@@ -61,12 +61,13 @@ function formatRelative(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('ar-IQ', {
+  return new Intl.DateTimeFormat('ar-IQ-u-nu-latn', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    numberingSystem: 'latn',
     timeZone: 'Asia/Baghdad',
   }).format(d);
 }

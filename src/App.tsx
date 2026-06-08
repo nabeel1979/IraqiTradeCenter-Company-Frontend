@@ -19,6 +19,7 @@ import { ItemColorsPage } from '@/pages/inventory/ItemColorsPage';
 import { ItemConstantsPage } from '@/pages/inventory/ItemConstantsPage';
 import { WarehousesPage } from '@/pages/inventory/WarehousesPage';
 import { StockMovementsPage } from '@/pages/inventory/StockMovementsPage';
+import { StockCountReportPage } from '@/pages/inventory/StockCountReportPage';
 import { CustomersListPage } from '@/pages/customers/CustomersListPage';
 import { SalesRepsListPage } from '@/pages/sales-reps/SalesRepsListPage';
 import { IncomingOrdersListPage } from '@/pages/orders/IncomingOrdersListPage';
@@ -118,6 +119,7 @@ export default function App() {
 
         {/* Inventory */}
         <Route path="inventory/movements" element={<StockMovementsPage />} />
+        <Route path="inventory/stock-count" element={<StockCountReportPage />} />
         <Route path="inventory/constants" element={<ItemConstantsPage />} />
         <Route path="inventory/colors" element={<ItemColorsPage />} />
         <Route path="inventory/categories" element={<ItemCategoriesPage />} />
