@@ -478,7 +478,10 @@ export function CreateInvoicePage() {
           let units: LineUnit[] = []; let itemDetail: ItemDetailDto | undefined; let itemCode = ''; let primaryImageId: number | null = null;
           try { const detail = await inventoryApi.get(ln.itemId); itemDetail = detail; itemCode = detail.code ?? ''; units = detail.units.map(u => ({ unitOfMeasureId: u.unitOfMeasureId, unitName: u.unitName ?? '', isBase: u.isBase })); primaryImageId = detail.images.find(i => i.isPrimary)?.id ?? detail.images[0]?.id ?? null; } catch { /* تجاهل */ }
           const uomId = ln.unitOfMeasureId ?? (units.find(u => u.isBase)?.unitOfMeasureId ?? 0);
-          return { itemId: ln.itemId, itemCode, itemName: ln.itemName, primaryImageId, itemDetail, units, unitOfMeasureId: uomId, unitName: ln.unitName ?? (units.find(u => u.unitOfMeasureId === uomId)?.unitName ?? ''), quantity: ln.quantity, unitPrice: ln.unitPrice, lineDiscount: ln.lineDiscount };
+          // ‎الهدية تُحفظ كبند بخصم يساوي قيمته (نفس منطق الخادم) — نعيد اكتشافها هنا
+          const gross = ln.quantity * ln.unitPrice;
+          const isGift = gross > 0 && ln.lineDiscount >= gross;
+          return { itemId: ln.itemId, itemCode, itemName: ln.itemName, primaryImageId, itemDetail, units, unitOfMeasureId: uomId, unitName: ln.unitName ?? (units.find(u => u.unitOfMeasureId === uomId)?.unitName ?? ''), quantity: ln.quantity, unitPrice: ln.unitPrice, lineDiscount: isGift ? 0 : ln.lineDiscount, isGift };
         }));
         setLines(built);
       } catch { /* تجاهل */ }
