@@ -305,9 +305,11 @@ export interface ItemMovementDto {
   warehouseId: number;
   warehouseName: string;
   referenceType?: string | null;
+  referenceId?: number | null;
   referenceNumber?: string | null;
   unitCost?: number | null;
   notes?: string | null;
+  partyName?: string | null;
 }
 
 export interface ItemWarehouseStockDto {
@@ -546,8 +548,11 @@ export const inventoryApi = {
     return res.data;
   },
 
-  getMovements: async (itemId: number, take = 100) => {
-    const res = await api.get<ApiResponse<ItemMovementDto[]>>(`/items/${itemId}/movements`, { params: { take } });
+  getMovements: async (itemId: number, opts: { take?: number; fromDate?: string; toDate?: string } = {}) => {
+    const params: Record<string, unknown> = { take: opts.take ?? 200 };
+    if (opts.fromDate) params.fromDate = opts.fromDate;
+    if (opts.toDate) params.toDate = opts.toDate;
+    const res = await api.get<ApiResponse<ItemMovementDto[]>>(`/items/${itemId}/movements`, { params });
     return res.data.data ?? [];
   },
 

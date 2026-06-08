@@ -147,6 +147,8 @@ export function CreateInvoicePage() {
   // ── مودالات المادة ──
   const [itemCardId, setItemCardId] = useState<number | null>(null);
   const [itemMovementsId, setItemMovementsId] = useState<{ id: number; name: string } | null>(null);
+  const [movFromDate, setMovFromDate] = useState('');
+  const [movToDate, setMovToDate] = useState('');
   const [itemStockId, setItemStockId] = useState<{ id: number; name: string } | null>(null);
   const [stockUomId, setStockUomId] = useState<number | null>(null); // وحدة قياس جرد المخزون المختارة
 
@@ -163,8 +165,11 @@ export function CreateInvoicePage() {
     enabled: itemCardId != null,
   });
   const itemMovementsQuery = useQuery({
-    queryKey: ['item-movements', itemMovementsId?.id],
-    queryFn: () => inventoryApi.getMovements(itemMovementsId!.id),
+    queryKey: ['item-movements', itemMovementsId?.id, movFromDate, movToDate],
+    queryFn: () => inventoryApi.getMovements(itemMovementsId!.id, {
+      fromDate: movFromDate || undefined,
+      toDate: movToDate || undefined,
+    }),
     enabled: itemMovementsId != null,
   });
   const itemStockQuery = useQuery({
@@ -1387,12 +1392,46 @@ export function CreateInvoicePage() {
       {/* ── مودال حركة المادة ── */}
       {itemMovementsId !== null && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setItemMovementsId(null)}>
-          <div className="w-full max-w-3xl rounded-xl border bg-card shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-5xl rounded-xl border bg-card shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div className="flex items-center gap-2 font-semibold"><TrendingUp className="h-4 w-4 text-primary" /> حركة المادة — {itemMovementsId.name}</div>
               <button type="button" className="rounded p-1 hover:bg-accent" onClick={() => setItemMovementsId(null)}><X className="h-4 w-4" /></button>
             </div>
-            <div className="max-h-[65vh] overflow-auto">
+            {/* شريط الفلاتر */}
+            <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2 text-xs">
+              <span className="text-muted-foreground">الفترة:</span>
+              <label className="flex items-center gap-1">
+                <span className="text-muted-foreground">من</span>
+                <input
+                  type="date"
+                  className="h-7 rounded border border-border/60 bg-background px-2 text-xs"
+                  value={movFromDate}
+                  onChange={e => setMovFromDate(e.target.value)}
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                <span className="text-muted-foreground">إلى</span>
+                <input
+                  type="date"
+                  className="h-7 rounded border border-border/60 bg-background px-2 text-xs"
+                  value={movToDate}
+                  onChange={e => setMovToDate(e.target.value)}
+                />
+              </label>
+              {(movFromDate || movToDate) && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => { setMovFromDate(''); setMovToDate(''); }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+              <span className="ms-auto text-muted-foreground">
+                {itemMovementsQuery.data?.length ?? 0} حركة
+              </span>
+            </div>
+            <div className="max-h-[60vh] overflow-auto">
               {itemMovementsQuery.isLoading
                 ? <div className="py-8 text-center text-sm text-muted-foreground">جارٍ التحميل...</div>
                 : (itemMovementsQuery.data?.length ?? 0) === 0
@@ -1403,9 +1442,11 @@ export function CreateInvoicePage() {
                         <tr>
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">التاريخ</th>
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">النوع</th>
+                          <th className="py-2 px-2 text-right font-medium text-muted-foreground">المورد/العميل</th>
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">المستودع</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">الكمية</th>
-                          <th className="py-2 px-2 text-center font-medium text-muted-foreground">الوحدة</th>
+                          <th className="py-2 px-2 text-center font-medium text-muted-foreground">وحدة الجرد</th>
+                          <th className="py-2 px-2 text-center font-medium text-muted-foreground">السعر</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">قبل</th>
                           <th className="py-2 px-2 text-center font-medium text-muted-foreground">بعد</th>
                           <th className="py-2 px-2 text-right font-medium text-muted-foreground">المرجع</th>
@@ -1413,14 +1454,21 @@ export function CreateInvoicePage() {
                       </thead>
                       <tbody>
                         {(itemMovementsQuery.data as ItemMovementDto[]).map(m => {
-                          const info = MOVEMENT_TYPE_LABELS[m.type] ?? { label: String(m.type), color: '' };
+                          const isCorrection = m.referenceType?.endsWith('Reversal') ?? false;
+                          const info = isCorrection
+                            ? { label: 'تصحيح', color: 'text-yellow-600' }
+                            : (MOVEMENT_TYPE_LABELS[m.type] ?? { label: String(m.type), color: '' });
                           return (
-                            <tr key={m.id} className="border-t border-border/40 hover:bg-accent/30">
+                            <tr key={m.id} className={cn('border-t border-border/40 hover:bg-accent/30', isCorrection && 'opacity-60')}>
                               <td className="py-1.5 px-2 text-muted-foreground">{new Date(m.movementDate).toLocaleDateString('ar-IQ')}</td>
                               <td className={cn('py-1.5 px-2 font-medium', info.color)}>{info.label}</td>
+                              <td className="py-1.5 px-2 text-muted-foreground">{m.partyName ?? '—'}</td>
                               <td className="py-1.5 px-2">{m.warehouseName}</td>
                               <td className="py-1.5 px-2 text-center num-display font-semibold">{m.quantity}</td>
                               <td className="py-1.5 px-2 text-center">{m.unitName}</td>
+                              <td className="py-1.5 px-2 text-center num-display text-muted-foreground">
+                                {m.unitCost != null ? m.unitCost.toLocaleString('ar-IQ', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : '—'}
+                              </td>
                               <td className="py-1.5 px-2 text-center num-display text-muted-foreground">{m.quantityBefore}</td>
                               <td className="py-1.5 px-2 text-center num-display font-semibold">{m.quantityAfter}</td>
                               <td className="py-1.5 px-2 text-muted-foreground">{m.referenceNumber ?? '—'}</td>
