@@ -2551,31 +2551,66 @@ export interface InvoicePrintData {
 }
 
 const INVOICE_EXTRA_STYLES = `
-  .inv-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
-  .inv-meta .item { border: 1px solid #dde1e7; border-radius: 6px; padding: 7px 10px; }
-  .inv-meta .label { font-size: 9.5px; color: #666; display: block; margin-bottom: 2px; font-weight: 500; }
-  .inv-meta .value { font-size: 13px; font-weight: 700; color: #111; }
-  .inv-meta .item.highlight { background: #2c3e50; border-color: #2c3e50; }
-  .inv-meta .item.highlight .label { color: #aaa; }
-  .inv-meta .item.highlight .value { color: #fff; font-size: 15px; }
-  .party-box { border: 1.5px solid #2c3e50; border-radius: 6px; padding: 8px 12px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
-  .party-box .party-label { font-size: 10px; color: #666; flex-shrink: 0; }
-  .party-box .party-name { font-size: 14px; font-weight: 700; }
-  .party-box .party-code { font-size: 10px; color: #888; font-family: monospace; }
-  .section-title { font-size: 11px; font-weight: 700; color: #fff; background: #2c3e50; padding: 4px 10px; border-radius: 4px 4px 0 0; margin-top: 14px; margin-bottom: 0; }
-  .section-title.gift { background: #b45309; }
-  .section-title.expense { background: #1e40af; }
-  .totals-grid { margin-top: 16px; display: flex; justify-content: flex-start; gap: 16px; }
-  .totals-table { border-collapse: collapse; min-width: 260px; font-size: 12px; }
-  .totals-table td { padding: 5px 10px; border: 1px solid #dde1e7; }
-  .totals-table .t-label { color: #555; font-weight: 500; }
-  .totals-table .t-value { text-align: left; font-family: monospace; font-weight: 600; }
-  .totals-table tr.grand-total td { background: #2c3e50; color: #fff; font-size: 14px; font-weight: 700; }
-  .notes-box { border: 1px dashed #ccc; border-radius: 4px; padding: 6px 10px; margin-top: 12px; font-size: 11px; color: #555; }
-  .settlement-box { border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 6px; padding: 8px 12px; margin-top: 12px; font-size: 11px; }
-  .settlement-box.credit { border-color: #fed7aa; background: #fff7ed; }
+  /* شريط عنوان الفاتورة */
+  .inv-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: #1f2d3d; color: #fff; border-radius: 8px; padding: 10px 18px; margin: 14px 0 16px; }
+  .inv-banner .inv-banner-title { font-size: 18px; font-weight: 800; letter-spacing: .3px; }
+  .inv-banner .inv-banner-no { text-align: left; }
+  .inv-banner .inv-banner-no .lbl { font-size: 9px; color: #9fb3c8; display: block; }
+  .inv-banner .inv-banner-no .val { font-size: 17px; font-weight: 800; font-family: 'Segoe UI', monospace; }
+
+  /* صناديق المعلومات (العميل + بيانات الفاتورة) */
+  .inv-info { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .info-card { border: 1px solid #d8dee6; border-radius: 8px; overflow: hidden; }
+  .info-card > h3 { font-size: 10.5px; font-weight: 700; color: #fff; background: #34495e;
+    margin: 0; padding: 5px 12px; letter-spacing: .2px; }
+  .info-card .info-body { padding: 8px 12px; }
+  .info-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    padding: 3px 0; border-bottom: 1px dotted #eceff3; font-size: 11.5px; }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .k { color: #7b8794; font-weight: 500; }
+  .info-row .v { font-weight: 700; color: #1f2d3d; text-align: left; }
+  .info-row .v.mono { font-family: monospace; }
+  .info-card.party .party-name { font-size: 15px; font-weight: 800; color: #1f2d3d; margin-bottom: 2px; }
+  .info-card.party .party-code { font-size: 10px; color: #8a94a0; font-family: monospace; }
+
+  /* عناوين الأقسام */
+  .section-title { font-size: 11px; font-weight: 700; color: #fff; background: #34495e;
+    padding: 5px 12px; border-radius: 6px 6px 0 0; margin-top: 16px; margin-bottom: 0;
+    display: flex; align-items: center; gap: 6px; }
+  .section-title.gift { background: #a96414; }
+  .section-title.expense { background: #1d4e89; }
+  .section-title + table { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+
+  /* جدول البنود */
+  table.inv-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  table.inv-table thead th { background: #f1f4f8; color: #46566a; font-weight: 700;
+    padding: 6px 8px; border: 1px solid #d8dee6; }
+  table.inv-table tbody td { padding: 5px 8px; border: 1px solid #e2e7ee; }
+  table.inv-table tbody tr:nth-child(even) td { background: #f9fafc; }
+  table.inv-table tfoot th { padding: 6px 8px; border: 1px solid #d8dee6; background: #eef2f6; font-weight: 700; }
+  table.inv-table .item-name { font-weight: 600; color: #1f2d3d; }
+  table.inv-table .item-code { color: #97a1ad; font-size: 9px; }
+  .gift-tag { color: #a96414; font-weight: 700; }
+
+  /* لوحة الإجماليات */
+  .totals-grid { margin-top: 16px; display: flex; justify-content: flex-start; }
+  .totals-table { border-collapse: collapse; min-width: 290px; font-size: 12px; }
+  .totals-table td { padding: 6px 12px; border: 1px solid #dde1e7; }
+  .totals-table .t-label { color: #46566a; font-weight: 500; background: #f9fafc; }
+  .totals-table .t-value { text-align: left; font-family: monospace; font-weight: 700; }
+  .totals-table tr.grand-total td { background: #1f2d3d; color: #fff; font-size: 15px; font-weight: 800; }
+
+  .notes-box { border: 1px solid #e2e7ee; border-radius: 6px; padding: 8px 12px; margin-top: 14px;
+    font-size: 11px; color: #46566a; background: #fbfcfd; }
+  .notes-box .nb-title { font-weight: 700; color: #1f2d3d; margin-bottom: 2px; }
+  .settlement-box { border: 1px solid #cfe8d8; background: #f3faf5; border-radius: 6px;
+    padding: 8px 12px; margin-top: 14px; font-size: 11.5px; color: #1f2d3d; }
+  .settlement-box.credit { border-color: #f3dcbb; background: #fdf8f1; }
+  .settlement-box strong { font-weight: 800; }
+
   @media (max-width: 600px) {
-    .inv-meta { grid-template-columns: 1fr 1fr; }
+    .inv-info { grid-template-columns: 1fr; }
   }
 `;
 
@@ -2603,12 +2638,12 @@ export function printInvoice(
       const lineTotal = l.quantity * l.unitPrice - (forGift ? l.quantity * l.unitPrice : l.lineDiscount);
       return `<tr>
         <td class="center">${idx + 1}</td>
-        <td>${escapeHtml(l.itemName)}<br><small style="color:#888;font-size:9px">${escapeHtml(l.itemCode)}</small></td>
+        <td><span class="item-name">${escapeHtml(l.itemName)}</span>${l.itemCode ? `<br><span class="item-code">${escapeHtml(l.itemCode)}</span>` : ''}</td>
         <td class="center">${escapeHtml(l.unitName)}</td>
         <td class="center num">${fmtNum(l.quantity)}</td>
         ${forGift ? '' : `<td class="center num">${fmtNum(l.unitPrice)}</td>`}
         ${forGift ? '' : `<td class="center num">${l.lineDiscount > 0 ? fmtNum(l.lineDiscount) : '—'}</td>`}
-        <td class="center num">${forGift ? '<span style="color:#b45309">هدية</span>' : fmtAmt(lineTotal)}</td>
+        <td class="center num">${forGift ? '<span class="gift-tag">هدية</span>' : fmtAmt(lineTotal)}</td>
       </tr>`;
     }).join('');
 
@@ -2617,14 +2652,12 @@ export function printInvoice(
       : `<th class="center">#</th><th>المادة</th><th class="center">الوحدة</th><th class="center">الكمية</th><th class="center">السعر</th><th class="center">الخصم</th><th class="center">الإجمالي</th>`;
 
     return `
-      <div class="section-title${forGift ? ' gift' : ''}">
-        ${forGift ? '🎁 الهدايا المرفقة' : '📋 بنود الفاتورة'}
-      </div>
-      <table>
+      <div class="section-title${forGift ? ' gift' : ''}">${forGift ? 'الهدايا المرفقة' : 'بنود الفاتورة'}</div>
+      <table class="inv-table">
         <thead><tr>${headers}</tr></thead>
         <tbody>${rows}</tbody>
         ${!forGift ? `<tfoot><tr>
-          <th colspan="${forGift ? 4 : 6}" class="left" style="padding-right:10px">المجموع الفرعي</th>
+          <th colspan="6" class="left" style="padding-inline-end:12px">المجموع الفرعي</th>
           <th class="center num">${fmtAmt(data.subTotal)}</th>
         </tr></tfoot>` : ''}
       </table>`;
@@ -2636,15 +2669,15 @@ export function printInvoice(
     if (!exps.length) return '';
     const rows = exps.map((e, idx) => `<tr>
       <td class="center">${idx + 1}</td>
-      <td>${escapeHtml(e.accountCode)}</td>
+      <td class="mono">${escapeHtml(e.accountCode)}</td>
       <td>${escapeHtml(e.accountName)}</td>
       <td class="center num">${e.debitAmount > 0 ? fmtAmt(e.debitAmount) : '—'}</td>
       <td class="center num">${e.creditAmount > 0 ? fmtAmt(e.creditAmount) : '—'}</td>
       <td>${escapeHtml(e.description)}</td>
     </tr>`).join('');
     return `
-      <div class="section-title expense">💰 المصاريف</div>
-      <table>
+      <div class="section-title expense">المصاريف</div>
+      <table class="inv-table">
         <thead><tr>
           <th class="center">#</th>
           <th>كود الحساب</th><th>الحساب</th>
@@ -2677,50 +2710,62 @@ export function printInvoice(
   // ── التسديد ──
   const buildSettlement = () => {
     if (data.isCash) return '';
-    const dueInfo = data.dueDate ? `<br>تاريخ الاستحقاق: <strong>${escapeHtml(data.dueDate)}</strong>` : '';
+    const dueInfo = data.dueDate ? ` — تاريخ الاستحقاق: <strong>${escapeHtml(data.dueDate)}</strong>` : '';
     return `<div class="settlement-box credit">
-      💳 <strong>فاتورة آجلة</strong>${dueInfo}
+      <strong>فاتورة آجلة</strong>${dueInfo}
       <br>الطرف: <strong>${escapeHtml(data.partyName)}</strong>
-      ${data.partyAccountCode ? `<span style="color:#888;font-size:10px">(${escapeHtml(data.partyAccountCode)})</span>` : ''}
+      ${data.partyAccountCode ? `<span style="color:#8a94a0;font-size:10px">(${escapeHtml(data.partyAccountCode)})</span>` : ''}
     </div>`;
   };
 
   // ── ملاحظات ──
-  const notesHtml = data.notes ? `<div class="notes-box">📝 ملاحظات: ${escapeHtml(data.notes)}</div>` : '';
+  const notesHtml = data.notes
+    ? `<div class="notes-box"><div class="nb-title">ملاحظات</div>${escapeHtml(data.notes)}</div>`
+    : '';
 
-  const metaItems = [
-    { label: 'رقم الفاتورة', value: data.invoiceNumber ?? 'تلقائي', highlight: true },
-    { label: 'التاريخ', value: data.invoiceDate },
-    { label: 'نوع الفاتورة', value: data.invoiceTypeName },
-    { label: 'العملة', value: data.currency },
-  ];
-  if (data.manualNumber) metaItems.splice(1, 0, { label: 'الرقم اليدوي', value: data.manualNumber, highlight: false });
-
-  const metaHtml = `<div class="inv-meta">
-    ${metaItems.map(m => `<div class="item${m.highlight ? ' highlight' : ''}">
-      <span class="label">${escapeHtml(m.label)}</span>
-      <span class="value">${escapeHtml(m.value)}</span>
-    </div>`).join('')}
+  // ── شريط العنوان ──
+  const bannerHtml = `<div class="inv-banner">
+    <div class="inv-banner-title">${escapeHtml(data.invoiceTypeName)}</div>
+    <div class="inv-banner-no">
+      <span class="lbl">رقم الفاتورة</span>
+      <span class="val">${escapeHtml(data.invoiceNumber ?? 'تلقائي')}</span>
+    </div>
   </div>`;
 
-  const partyHtml = `<div class="party-box">
-    <span class="party-label">العميل / المورد</span>
-    <span class="party-name">${escapeHtml(data.partyName)}</span>
-    ${data.partyAccountCode ? `<span class="party-code">${escapeHtml(data.partyAccountCode)}</span>` : ''}
+  // ── صندوق العميل/المورد ──
+  const partyRows: string[] = [];
+  partyRows.push(`<div class="party-name">${escapeHtml(data.partyName || '—')}</div>`);
+  if (data.partyAccountCode) partyRows.push(`<div class="party-code">رقم الحساب: ${escapeHtml(data.partyAccountCode)}</div>`);
+  const partyCard = `<div class="info-card party">
+    <h3>العميل / المورد</h3>
+    <div class="info-body">${partyRows.join('')}</div>
   </div>`;
+
+  // ── صندوق بيانات الفاتورة ──
+  const detailRows: string[] = [];
+  detailRows.push(`<div class="info-row"><span class="k">التاريخ</span><span class="v">${escapeHtml(data.invoiceDate)}</span></div>`);
+  if (data.manualNumber) detailRows.push(`<div class="info-row"><span class="k">الرقم اليدوي</span><span class="v mono">${escapeHtml(data.manualNumber)}</span></div>`);
+  if (data.warehouseName) detailRows.push(`<div class="info-row"><span class="k">المستودع</span><span class="v">${escapeHtml(data.warehouseName)}</span></div>`);
+  detailRows.push(`<div class="info-row"><span class="k">طريقة التسديد</span><span class="v">${data.isCash ? 'نقداً' : 'آجل'}</span></div>`);
+  detailRows.push(`<div class="info-row"><span class="k">العملة</span><span class="v">${escapeHtml(data.currency)}</span></div>`);
+  const detailCard = `<div class="info-card">
+    <h3>بيانات الفاتورة</h3>
+    <div class="info-body">${detailRows.join('')}</div>
+  </div>`;
+
+  const infoHtml = `<div class="inv-info">${partyCard}${detailCard}</div>`;
 
   const bodyHtml = `
     ${header}
-    <div class="report-title">${escapeHtml(data.invoiceTypeName)}</div>
-    ${metaHtml}
-    ${partyHtml}
+    ${bannerHtml}
+    ${infoHtml}
     ${buildLinesTable(regularLines, false)}
     ${giftLines.length > 0 ? buildLinesTable(giftLines, true) : ''}
     ${buildExpensesTable()}
     ${buildTotals()}
     ${buildSettlement()}
     ${notesHtml}
-    <div class="signatures" style="margin-top:30px">
+    <div class="signatures" style="margin-top:34px">
       <div class="sig">المحرر</div>
       <div class="sig">المدقق</div>
       <div class="sig">المستلم / الزبون</div>
