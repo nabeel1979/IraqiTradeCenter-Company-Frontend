@@ -622,6 +622,7 @@ export function CreateInvoicePage() {
                       className="invoice-table-input"
                       value={l.quantity || ''}
                       placeholder="0"
+                      onFocus={e => e.currentTarget.select()}
                       onChange={e => updateLine(l.origIdx, { quantity: parseDecimalInput(e.target.value) })}
                     />
                   </td>
@@ -632,6 +633,7 @@ export function CreateInvoicePage() {
                       value={l.unitPrice || ''}
                       placeholder="0"
                       disabled={l.isGift}
+                      onFocus={e => e.currentTarget.select()}
                       onChange={e => updateLine(l.origIdx, { unitPrice: parseDecimalInput(e.target.value) })}
                     />
                   </td>
@@ -642,6 +644,7 @@ export function CreateInvoicePage() {
                       value={lineTotal || ''}
                       placeholder="0"
                       disabled={l.isGift}
+                      onFocus={e => e.currentTarget.select()}
                       onChange={e => {
                         const tot = parseDecimalInput(e.target.value);
                         updateLine(l.origIdx, { unitPrice: (tot + l.lineDiscount) / (l.quantity || 1) });
@@ -1060,17 +1063,28 @@ export function CreateInvoicePage() {
             <div>
               <Label className="invoice-field-label flex items-center gap-1"><Hash className="h-3 w-3" /> رقم الفاتورة</Label>
               <div className="flex h-8 items-center rounded-md border border-border/50 bg-muted/30 px-2 font-mono text-xs text-muted-foreground">
-                {isEdit && loadedInvoice ? loadedInvoice.invoiceNumber : 'تلقائي'}
+                {isEdit && loadedInvoice
+                  ? loadedInvoice.invoiceNumber
+                  : invoiceType?.code
+                    ? <span title="سيُولَّد تلقائياً عند الحفظ">{invoiceType.code}-<span className="opacity-50">?</span></span>
+                    : 'تلقائي'}
               </div>
             </div>
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <Label className="invoice-field-label mb-0 flex items-center gap-1"><Hash className="h-3 w-3" /> الرقم اليدوي</Label>
                 <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground">
-                  <input type="checkbox" checked={manualNumber} onChange={e => setManualNumber(e.target.checked)} /> تفعيل
+                  <input type="checkbox" checked={manualNumber} onChange={e => { setManualNumber(e.target.checked); if (!e.target.checked) setInvoiceNumber(''); }} /> تفعيل
                 </label>
               </div>
-              <Input className="h-8 text-xs" placeholder={manualNumber ? 'أدخل الرقم' : '—'} value={manualNumber ? invoiceNumber : ''} disabled={!manualNumber} onChange={e => setInvoiceNumber(e.target.value)} />
+              <Input
+                className="h-8 text-xs"
+                placeholder={manualNumber ? `أدخل الرقم (مثال: ${invoiceType?.code ?? ''}-)` : '—'}
+                value={manualNumber ? invoiceNumber : ''}
+                disabled={!manualNumber}
+                onFocus={e => e.currentTarget.select()}
+                onChange={e => setInvoiceNumber(e.target.value)}
+              />
             </div>
             <div>
               <Label className="invoice-field-label flex items-center gap-1"><Calendar className="h-3 w-3" /> التاريخ</Label>
@@ -1192,30 +1206,45 @@ export function CreateInvoicePage() {
               </TabBtn>
             </div>
 
-            {/* محتوى التاب — عند الطباعة تظهر جميع التابات */}
+            {/* محتوى التاب — عند الطباعة تظهر جميع التابات المستخدمة */}
             <div className="pt-3">
+              {/* البنود */}
               <div className={activeTab === 'lines' ? '' : 'hidden print:block'}>
-                {(activeTab === 'lines' || true) && renderItemsTab('lines')}
+                {renderItemsTab('lines')}
               </div>
-              {giftLinesWithIdx.length > 0 && (
-                <div className={activeTab === 'gifts' ? '' : 'hidden print:block'}>
-                  <div className="print:mt-4 print:border-t print:pt-3">
-                    {activeTab !== 'gifts' && <div className="hidden print:block text-sm font-semibold mb-2 flex items-center gap-1"><Package className="h-3.5 w-3.5 inline ml-1" />الهدايا</div>}
-                    {renderItemsTab('gifts')}
-                  </div>
+
+              {/* الهدايا — يظهر دائماً عند تحديده، وعند الطباعة فقط إذا كانت هناك هدايا */}
+              <div className={activeTab === 'gifts' ? '' : (giftLinesWithIdx.length > 0 ? 'hidden print:block' : 'hidden')}>
+                <div className="print:mt-4 print:border-t print:pt-3">
+                  {activeTab !== 'gifts' && giftLinesWithIdx.length > 0 && (
+                    <div className="hidden print:block text-sm font-semibold mb-2 flex items-center gap-1">
+                      <Package className="h-3.5 w-3.5 inline ml-1" />الهدايا
+                    </div>
+                  )}
+                  {renderItemsTab('gifts')}
                 </div>
-              )}
-              {expenseLines.length > 0 && (
-                <div className={activeTab === 'expenses' ? '' : 'hidden print:block'}>
-                  <div className="print:mt-4 print:border-t print:pt-3">
-                    {activeTab !== 'expenses' && <div className="hidden print:block text-sm font-semibold mb-2"><CreditCard className="h-3.5 w-3.5 inline ml-1" />المصاريف</div>}
-                    {renderExpensesTab()}
-                  </div>
+              </div>
+
+              {/* المصاريف — يظهر دائماً عند تحديده، وعند الطباعة فقط إذا كانت هناك مصاريف */}
+              <div className={activeTab === 'expenses' ? '' : (expenseLines.length > 0 ? 'hidden print:block' : 'hidden')}>
+                <div className="print:mt-4 print:border-t print:pt-3">
+                  {activeTab !== 'expenses' && expenseLines.length > 0 && (
+                    <div className="hidden print:block text-sm font-semibold mb-2">
+                      <CreditCard className="h-3.5 w-3.5 inline ml-1" />المصاريف
+                    </div>
+                  )}
+                  {renderExpensesTab()}
                 </div>
-              )}
+              </div>
+
+              {/* التسديد */}
               <div className={activeTab === 'settlement' ? '' : 'hidden print:block'}>
                 <div className="print:mt-4 print:border-t print:pt-3">
-                  {activeTab !== 'settlement' && <div className="hidden print:block text-sm font-semibold mb-2"><Wallet className="h-3.5 w-3.5 inline ml-1" />التسديد</div>}
+                  {activeTab !== 'settlement' && (
+                    <div className="hidden print:block text-sm font-semibold mb-2">
+                      <Wallet className="h-3.5 w-3.5 inline ml-1" />التسديد
+                    </div>
+                  )}
                   {renderSettlementTab()}
                 </div>
               </div>
@@ -1235,6 +1264,7 @@ export function CreateInvoicePage() {
                       className={cn(NUMERIC_INPUT_CLS, 'pl-7 text-center')}
                       value={discountPct || ''}
                       placeholder="0"
+                      onFocus={e => e.currentTarget.select()}
                       onChange={e => handleDiscountPct(parseDecimalInput(e.target.value))} />
                     <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 select-none text-sm font-bold text-muted-foreground">%</span>
                   </div>
@@ -1243,6 +1273,7 @@ export function CreateInvoicePage() {
                 <div>
                   <Label className="invoice-field-label">{t('invoices.create.discountAmt')}</Label>
                   <Input type="text" inputMode="decimal" className={NUMERIC_INPUT_CLS} placeholder="0"
+                    onFocus={e => e.currentTarget.select()}
                     value={discountAmt || ''} onChange={e => handleDiscountAmt(parseDecimalInput(e.target.value))} />
                 </div>
                 {/* الإضافة % */}
@@ -1253,6 +1284,7 @@ export function CreateInvoicePage() {
                       className={cn(NUMERIC_INPUT_CLS, 'pl-7 text-center')}
                       value={additionPct || ''}
                       placeholder="0"
+                      onFocus={e => e.currentTarget.select()}
                       onChange={e => handleAdditionPct(parseDecimalInput(e.target.value))} />
                     <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 select-none text-sm font-bold text-muted-foreground">%</span>
                   </div>
@@ -1261,6 +1293,7 @@ export function CreateInvoicePage() {
                 <div>
                   <Label className="invoice-field-label">الإضافة</Label>
                   <Input type="text" inputMode="decimal" className={NUMERIC_INPUT_CLS} placeholder="0"
+                    onFocus={e => e.currentTarget.select()}
                     value={additionAmt || ''} onChange={e => handleAdditionAmt(parseDecimalInput(e.target.value))} />
                 </div>
                 {/* الضريبة % */}
@@ -1271,6 +1304,7 @@ export function CreateInvoicePage() {
                       className={cn(NUMERIC_INPUT_CLS, 'pl-7 text-center')}
                       value={taxRate || ''}
                       placeholder="0"
+                      onFocus={e => e.currentTarget.select()}
                       onChange={e => setTaxRate(parseDecimalInput(e.target.value))} />
                     <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 select-none text-sm font-bold text-muted-foreground">%</span>
                   </div>
