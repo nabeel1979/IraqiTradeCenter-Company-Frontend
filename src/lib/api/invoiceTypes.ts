@@ -133,6 +133,7 @@ export interface RegenerateEntriesResult {
   errors: number;
   skipped: number;
   total: number;
+  itemsRecomputed?: number;
   backupFile?: string | null;
   backupError?: string | null;
   errorDetails: { id: number; invoiceNumber: string; error: string }[];

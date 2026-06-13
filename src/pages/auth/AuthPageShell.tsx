@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { Languages } from 'lucide-react';
+import { Languages, Maximize, Minimize } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useLocale } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { CompanyHostBadge } from '@/components/layout/CompanyHostBadge';
+import { useFullscreen } from '@/hooks/useFullscreen';
 
 interface AuthPageShellProps {
   children: ReactNode;
@@ -17,6 +18,7 @@ interface AuthPageShellProps {
 export function AuthPageShell({ children, showBrand = true, header }: AuthPageShellProps) {
   const { t } = useTranslation();
   const { locale, toggleLocale, isRtl } = useLocale();
+  const { isFullscreen, toggleFullscreen } = useFullscreen();
 
   return (
     <div className="relative min-h-[100dvh] overflow-hidden bg-background">
@@ -26,21 +28,34 @@ export function AuthPageShell({ children, showBrand = true, header }: AuthPageSh
         <div className="pattern-meso absolute inset-0 opacity-30" />
       </div>
 
-      <button
-        type="button"
-        onClick={toggleLocale}
-        title={locale === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}
-        aria-label={locale === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}
+      <div
         className={cn(
-          'absolute top-3 z-20 flex h-9 items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2.5 text-muted-foreground backdrop-blur-md transition-colors hover:bg-card hover:text-primary sm:top-4',
+          'absolute top-3 z-20 flex items-center gap-2 sm:top-4',
           isRtl ? 'left-3 sm:left-4' : 'right-3 sm:right-4',
         )}
       >
-        <Languages className="h-4 w-4" />
-        <span className="text-xs font-semibold uppercase tracking-wider">
-          {locale === 'ar' ? 'EN' : 'ع'}
-        </span>
-      </button>
+        <button
+          type="button"
+          onClick={() => void toggleFullscreen()}
+          title={isFullscreen ? t('topbar.exitFullscreen') : t('topbar.fullscreen')}
+          aria-label={isFullscreen ? t('topbar.exitFullscreen') : t('topbar.fullscreen')}
+          className="flex h-9 w-9 items-center justify-center rounded-md border border-border/60 bg-card/60 text-muted-foreground backdrop-blur-md transition-colors hover:bg-card hover:text-primary"
+        >
+          {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+        </button>
+        <button
+          type="button"
+          onClick={toggleLocale}
+          title={locale === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}
+          aria-label={locale === 'ar' ? 'Switch to English' : 'التبديل إلى العربية'}
+          className="flex h-9 items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2.5 text-muted-foreground backdrop-blur-md transition-colors hover:bg-card hover:text-primary"
+        >
+          <Languages className="h-4 w-4" />
+          <span className="text-xs font-semibold uppercase tracking-wider">
+            {locale === 'ar' ? 'EN' : 'ع'}
+          </span>
+        </button>
+      </div>
 
       <div className="relative flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-6 sm:py-10">
         {/* تخطيط متجاوب: عمود واحد على الجوال، عمودان (هوية + نموذج) على الشاشات الكبيرة */}

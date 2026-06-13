@@ -10,7 +10,7 @@ window.__ITC_CONFIG__ = {
   parentApiBaseUrl: "https://api-iraqitradecenter.gcc.iq/api",
 
   /* رابط API المشترك لكل الشركات (نطاق واحد، قواعد متعددة بتحليل المستأجر) */
-  companyApiBaseUrl: "https://api_iraqitradecenter_company.gcc.iq/api",
+  companyApiBaseUrl: "https://api-iraqitradecenter.gcc.iq/api",
 
   /* نطاقات الشركة الأم */
   parentHosts: ["iraqitradecenter.gcc.iq", "parent.iraqitradecenter.gcc.iq"],

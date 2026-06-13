@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
@@ -12,17 +12,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
-import { inventoryApi, type ItemStockCountRowDto } from '@/lib/api/inventory';
+import { inventoryApi, type ItemStockCountRowDto, type ItemListDto } from '@/lib/api/inventory';
 import { companySettingsApi } from '@/lib/api/companySettings';
-import { formatAmount, cn } from '@/lib/utils';
+import { formatAmountFixed2, cn } from '@/lib/utils';
 import { useLocale } from '@/lib/i18n';
 import { printStockCount, type StockCountPrintRow } from '@/lib/printUtils';
 import { auditApi } from '@/lib/api/audit';
+import { InvoiceInventoryBackButton } from '@/pages/invoices/components/InvoiceInventoryBackButton';
 
 interface RunKey {
   warehouseId: number | '';
   categoryId: number | '';
-  search: string;
   includeZero: boolean;
   itemId?: number;
 }
@@ -59,18 +59,51 @@ export function StockCountReportPage() {
     return Number.isFinite(v) && v > 0 ? v : undefined;
   }, [searchParams]);
   const scopedItemName = searchParams.get('itemName') ?? undefined;
+  const returnTo = searchParams.get('returnTo');
+  const returnLabel = searchParams.get('returnLabel');
 
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [categoryId, setCategoryId] = useState<number | ''>('');
-  const [search, setSearch] = useState('');
   const [includeZero, setIncludeZero] = useState(false);
   const [runKey, setRunKey] = useState<RunKey | null>(null);
+
+  const [itemSearch, setItemSearch] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<{ id: number; code: string; name: string } | null>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  useEffect(() => {
+    const qpId = searchParams.get('itemId');
+    if (!qpId) return;
+    const id = Number(qpId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    setSelectedItem({
+      id,
+      code: searchParams.get('itemCode') ?? '',
+      name: searchParams.get('itemName') ?? `#${id}`,
+    });
+  }, [searchParams]);
+
+  const itemSearchQuery = useQuery({
+    queryKey: ['inv-items-search-stock-count', itemSearch],
+    queryFn: () => inventoryApi.list({ search: itemSearch.trim(), pageSize: 25 }),
+    enabled: pickerOpen,
+    staleTime: 60_000,
+  });
 
   // تشغيل تلقائي عند تحديد مادة من بطاقة المادة
   useEffect(() => {
     if (scopedItemId) {
       setIncludeZero(true);
-      setRunKey({ warehouseId: '', categoryId: '', search: '', includeZero: true, itemId: scopedItemId });
+      setRunKey({ warehouseId: '', categoryId: '', includeZero: true, itemId: scopedItemId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopedItemId]);
@@ -99,7 +132,6 @@ export function StockCountReportPage() {
       inventoryApi.getStockCount({
         warehouseId: runKey!.warehouseId ? Number(runKey!.warehouseId) : undefined,
         categoryId: runKey!.categoryId ? Number(runKey!.categoryId) : undefined,
-        search: runKey!.search.trim() || undefined,
         includeZero: runKey!.includeZero,
         itemId: runKey!.itemId,
       }),
@@ -127,7 +159,12 @@ export function StockCountReportPage() {
     return c ? (locale === 'en' ? c.nameEn || c.nameAr : c.nameAr) : undefined;
   }, [categoryId, categoriesQuery.data, locale]);
 
-  const handleRun = () => setRunKey({ warehouseId, categoryId, search, includeZero, itemId: scopedItemId });
+  const handleRun = () => setRunKey({
+    warehouseId,
+    categoryId,
+    includeZero,
+    itemId: selectedItem?.id,
+  });
 
   const handleRecalc = async () => {
     if (!window.confirm(tt(
@@ -158,12 +195,13 @@ export function StockCountReportPage() {
       warehouse: locale === 'en' ? r.warehouseNameEn || r.warehouseName : r.warehouseName,
       unit: locale === 'en' ? r.baseUnitNameEn || r.baseUnitName : r.baseUnitName,
       quantity: r.quantity,
+      unitCost: r.unitCost,
+      totalCost: r.totalCost,
     }));
     printStockCount(
       {
         warehouseLabel,
         categoryLabel,
-        search: runKey?.search.trim() || undefined,
         rows: printRows,
         totalQuantity: summary.totalQuantity,
         itemCount: summary.itemCount,
@@ -190,13 +228,16 @@ export function StockCountReportPage() {
           <div>
             <h1 className="text-lg font-bold">{tt('تقرير جرد المخزون', 'Inventory Count Report')}</h1>
             <p className="text-xs text-muted-foreground">
-              {scopedItemName
-                ? tt(`جرد المادة: ${scopedItemName}`, `Stock for: ${scopedItemName}`)
-                : tt('أرصدة المواد الحالية موزّعة على المستودعات بوحدة الجرد', 'Current item balances per warehouse, in inventory units')}
+              {selectedItem
+                ? tt(`جرد المادة: ${selectedItem.code} — ${selectedItem.name}`, `Stock for: ${selectedItem.code} — ${selectedItem.name}`)
+                : scopedItemName
+                  ? tt(`جرد المادة: ${scopedItemName}`, `Stock for: ${scopedItemName}`)
+                  : tt('أرصدة المواد الحالية موزّعة على المستودعات بوحدة الجرد', 'Current item balances per warehouse, in inventory units')}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <InvoiceInventoryBackButton returnTo={returnTo} returnLabel={returnLabel} />
           <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleRecalc} disabled={recalcing}
             title={tt('إعادة احتساب أرصدة كل المواد من سجل الحركات', 'Recalculate all item balances from the ledger')}>
             <RefreshCw className={cn('h-4 w-4', recalcing && 'animate-spin')} /> {tt('معالجة الأرصدة', 'Recalc balances')}
@@ -210,7 +251,65 @@ export function StockCountReportPage() {
       {/* ── شريط الفلاتر */}
       <Card>
         <CardContent className="space-y-3 p-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_2fr]">
+          <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
+            <div className="relative" ref={pickerRef}>
+              <Label className="mb-1 block text-xs">{tt('المادة', 'Item')}</Label>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(o => !o)}
+                className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <span className={cn('truncate', !selectedItem && 'text-muted-foreground')}>
+                  {selectedItem
+                    ? `${selectedItem.code} — ${selectedItem.name}`
+                    : tt('كل المواد', 'All items')}
+                </span>
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+              {pickerOpen && (
+                <div className="absolute z-30 mt-1 w-full rounded-md border bg-popover shadow-lg">
+                  <div className="border-b p-2">
+                    <Input
+                      autoFocus
+                      value={itemSearch}
+                      onChange={e => setItemSearch(e.target.value)}
+                      placeholder={tt('بحث بالاسم أو الرمز…', 'Search by name or code…')}
+                      className="h-8"
+                    />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto py-1">
+                    <button
+                      type="button"
+                      className="flex w-full px-3 py-2 text-right text-sm hover:bg-accent"
+                      onClick={() => { setSelectedItem(null); setPickerOpen(false); }}
+                    >
+                      {tt('كل المواد', 'All items')}
+                    </button>
+                    {itemSearchQuery.isLoading ? (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">{tt('جارٍ التحميل…', 'Loading…')}</div>
+                    ) : (itemSearchQuery.data?.items?.length ?? 0) === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">{tt('لا نتائج', 'No results')}</div>
+                    ) : (
+                      itemSearchQuery.data!.items.map((it: ItemListDto) => (
+                        <button
+                          key={it.id}
+                          type="button"
+                          className="flex w-full flex-col px-3 py-2 text-right text-sm hover:bg-accent"
+                          onClick={() => {
+                            setSelectedItem({ id: it.id, code: it.code, name: it.nameAr });
+                            setPickerOpen(false);
+                          }}
+                        >
+                          <span className="font-medium text-emerald-600">{it.code}</span>
+                          <span className="truncate text-muted-foreground">{it.nameAr}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <Label className="mb-1 block text-xs">{tt('المستودع', 'Warehouse')}</Label>
               <select
@@ -238,20 +337,6 @@ export function StockCountReportPage() {
                 ))}
               </select>
             </div>
-
-            <div>
-              <Label className="mb-1 block text-xs">{tt('بحث (اسم/رمز المادة)', 'Search (name/code)')}</Label>
-              <div className="relative">
-                <Search className="absolute top-1/2 -translate-y-1/2 text-muted-foreground ltr:left-2.5 rtl:right-2.5 h-4 w-4" />
-                <Input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleRun(); }}
-                  placeholder={tt('بحث…', 'Search…')}
-                  className="h-9 ltr:pl-8 rtl:pr-8"
-                />
-              </div>
-            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -278,7 +363,7 @@ export function StockCountReportPage() {
           <div className="grid gap-3 sm:grid-cols-3">
             <SummaryBox icon={Boxes} label={tt('عدد السطور', 'Rows')} value={String(rows.length)} />
             <SummaryBox icon={Package} label={tt('عدد المواد', 'Items')} value={String(summary.itemCount)} />
-            <SummaryBox icon={Activity} label={tt('إجمالي الكمية', 'Total Qty')} value={formatAmount(summary.totalQuantity, 2)} />
+            <SummaryBox icon={Activity} label={tt('إجمالي الكمية', 'Total Qty')} value={formatAmountFixed2(summary.totalQuantity)} />
           </div>
 
           <Card>
@@ -299,6 +384,7 @@ export function StockCountReportPage() {
                         <Th>{tt('المستودع', 'Warehouse')}</Th>
                         <Th center>{tt('الكمية', 'Quantity')}</Th>
                         <Th center>{tt('وحدة الجرد', 'Unit')}</Th>
+                        <Th center>{tt('تكلفة الوحدة', 'Unit cost')}</Th>
                         <Th center>{tt('التكلفة', 'Cost')}</Th>
                         <Th center>{tt('الإجراءات', 'Actions')}</Th>
                       </tr>
@@ -311,9 +397,10 @@ export function StockCountReportPage() {
                           <td className="px-2 py-1.5">{locale === 'en' ? r.itemNameEn || r.itemName : r.itemName}</td>
                           <td className="px-2 py-1.5 text-muted-foreground">{(locale === 'en' ? r.categoryNameEn || r.categoryName : r.categoryName) ?? '—'}</td>
                           <td className="px-2 py-1.5">{locale === 'en' ? r.warehouseNameEn || r.warehouseName : r.warehouseName}</td>
-                          <td className={cn('px-2 py-1.5 text-center num-display font-bold', r.quantity < 0 && 'text-rose-600')}>{formatAmount(r.quantity, 2)}</td>
+                          <td className={cn('px-2 py-1.5 text-center num-display font-bold', r.quantity < 0 && 'text-rose-600')}>{formatAmountFixed2(r.quantity)}</td>
                           <td className="px-2 py-1.5 text-center">{locale === 'en' ? r.baseUnitNameEn || r.baseUnitName : r.baseUnitName}</td>
-                          <td className="px-2 py-1.5 text-center num-display" title={tt(`تكلفة الوحدة: ${formatAmount(r.unitCost, 2)}`, `Unit cost: ${formatAmount(r.unitCost, 2)}`)}>{formatAmount(r.totalCost, 2)}</td>
+                          <td className="px-2 py-1.5 text-center num-display text-muted-foreground">{formatAmountFixed2(r.unitCost)}</td>
+                          <td className="px-2 py-1.5 text-center num-display font-medium">{formatAmountFixed2(r.totalCost)}</td>
                           <td className="px-2 py-1.5 text-center">
                             <button
                               type="button"
@@ -330,9 +417,10 @@ export function StockCountReportPage() {
                     <tfoot>
                       <tr className="border-t bg-muted/40 font-semibold">
                         <td className="px-2 py-2 text-center" colSpan={5}>{tt('الإجمالي', 'Total')}</td>
-                        <td className="px-2 py-2 text-center num-display">{formatAmount(summary.totalQuantity, 2)}</td>
+                        <td className="px-2 py-2 text-center num-display">{formatAmountFixed2(summary.totalQuantity)}</td>
                         <td />
-                        <td className="px-2 py-2 text-center num-display">{formatAmount(summary.totalCost, 2)}</td>
+                        <td />
+                        <td className="px-2 py-2 text-center num-display">{formatAmountFixed2(summary.totalCost)}</td>
                         <td />
                       </tr>
                     </tfoot>

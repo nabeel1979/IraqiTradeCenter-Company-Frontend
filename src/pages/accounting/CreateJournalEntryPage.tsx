@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Save, Search, Trash2, ArrowRight,
   AlertTriangle, BookOpen, X, CheckCircle2, Printer, FilePlus2, Lock, History, Archive, Undo2,
-  Download, Upload,
+  Download, Upload, Building2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -39,11 +39,13 @@ import { auditApi } from '@/lib/api/audit';
 import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
 import { VoucherAttachmentsDialog } from '@/components/accounting/VoucherAttachmentsDialog';
 import { voucherAttachmentsApi } from '@/lib/api/attachments';
-import { formatAmount, cn, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
+import { invoicesApi } from '@/lib/api/invoices';
+import { inventoryApi } from '@/lib/api/inventory';
+import { formatAmountFixed2, cn, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
 import { BranchSelect } from '@/components/branches/BranchSelect';
 import { useBranchContext } from '@/lib/branches/useBranchContext';
 import type { AccountDto } from '@/types/api';
-import { useLocale, localizedAccountName, localizedVoucherTypeName } from '@/lib/i18n';
+import { useLocale, localizedName, localizedAccountName, localizedVoucherTypeName } from '@/lib/i18n';
 
 interface FormLine {
   uid: string;
@@ -149,7 +151,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
   const voucherTypeAppliedRef = useRef<number | null>(null);
   const linesFileInputRef = useRef<HTMLInputElement>(null);
   const [importingLines, setImportingLines] = useState(false);
-  const { requiresBranch } = useBranchContext();
+  const { requiresBranch, branches, hasBranches } = useBranchContext();
 
   // ‎حالة الفترة المحاسبية لتاريخ القيد: تتبدّل مع كل تعديل لـ entryDate.
   // ‎عندما تكون الفترة مغلقة/مقفلة (أو السنة مغلقة) ⇒ الصفحة قراءة فقط:
@@ -252,6 +254,25 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     enabled: isEdit,
   });
 
+  /** للقيود القديمة المرتبطة بفاتورة بدون BranchId — نستنتجه من مستودع الفاتورة */
+  const invoiceBranchQuery = useQuery({
+    queryKey: ['invoice-entry-branch', editQuery.data?.referenceId],
+    queryFn: async () => {
+      const refId = editQuery.data!.referenceId!;
+      const invoice = await invoicesApi.getById(refId);
+      if (!invoice.warehouseId) return null;
+      const warehouses = await inventoryApi.listWarehousesManage();
+      const wh = warehouses.find(w => w.id === invoice.warehouseId);
+      return wh?.branchId ?? null;
+    },
+    enabled:
+      isEdit
+      && editQuery.data?.branchId == null
+      && editQuery.data?.referenceId != null
+      && (editQuery.data.referenceType === 'SalesInvoice' || editQuery.data.source === 'SalesInvoice'),
+    staleTime: 5 * 60_000,
+  });
+
   const entryAttachmentsQuery = useQuery({
     queryKey: ['voucher-attachments', editId],
     queryFn: () => voucherAttachmentsApi.list(editId!),
@@ -310,7 +331,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
     setCurrency(e.currency || 'IQD');
     setEntryType(e.entryType === 'Opening' ? 2 : 1);
     setVoucherTypeId(e.voucherTypeId ?? null);
-    setBranchId((e as { branchId?: number | null }).branchId ?? null);
+    setBranchId(e.branchId ?? null);
     voucherTypeAppliedRef.current = e.voucherTypeId ?? null; // تجنّب إعادة ملء الأسطر للمحفوظ
     // ‎في وضع التعديل: استرجع حالة الترحيل من القيد المحفوظ
     setPostImmediately(e.status !== 'Draft');
@@ -325,6 +346,30 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
       }))
     );
   }, [isEdit, editQuery.data]);
+
+  const effectiveBranchId = branchId ?? invoiceBranchQuery.data ?? null;
+
+  const branchDisplayName = useMemo(() => {
+    if (effectiveBranchId == null) return null;
+    const b = branches.find(x => x.id === effectiveBranchId);
+    return b ? localizedName(locale, b.nameAr, b.nameEn) : null;
+  }, [effectiveBranchId, branches, locale]);
+
+  const handleClose = () => {
+    if (returnState?.returnTo) {
+      navigate(returnState.returnTo);
+      return;
+    }
+    const entry = editQuery.data;
+    if (
+      entry?.referenceId
+      && (entry.source === 'SalesInvoice' || entry.source === 'PurchaseInvoice')
+    ) {
+      navigate(`/invoices/${entry.referenceId}/edit`);
+      return;
+    }
+    navigateBackFromEntrySource(navigate, backHref, returnState?.returnTo);
+  };
 
   const totalDebit = useMemo(
     () => lines.filter(l => l.isDebit).reduce((s, l) => s + (Number(l.amount) || 0), 0),
@@ -699,19 +744,32 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
       {/* شريط أدوات علوي مدمج */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Button
-            variant={returnState?.returnTo ? 'default' : 'outline'}
-            size="sm"
-            onClick={handleBack}
-            className={cn(
-              'h-8 gap-1 px-2',
-              returnState?.returnTo && 'gap-1.5 bg-primary/90 hover:bg-primary'
-            )}
-            title={backLabel}
-          >
-            <ArrowRight className="h-3.5 w-3.5" />
-            <span>{backShort}</span>
-          </Button>
+          {isView ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClose}
+              className="h-8 gap-1.5"
+              title={t('common.close')}
+            >
+              <X className="h-3.5 w-3.5" />
+              {t('common.close')}
+            </Button>
+          ) : (
+            <Button
+              variant={returnState?.returnTo ? 'default' : 'outline'}
+              size="sm"
+              onClick={handleBack}
+              className={cn(
+                'h-8 gap-1 px-2',
+                returnState?.returnTo && 'gap-1.5 bg-primary/90 hover:bg-primary'
+              )}
+              title={backLabel}
+            >
+              <ArrowRight className="h-3.5 w-3.5" />
+              <span>{backShort}</span>
+            </Button>
+          )}
           <h1 className="flex items-center gap-1.5 text-base font-semibold">
             <BookOpen className="h-4 w-4 text-primary" />
             {isView ? t('createJournalEntry.view') : (isEdit ? t('createJournalEntry.edit') : t('createJournalEntry.create'))}
@@ -745,6 +803,15 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         </div>
 
         <div className="flex items-center gap-2">
+          {isView && hasBranches && branchDisplayName && (
+            <div
+              className="flex h-8 max-w-[160px] items-center gap-1.5 rounded-md border border-input bg-secondary/40 px-2 text-xs text-muted-foreground"
+              title={t('branches.branch', { defaultValue: 'الفرع' })}
+            >
+              <Building2 className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+              <span className="truncate">{branchDisplayName}</span>
+            </div>
+          )}
           {isEdit && !isView && (
             <Button
               variant="outline"
@@ -1050,11 +1117,13 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
           />
         </div>
 
-        <BranchSelect
-          className="md:col-span-2"
-          value={branchId}
-          onChange={setBranchId}
-        />
+        {!isView && (
+          <BranchSelect
+            className="md:col-span-2"
+            value={branchId}
+            onChange={setBranchId}
+          />
+        )}
       </div>
 
       {/* البنود - يأخذ كامل المساحة المتبقية */}
@@ -1158,14 +1227,14 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             <span className="flex items-center gap-1">
               <span className="text-muted-foreground">{t('createJournalEntry.totals.debit')}:</span>
               <span className="num-display font-semibold text-emerald-400">
-                {formatAmount(totalDebit)} {currency}
+                {formatAmountFixed2(totalDebit)} {currency}
               </span>
             </span>
             <span className="h-3.5 w-px bg-border" />
             <span className="flex items-center gap-1">
               <span className="text-muted-foreground">{t('createJournalEntry.totals.credit')}:</span>
               <span className="num-display font-semibold text-rose-400">
-                {formatAmount(totalCredit)} {currency}
+                {formatAmountFixed2(totalCredit)} {currency}
               </span>
             </span>
             <span className="h-3.5 w-px bg-border" />
@@ -1177,7 +1246,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
             ) : (
               <span className="flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-400">
                 <AlertTriangle className="h-3 w-3" />
-                {t('createJournalEntry.totals.diff')}: <span className="num-display">{formatAmount(Math.abs(totalDebit - totalCredit))}</span>
+                {t('createJournalEntry.totals.diff')}: <span className="num-display">{formatAmountFixed2(Math.abs(totalDebit - totalCredit))}</span>
               </span>
             )}
           </div>
@@ -1255,7 +1324,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
                 <div className="rounded-md bg-secondary/40 p-3 text-xs text-muted-foreground">
                   <div>{t('createJournalEntry.deleteConfirm.descLabel')}: {editQuery.data.description}</div>
                   <div>
-                    {t('createJournalEntry.deleteConfirm.amountLabel')}: {formatAmount(editQuery.data.totalDebit)} {editQuery.data.currency || 'IQD'}
+                    {t('createJournalEntry.deleteConfirm.amountLabel')}: {formatAmountFixed2(editQuery.data.totalDebit)} {editQuery.data.currency || 'IQD'}
                   </div>
                 </div>
               )}

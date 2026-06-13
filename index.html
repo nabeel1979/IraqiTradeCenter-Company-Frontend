@@ -48,8 +48,9 @@
           var companyHost = cfg.companyHost || 'iraqitradecenter_company.gcc.iq';
           var suffix = cfg.companyDomainSuffix || '.iraqi-trade-center.iq';
           var host = window.location.hostname;
+          var sub = host.endsWith(suffix) ? host.slice(0, host.length - suffix.length) : '';
           var isCompany = host === companyHost ||
-            (host.endsWith(suffix) && host !== suffix.replace(/^\./, '') && host.indexOf('.') === host.lastIndexOf('.'));
+            (sub.length > 0 && sub.indexOf('.') === -1);
           if (isCompany) {
             document.documentElement.classList.add('theme-company');
             document.title = 'مركز التجارة العراقي - لوحة الشركة';

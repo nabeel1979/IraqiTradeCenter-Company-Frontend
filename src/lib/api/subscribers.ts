@@ -13,10 +13,13 @@ export interface Subscriber {
   activity:        number;
   email:           string | null;
   watsup:          string | null;
+  phone2:          string | null;
+  phone3:          string | null;
   commissionRate:  number;
   apiBaseUrl:      string | null;
   createdAt:       string | null;
   notes:           string | null;
+  googleMapUrl:    string | null;
   companyCode:     string | null;
   domain:          string | null;
   dbDataPath:      string | null;
@@ -44,9 +47,12 @@ export interface SubscriberDto {
   activity?:        number;
   email?:           string;
   watsup?:          string;
+  phone2?:          string;
+  phone3?:          string;
   commissionRate?:  number;
   apiBaseUrl?:      string;
   notes?:           string;
+  googleMapUrl?:    string;
   companyCode?:     string;
   domain?:          string;
   dbDataPath?:      string;

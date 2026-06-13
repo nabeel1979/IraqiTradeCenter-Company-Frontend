@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import {
   Building2, Upload, Save, X, Image as ImageIcon, Phone, MapPin, Mail, Globe,
   FileText, ListChecks, ChevronLeft, Coins, Users, Shield, Settings as SettingsIcon,
-  Languages, DatabaseBackup, PlugZap, Info, HardDrive, Cloud, KeyRound, FolderTree,
+  Languages, DatabaseBackup, PlugZap, Info, HardDrive, Cloud, KeyRound, FolderTree, MessageCircle,
   ChevronDown, ChevronRight, PlugZap as TestIcon, CheckCircle2, XCircle, AlertTriangle, Loader2, Download, Plus, Trash2, Copy,
   type LucideIcon,
 } from 'lucide-react';
@@ -23,6 +23,7 @@ import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { Label } from '@/components/ui/label';
 import { CurrenciesManager } from '@/components/settings/CurrenciesManager';
 import { EmailSettingsSection } from '@/components/settings/EmailSettingsSection';
+import { WhatsAppSettingsSection } from '@/components/settings/WhatsAppSettingsSection';
 import { ContactPointsSection } from '@/components/settings/ContactPointsSection';
 import { integrationApi } from '@/lib/api/integration';
 import { PermissionGate } from '@/lib/auth/PermissionGate';
@@ -105,6 +106,14 @@ export function SettingsPage() {
       description: t('settings.sections.email.description'),
       permission: PERMS.System.CompanySettings.Update,
       Component: EmailSettingsSectionWrapper,
+    },
+    {
+      id: 'whatsapp',
+      icon: MessageCircle,
+      title: t('settings.sections.whatsapp.title'),
+      description: t('settings.sections.whatsapp.description'),
+      permission: PERMS.System.CompanySettings.Update,
+      Component: WhatsAppSettingsSectionWrapper,
     },
     {
       id: 'contacts',
@@ -662,6 +671,10 @@ function PrintingSection({ settings, onLocalChange }: SectionContentProps) {
 // ─────────────────────────────────────────────────────────────────────────
 function EmailSettingsSectionWrapper(_props: SectionContentProps) {
   return <EmailSettingsSection />;
+}
+
+function WhatsAppSettingsSectionWrapper(_props: SectionContentProps) {
+  return <WhatsAppSettingsSection />;
 }
 
 function ContactPointsSectionWrapper(_props: SectionContentProps) {

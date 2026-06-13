@@ -9,6 +9,22 @@ export const FM_FOCUS_KEY = 'fm:focus';
 
 export type FmFocusTarget = 'party' | 'category';
 
+export type PartyPrefillTab = 'basic' | 'contact' | 'pricing' | 'store';
+
+export interface PartyPrefillPayload {
+  nameAr?: string;
+  nameEn?: string;
+  phone?: string;
+  mobile?: string;
+  email?: string;
+  address?: string;
+  contactPerson?: string;
+  showInStore?: boolean;
+  storeUserCode?: string;
+  initialTab?: PartyPrefillTab;
+  linkStoreCustomerId?: number;
+}
+
 export interface FmFocusPayload {
   accountId?: number | null;
   mode?: 'edit' | 'add';
@@ -16,6 +32,7 @@ export interface FmFocusPayload {
   categoryId?: number;
   partyId?: number;
   focusTarget?: FmFocusTarget;
+  prefill?: PartyPrefillPayload;
 }
 
 export interface ResolvedFmAccountTarget {
@@ -100,6 +117,7 @@ export type PendingFmFocus = {
   categoryId?: number;
   partyId?: number;
   focusTarget?: FmFocusTarget;
+  prefill?: PartyPrefillPayload;
 };
 
 export function parsePendingFmFocus(raw: FmFocusPayload | null): PendingFmFocus | null {
@@ -111,5 +129,6 @@ export function parsePendingFmFocus(raw: FmFocusPayload | null): PendingFmFocus 
     categoryId: raw.categoryId,
     partyId: raw.partyId,
     focusTarget: raw.focusTarget,
+    prefill: raw.prefill,
   };
 }

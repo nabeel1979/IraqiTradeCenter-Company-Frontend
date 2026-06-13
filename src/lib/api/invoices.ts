@@ -9,7 +9,8 @@ export interface CreateInvoicePayload {
   warehouseId?: number;
   settlementType?: number;          // 1 = نقدي، 2 = آجل
   paymentMeansAccountId?: number;   // Id حساب وسيلة الدفع عند النقدي
-  invoiceNumber?: string;           // رقم الفاتورة اليدوي (إن تُرك فارغاً يُولَّد تلقائياً)
+  invoiceNumber?: string;           // تجاوز رقم الفاتورة (اختياري)
+  manualNumber?: string;            // الرقم اليدوي / مرجع خارجي
   invoiceDate?: string;             // تاريخ الفاتورة (ISO yyyy-MM-dd)
   currency?: string;                // عملة الفاتورة (افتراضي IQD)
   taxRate: number; discountPercentage: number; discountAmount: number;

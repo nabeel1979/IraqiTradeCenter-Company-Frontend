@@ -281,6 +281,8 @@ export interface JournalEntryDto {
   referenceType?: string | null;
   referenceId?: number | null;
   referenceNumber?: string | null;
+  /** معرّف الفرع — null يعني غير محدد أو الفرع الرئيسي */
+  branchId?: number | null;
   lines: JournalLineDto[];
 }
 
@@ -302,6 +304,9 @@ export interface JournalLineDto {
 export interface SalesInvoiceDto {
   id: number;
   invoiceNumber: string;
+  manualNumber?: string | null;
+  incomingOrderId?: number | null;
+  platformOrderNumber?: string | null;
   invoiceDate: string;
   currency?: string;
   customerId: number;
@@ -327,6 +332,21 @@ export interface SalesInvoiceDto {
   expenseDistributionMethod?: number;
   lines: SalesInvoiceLineDto[];
   expenses?: SalesInvoiceExpenseDto[];
+  linkedOrder?: SalesInvoiceLinkedOrderDto | null;
+}
+
+export interface SalesInvoiceLinkedOrderDto {
+  id: number;
+  platformOrderNumber: string;
+  receivedAt: string;
+  status: IncomingOrderDto['status'];
+  storeUserFullName?: string | null;
+  storeUserCode?: string | null;
+  platformUserId?: string | null;
+  storeUserCountry?: string | null;
+  storeUserCity?: string | null;
+  storeUserAddress?: string | null;
+  storeUserDetailedAddress?: string | null;
 }
 
 export interface SalesInvoiceExpenseDto {
@@ -398,10 +418,27 @@ export interface IncomingOrderDto {
   receivedAt: string;
   customerId: number;
   customerName?: string;
-  status: 'Pending' | 'Reviewed' | 'Confirmed' | 'Rejected';
+  customerCode?: string;
+  customerIsActive: boolean;
+  customerPlatformTraderId?: string | null;
+  customerStoreUserCode?: string | null;
+  customerLinkedToFinancialParty?: boolean;
+  financialPartyId?: number | null;
+  financialPartyName?: string | null;
+  financialAccountCode?: string | null;
+  storeUserFullName?: string | null;
+  storeUserPhone?: string | null;
+  storeUserContactPhone?: string | null;
+  storeUserEmail?: string | null;
+  storeUserCountry?: string | null;
+  storeUserCity?: string | null;
+  storeUserAddress?: string | null;
+  storeUserDetailedAddress?: string | null;
+  status: 'Pending' | 'Received' | 'InProcessing' | 'InvoiceIssued' | 'Shipping' | 'Delivered' | 'Rejected';
   totalAmount: number;
   assignedSalesRepId?: number;
   createdInvoiceId?: number;
+  notes?: string | null;
   items: IncomingOrderItemDto[];
 }
 
@@ -410,6 +447,7 @@ export interface IncomingOrderItemDto {
   itemId: number;
   itemName: string;
   unitOfMeasureId: number;
+  unitName?: string | null;
   quantity: number;
   unitPrice: number;
   lineTotal: number;
@@ -834,6 +872,7 @@ export interface FinancialPartyDto {
   /** نوع السعر الافتراضي — ItemPriceType (3=جملة، 4=مفرد، 5=خاص، 6=تصدير) */
   defaultSalesPriceType?: number | null;
   showInStore?: boolean;
+  storeUserCode?: string | null;
   mustChangePassword?: boolean;
   createdAt: string;
 }
@@ -869,6 +908,8 @@ export interface CreateFinancialPartyPayload {
   swiftCode?: string | null;
   defaultSalesPriceType?: number | null;
   showInStore?: boolean;
+  storeUserCode?: string | null;
+  linkStoreCustomerId?: number | null;
 }
 
 export interface UpdateFinancialPartyPayload {
@@ -889,4 +930,6 @@ export interface UpdateFinancialPartyPayload {
   isActive: boolean;
   defaultSalesPriceType?: number | null;
   showInStore?: boolean;
+  storeUserCode?: string | null;
+  linkStoreCustomerId?: number | null;
 }

@@ -12,14 +12,16 @@ import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { DateRangePresets } from '@/components/shared/DateRangePresets';
-import { inventoryApi, effectiveMovements, type ItemMovementDto, type ItemListDto } from '@/lib/api/inventory';
+import { inventoryApi, effectiveMovements, movementLineCost, type ItemMovementDto, type ItemListDto } from '@/lib/api/inventory';
 import { companySettingsApi } from '@/lib/api/companySettings';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
 import { pickWorkingFiscalYear, fiscalYearStartToTodayRange } from '@/lib/fiscalYearDates';
-import { formatAmount, formatDate, cn } from '@/lib/utils';
+import { formatAmountFixed2, formatDate, cn } from '@/lib/utils';
 import { useLocale, localizedName } from '@/lib/i18n';
 import { printItemMovements, type ItemMovementsPrintRow } from '@/lib/printUtils';
 import { auditApi } from '@/lib/api/audit';
+import { InvoiceInventoryBackButton } from '@/pages/invoices/components/InvoiceInventoryBackButton';
+import { appendInvoiceReturnQuery } from '@/pages/invoices/invoiceRoutes';
 
 const MOVEMENT_TYPE_LABELS: Record<number, { ar: string; en: string; out: boolean; color: string }> = {
   1: { ar: 'شراء وارد', en: 'Purchase In', out: false, color: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
@@ -44,6 +46,8 @@ export function StockMovementsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tt = (ar: string, en: string) => (locale === 'en' ? en : ar);
+  const returnTo = searchParams.get('returnTo');
+  const returnLabel = searchParams.get('returnLabel');
 
   // ── الفلاتر
   const [search, setSearch] = useState('');
@@ -277,7 +281,7 @@ export function StockMovementsPage() {
         warehouse: m.warehouseName,
         quantity: convertQty(m.quantityInBase),
         unit: displayUnitName || m.unitName,
-        unitCost: (m.type === 2 || m.type === 3) ? (m.unitPrice ?? null) : (m.unitCost ?? null),
+        unitCost: movementLineCost(m),
         before: convertQty(m.runBefore),
         after: convertQty(m.runAfter),
         reference: m.referenceNumber ?? '',
@@ -322,6 +326,7 @@ export function StockMovementsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <InvoiceInventoryBackButton returnTo={returnTo} returnLabel={returnLabel} />
           {currentFy && (
             <span className="inline-flex items-center gap-1 rounded-md border bg-secondary/50 px-2.5 py-1 text-[11px] text-muted-foreground">
               <CalendarDays className="h-3.5 w-3.5 text-primary" />
@@ -335,7 +340,8 @@ export function StockMovementsPage() {
             title={tt('جرد المخزون لهذه المادة', 'Inventory count for this item')}
             onClick={() => {
               if (!selectedItem) return;
-              navigate(`/inventory/stock-count?itemId=${selectedItem.id}&itemName=${encodeURIComponent(selectedItem.name)}`);
+              const base = `/inventory/stock-count?itemId=${selectedItem.id}&itemName=${encodeURIComponent(selectedItem.name)}&itemCode=${encodeURIComponent(selectedItem.code)}`;
+              navigate(appendInvoiceReturnQuery(base, searchParams));
             }}
           >
             <ClipboardList className="h-4 w-4" /> {tt('جرد المخزون', 'Inventory count')}
@@ -541,11 +547,11 @@ export function StockMovementsPage() {
         <>
           {/* بطاقات الملخص */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <SummaryBox icon={CalendarDays} label={tt('رصيد بداية الفترة', 'Opening balance')} value={formatAmount(totals.opening, 2)} color="text-amber-600" />
-            <SummaryBox icon={ArrowDownLeft} label={tt('إجمالي الوارد', 'Total In')} value={formatAmount(totals.totalIn, 2)} color="text-emerald-600" />
-            <SummaryBox icon={ArrowUpRight} label={tt('إجمالي الصادر', 'Total Out')} value={formatAmount(totals.totalOut, 2)} color="text-rose-600" />
-            <SummaryBox icon={Activity} label={tt('صافي الحركة', 'Net')} value={formatAmount(totals.net, 2)} color="text-foreground" />
-            <SummaryBox icon={Package} label={tt('رصيد نهاية الفترة', 'Closing balance')} value={formatAmount(totals.closing, 2)} color="text-primary" />
+            <SummaryBox icon={CalendarDays} label={tt('رصيد بداية الفترة', 'Opening balance')} value={formatAmountFixed2(totals.opening)} color="text-amber-600" />
+            <SummaryBox icon={ArrowDownLeft} label={tt('إجمالي الوارد', 'Total In')} value={formatAmountFixed2(totals.totalIn)} color="text-emerald-600" />
+            <SummaryBox icon={ArrowUpRight} label={tt('إجمالي الصادر', 'Total Out')} value={formatAmountFixed2(totals.totalOut)} color="text-rose-600" />
+            <SummaryBox icon={Activity} label={tt('صافي الحركة', 'Net')} value={formatAmountFixed2(totals.net)} color="text-foreground" />
+            <SummaryBox icon={Package} label={tt('رصيد نهاية الفترة', 'Closing balance')} value={formatAmountFixed2(totals.closing)} color="text-primary" />
           </div>
 
           <Card>
@@ -568,7 +574,7 @@ export function StockMovementsPage() {
                         <Th center>{tt('وحدة الجرد', 'Unit')}</Th>
                         <Th center>{tt('قبل', 'Before')}</Th>
                         <Th center>{tt('بعد', 'After')}</Th>
-                        <Th center>{tt('السعر', 'Price')}</Th>
+                        <Th center>{tt('التكلفة', 'Cost')}</Th>
                         <Th>{tt('المرجع', 'Reference')}</Th>
                         <Th center>{tt('إجراءات', 'Actions')}</Th>
                       </tr>
@@ -589,21 +595,15 @@ export function StockMovementsPage() {
                             <td className="px-2 py-1.5">{m.partyName ?? '—'}</td>
                             <td className="px-2 py-1.5">{m.warehouseName}</td>
                             <td className={cn('px-2 py-1.5 text-center num-display font-bold', out ? 'text-rose-600' : 'text-emerald-600')}>
-                              {out ? '-' : '+'}{formatAmount(convertQty(m.quantityInBase), 2)}
+                              {out ? '-' : '+'}{formatAmountFixed2(convertQty(m.quantityInBase))}
                             </td>
                             <td className="px-2 py-1.5 text-center">{displayUnitName || m.unitName}</td>
-                            <td className="px-2 py-1.5 text-center num-display text-muted-foreground">{formatAmount(convertQty(m.runBefore), 2)}</td>
-                            <td className="px-2 py-1.5 text-center num-display font-semibold">{formatAmount(convertQty(m.runAfter), 2)}</td>
-                            <td className="px-2 py-1.5 text-center num-display text-muted-foreground">
-                              {/* لحركات البيع نعرض سعر البيع، وللشراء نعرض التكلفة */}
-                              {m.type === 2 || m.type === 3
-                                ? (m.unitPrice != null
-                                    ? <span title={tt('سعر البيع', 'Sale price')}>{formatAmount(m.unitPrice, 2)}</span>
-                                    : '—')
-                                : (m.unitCost != null
-                                    ? <span title={tt('تكلفة الوحدة', 'Unit cost')}>{formatAmount(m.unitCost, 2)}</span>
-                                    : '—')
-                              }
+                            <td className="px-2 py-1.5 text-center num-display text-muted-foreground">{formatAmountFixed2(convertQty(m.runBefore))}</td>
+                            <td className="px-2 py-1.5 text-center num-display font-semibold">{formatAmountFixed2(convertQty(m.runAfter))}</td>
+                            <td className="px-2 py-1.5 text-center num-display font-medium">
+                              {movementLineCost(m) != null
+                                ? formatAmountFixed2(movementLineCost(m)!)
+                                : '—'}
                             </td>
                             <td className="px-2 py-1.5 text-muted-foreground">{m.referenceNumber ?? '—'}</td>
                             <td className="px-2 py-1.5 text-center">

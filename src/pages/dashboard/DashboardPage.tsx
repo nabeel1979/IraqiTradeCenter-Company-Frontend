@@ -1,50 +1,22 @@
 import {
-  Receipt, Package, Users, Wallet, AlertTriangle, ShoppingBag
+  Receipt, Package, Users, Wallet, AlertTriangle, ShoppingBag, BarChart3
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { EmptyState } from '@/components/shared/EmptyState';
 import { formatIQD } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
-import { useLocale } from '@/lib/i18n';
+import { useLocale, localizedName } from '@/lib/i18n';
 import { ShortcutsBar } from '@/components/dashboard/ShortcutsBar';
-
-// بيانات تجريبية - في الإنتاج تُجلب من الـ API
-// ‎نستخدم مفاتيح ترجمة لليوم/العميل/المندوب/المخزون كي يتبدل النص مع اللغة.
-const salesData = [
-  { dayKey: 'sat', sales: 4200000, orders: 12 },
-  { dayKey: 'sun', sales: 3850000, orders: 9 },
-  { dayKey: 'mon', sales: 5100000, orders: 14 },
-  { dayKey: 'tue', sales: 6300000, orders: 18 },
-  { dayKey: 'wed', sales: 4900000, orders: 13 },
-  { dayKey: 'thu', sales: 7200000, orders: 21 },
-  { dayKey: 'fri', sales: 5800000, orders: 16 },
-];
-
-const topRepsData = [
-  { nameKey: 'rep1', sales: 18500000 },
-  { nameKey: 'rep2', sales: 14200000 },
-  { nameKey: 'rep3', sales: 11800000 },
-  { nameKey: 'rep4', sales: 9300000 },
-];
-
-const recentInvoices = [
-  { id: 'INV-20250513-A8F2', customerKey: 'store1', amount: 1250000, status: 'Paid' },
-  { id: 'INV-20250513-B3D9', customerKey: 'store2', amount: 875000, status: 'PartiallyPaid' },
-  { id: 'INV-20250513-C7E1', customerKey: 'store3', amount: 2400000, status: 'Issued' },
-  { id: 'INV-20250513-D2F4', customerKey: 'store4', amount: 540000, status: 'Paid' },
-];
-
-const lowStockItems = [
-  { nameKey: 'milk', remaining: 12, unitKey: 'carton' },
-  { nameKey: 'oil', remaining: 3, unitKey: 'carton' },
-  { nameKey: 'sugar', remaining: 28, unitKey: 'bag' },
-];
+import { dashboardApi } from '@/lib/api/dashboard';
 
 function StatusBadge({ status }: { status: string }) {
   const { t } = useTranslation();
@@ -59,9 +31,22 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={variant}>{label}</Badge>;
 }
 
+function pctChange(value: number | null | undefined, positiveDefault = true) {
+  if (value == null) return undefined;
+  return { value: Math.abs(value), positive: value >= 0 ? positiveDefault : !positiveDefault };
+}
+
 export function DashboardPage() {
   const { t } = useTranslation();
-  const { isRtl } = useLocale();
+  const { isRtl, locale } = useLocale();
+
+  const statsQuery = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => dashboardApi.stats(),
+    staleTime: 60_000,
+  });
+
+  const stats = statsQuery.data;
 
   const todayDate = new Intl.DateTimeFormat(
     isRtl ? 'ar-IQ-u-nu-latn' : 'en-GB',
@@ -71,7 +56,6 @@ export function DashboardPage() {
     },
   ).format(new Date());
 
-  // ‎ألوان الرسم البياني تتكيّف مع الوضع الفعّال — لا hardcoded.
   const { theme } = useTheme();
   const chartColors = theme === 'dark'
     ? {
@@ -93,7 +77,34 @@ export function DashboardPage() {
         tooltipText: 'hsl(222 38% 11%)',
       };
 
-  const salesChartData = salesData.map(d => ({ ...d, day: t(`dashboard.weekDays.${d.dayKey}`) }));
+  const salesChartData = (stats?.weeklySales ?? []).map(d => ({
+    ...d,
+    day: t(`dashboard.weekDays.${d.dayKey}`),
+    sales: d.sales,
+  }));
+
+  const topReps = stats?.topSalesReps ?? [];
+  const topRepMax = topReps[0]?.sales ?? 1;
+  const recentInvoices = stats?.recentInvoices ?? [];
+  const lowStockItems = stats?.lowStockItems ?? [];
+
+  if (statsQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <LoadingSpinner className="min-h-[40vh]" />
+      </div>
+    );
+  }
+
+  if (statsQuery.isError || !stats) {
+    return (
+      <EmptyState
+        icon={BarChart3}
+        title={t('dashboard.loadError')}
+        description={t('dashboard.loadErrorDesc')}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -122,47 +133,50 @@ export function DashboardPage() {
               {' · '}
               <span className="whitespace-nowrap">
                 {t('dashboard.todaySales')}:{' '}
-                <span className="font-medium tnum text-foreground">{formatIQD(5800000)}</span>
+                <span className="font-medium tnum text-foreground">{formatIQD(stats.todaySales)}</span>
               </span>
-              {' · '}
-              <span className="whitespace-nowrap text-success">
-                {t('dashboard.vsYesterday', { value: 18 })}
-              </span>
+              {stats.todaySalesChangePct != null && (
+                <>
+                  {' · '}
+                  <span className={`whitespace-nowrap ${stats.todaySalesChangePct >= 0 ? 'text-success' : 'text-destructive'}`}>
+                    {t('dashboard.vsYesterday', { value: Math.abs(stats.todaySalesChangePct) })}
+                  </span>
+                </>
+              )}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Quick shortcuts */}
       <ShortcutsBar />
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label={t('dashboard.monthlySales')}
-          value={formatIQD(142500000)}
+          value={formatIQD(stats.monthlySales)}
           icon={Receipt}
-          change={{ value: 23, positive: true }}
+          change={pctChange(stats.monthlySalesChangePct)}
           hint={t('dashboard.vsLastMonth')}
           variant="primary"
         />
         <StatCard
           label={t('dashboard.invoicesCount')}
-          value="342"
+          value={String(stats.invoicesThisMonth)}
           icon={ShoppingBag}
-          change={{ value: 12, positive: true }}
+          change={pctChange(stats.invoicesChangePct)}
           hint={t('dashboard.thisMonth')}
         />
         <StatCard
           label={t('dashboard.activeCustomers')}
-          value="68"
+          value={String(stats.activeCustomers)}
           icon={Users}
-          change={{ value: 5, positive: true }}
-          hint={t('dashboard.outOf', { total: 84 })}
+          change={pctChange(stats.activeCustomersChangePct)}
+          hint={t('dashboard.outOf', { total: stats.totalCustomers })}
         />
         <StatCard
           label={t('dashboard.customerReceivables')}
-          value={formatIQD(28400000)}
+          value={formatIQD(stats.customerReceivables)}
           icon={Wallet}
           hint={t('dashboard.totalUnpaid')}
         />
@@ -170,7 +184,6 @@ export function DashboardPage() {
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Sales chart */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -188,89 +201,98 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={salesChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={chartColors.primary} stopOpacity={0.4} />
-                      <stop offset="100%" stopColor={chartColors.primary} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
-                  <XAxis
-                    dataKey="day"
-                    stroke={chartColors.axis}
-                    fontSize={12}
-                    reversed={isRtl}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis stroke={chartColors.axis} fontSize={12} tickLine={false} axisLine={false}
-                    tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`}
-                    orientation={isRtl ? 'right' : 'left'}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: chartColors.tooltipBg,
-                      border: `1px solid ${chartColors.tooltipBorder}`,
-                      borderRadius: 8,
-                      color: chartColors.tooltipText,
-                      fontFamily: isRtl
-                        ? '"IBM Plex Sans Arabic", sans-serif'
-                        : 'system-ui, -apple-system, sans-serif',
-                    }}
-                    formatter={(v: number) => [formatIQD(v), t('dashboard.salesLegend')]}
-                    cursor={{ fill: chartColors.primaryFaint }}
-                  />
-                  <Area type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} fill="url(#salesGradient)" />
-                </AreaChart>
-              </ResponsiveContainer>
+              {salesChartData.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  {t('dashboard.noSalesData', { defaultValue: 'لا توجد مبيعات في آخر 7 أيام' })}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={salesChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={chartColors.primary} stopOpacity={0.4} />
+                        <stop offset="100%" stopColor={chartColors.primary} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
+                    <XAxis
+                      dataKey="day"
+                      stroke={chartColors.axis}
+                      fontSize={12}
+                      reversed={isRtl}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis stroke={chartColors.axis} fontSize={12} tickLine={false} axisLine={false}
+                      tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`}
+                      orientation={isRtl ? 'right' : 'left'}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: chartColors.tooltipBg,
+                        border: `1px solid ${chartColors.tooltipBorder}`,
+                        borderRadius: 8,
+                        color: chartColors.tooltipText,
+                        fontFamily: isRtl
+                          ? '"IBM Plex Sans Arabic", sans-serif'
+                          : 'system-ui, -apple-system, sans-serif',
+                      }}
+                      formatter={(v: number) => [formatIQD(v), t('dashboard.salesLegend')]}
+                      cursor={{ fill: chartColors.primaryFaint }}
+                    />
+                    <Area type="monotone" dataKey="sales" stroke={chartColors.primary} strokeWidth={2} fill="url(#salesGradient)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Top reps */}
         <Card>
           <CardHeader>
             <CardTitle>{t('dashboard.topSalesReps')}</CardTitle>
             <CardDescription>{t('dashboard.thisMonth')}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {topRepsData.map((rep, i) => {
-                const pct = (rep.sales / topRepsData[0].sales) * 100;
-                const repName = t(`dashboard.demoReps.${rep.nameKey}`);
-                return (
-                  <div key={rep.nameKey} className="space-y-1.5">
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className={
-                          'flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ' +
-                          (i === 0 ? 'bg-primary/20 text-primary ring-1 ring-primary/40' : 'bg-secondary text-muted-foreground')
-                        }>
-                          {i + 1}
-                        </span>
-                        <span className="font-medium">{repName}</span>
+            {topReps.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {t('dashboard.noRepsData', { defaultValue: 'لا توجد مبيعات للمندوبين هذا الشهر' })}
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {topReps.map((rep, i) => {
+                  const pct = topRepMax > 0 ? (rep.sales / topRepMax) * 100 : 0;
+                  return (
+                    <div key={rep.salesRepId} className="space-y-1.5">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className={
+                            'flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ' +
+                            (i === 0 ? 'bg-primary/20 text-primary ring-1 ring-primary/40' : 'bg-secondary text-muted-foreground')
+                          }>
+                            {i + 1}
+                          </span>
+                          <span className="font-medium">{rep.name}</span>
+                        </div>
+                        <span className="num-display text-muted-foreground">{formatIQD(rep.sales)}</span>
                       </div>
-                      <span className="num-display text-muted-foreground">{formatIQD(rep.sales)}</span>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className={`h-full rounded-full bg-gradient-to-${isRtl ? 'l' : 'r'} from-primary to-primary/60 transition-all duration-500`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className={`h-full rounded-full bg-gradient-to-${isRtl ? 'l' : 'r'} from-primary to-primary/60 transition-all duration-500`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
       {/* Recent + Low stock */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Recent invoices */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -284,30 +306,39 @@ export function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{t('dashboard.tableHeaders.invoiceNumber')}</th>
-                  <th>{t('dashboard.tableHeaders.customer')}</th>
-                  <th>{t('dashboard.tableHeaders.amount')}</th>
-                  <th>{t('dashboard.tableHeaders.status')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentInvoices.map(inv => (
-                  <tr key={inv.id}>
-                    <td><span className="num-display text-xs text-muted-foreground">{inv.id}</span></td>
-                    <td className="font-medium">{t(`dashboard.demoCustomers.${inv.customerKey}`)}</td>
-                    <td><span className="num-display">{formatIQD(inv.amount)}</span></td>
-                    <td><StatusBadge status={inv.status} /></td>
+            {recentInvoices.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                {t('dashboard.noInvoices', { defaultValue: 'لا توجد فواتير بعد' })}
+              </p>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{t('dashboard.tableHeaders.invoiceNumber')}</th>
+                    <th>{t('dashboard.tableHeaders.customer')}</th>
+                    <th>{t('dashboard.tableHeaders.amount')}</th>
+                    <th>{t('dashboard.tableHeaders.status')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recentInvoices.map(inv => (
+                    <tr key={inv.id}>
+                      <td>
+                        <Link to={`/invoices/${inv.id}/edit`} className="num-display text-xs text-primary hover:underline">
+                          {inv.invoiceNumber}
+                        </Link>
+                      </td>
+                      <td className="font-medium">{inv.customerName ?? '—'}</td>
+                      <td><span className="num-display">{formatIQD(inv.amount)}</span></td>
+                      <td><StatusBadge status={inv.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </CardContent>
         </Card>
 
-        {/* Low stock */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -317,20 +348,28 @@ export function DashboardPage() {
             <CardDescription>{t('dashboard.lowStockCount', { count: lowStockItems.length })}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {lowStockItems.map(item => (
-              <div key={item.nameKey} className="flex items-center justify-between rounded-md border border-warning/20 bg-warning/5 px-3 py-2.5">
-                <div>
-                  <p className="text-sm font-medium">{t(`dashboard.demoStock.${item.nameKey}`)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('dashboard.remaining', {
-                      count: item.remaining,
-                      unit: t(`dashboard.demoStock.${item.unitKey}`),
-                    })}
-                  </p>
+            {lowStockItems.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                {t('dashboard.noLowStock', { defaultValue: 'لا توجد مواد تحت الحد الأدنى' })}
+              </p>
+            ) : (
+              lowStockItems.map(item => (
+                <div key={item.id} className="flex items-center justify-between rounded-md border border-warning/20 bg-warning/5 px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {localizedName(locale, item.nameAr, item.nameEn)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('dashboard.remaining', {
+                        count: item.remaining,
+                        unit: item.unitName || '—',
+                      })}
+                    </p>
+                  </div>
+                  <Package className="h-4 w-4 text-warning" />
                 </div>
-                <Package className="h-4 w-4 text-warning" />
-              </div>
-            ))}
+              ))
+            )}
             <Link to="/inventory?lowStock=true" className="mt-2 block text-center text-xs text-primary hover:underline">
               {t('dashboard.viewAllLowStock')} {isRtl ? '←' : '→'}
             </Link>

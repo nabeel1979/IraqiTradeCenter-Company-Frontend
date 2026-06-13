@@ -60,7 +60,7 @@ import { currenciesApi } from '@/lib/api/currencies';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { toast } from 'sonner';
-import { formatAmount, formatDate, cn } from '@/lib/utils';
+import { formatAmountFixed2, formatDate, cn } from '@/lib/utils';
 import { printAccountStatement } from '@/lib/printUtils';
 import { auditApi } from '@/lib/api/audit';
 import { useAuthStore } from '@/lib/auth/auth-store';
@@ -328,7 +328,7 @@ function StatementColHead({
 }
 
 function summaryAmountSizeClass(value: number): string {
-  const len = formatAmount(value, 2).length;
+  const len = formatAmountFixed2(value).length;
   if (len > 20) return 'text-[11px]';
   if (len > 16) return 'text-xs';
   if (len > 12) return 'text-sm';
@@ -350,7 +350,7 @@ function SummaryCell({
   highlight?: boolean;
   icon?: ReactNode;
 }) {
-  const formatted = formatAmount(value, 2);
+  const formatted = formatAmountFixed2(value);
   return (
     <div
       className={cn(
@@ -447,7 +447,7 @@ function CurrencyBalanceHeader({
               summaryAmountSizeClass(item.value),
               item.accent,
             )}>
-              {formatAmount(item.value, 2)}
+              {formatAmountFixed2(item.value)}
             </div>
           </div>
         ))}
@@ -1316,25 +1316,25 @@ export function AccountStatementPage() {
       case 'debit':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-emerald-400">
-            {opening > 0 ? formatAmount(opening) : <span className="text-muted-foreground/40">—</span>}
+            {opening > 0 ? formatAmountFixed2(opening) : <span className="text-muted-foreground/40">—</span>}
           </td>
         );
       case 'credit':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-rose-400">
-            {opening < 0 ? formatAmount(Math.abs(opening)) : <span className="text-muted-foreground/40">—</span>}
+            {opening < 0 ? formatAmountFixed2(Math.abs(opening)) : <span className="text-muted-foreground/40">—</span>}
           </td>
         );
       case 'balance':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display font-bold text-blue-400">
-            {opening !== 0 ? formatAmount(opening) : '—'}
+            {opening !== 0 ? formatAmountFixed2(opening) : '—'}
           </td>
         );
       case 'valBalance':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display font-bold text-amber-400/95">
-            {formatAmount(openingV)}
+            {formatAmountFixed2(openingV)}
           </td>
         );
       case 'currency':
@@ -1377,25 +1377,25 @@ export function AccountStatementPage() {
       case 'debit':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-emerald-400">
-            {oe.debit > 0 ? formatAmount(oe.debit) : <span className="text-muted-foreground/40">—</span>}
+            {oe.debit > 0 ? formatAmountFixed2(oe.debit) : <span className="text-muted-foreground/40">—</span>}
           </td>
         );
       case 'credit':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-rose-400">
-            {oe.credit > 0 ? formatAmount(oe.credit) : <span className="text-muted-foreground/40">—</span>}
+            {oe.credit > 0 ? formatAmountFixed2(oe.credit) : <span className="text-muted-foreground/40">—</span>}
           </td>
         );
       case 'balance':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold">
-            {formatAmount(balance)}
+            {formatAmountFixed2(balance)}
           </td>
         );
       case 'valBalance':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold text-amber-400">
-            {formatAmount(balanceValuated)}
+            {formatAmountFixed2(balanceValuated)}
           </td>
         );
       case 'currency':
@@ -1477,19 +1477,19 @@ export function AccountStatementPage() {
       case 'debit':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-emerald-400">
-            {row.debit > 0 ? formatAmount(row.debit) : <span className="text-muted-foreground/40">—</span>}
+            {row.debit > 0 ? formatAmountFixed2(row.debit) : <span className="text-muted-foreground/40">—</span>}
           </td>
         );
       case 'credit':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs text-rose-400">
-            {row.credit > 0 ? formatAmount(row.credit) : <span className="text-muted-foreground/40">—</span>}
+            {row.credit > 0 ? formatAmountFixed2(row.credit) : <span className="text-muted-foreground/40">—</span>}
           </td>
         );
       case 'balance':
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold">
-            {formatAmount(row.balance)}
+            {formatAmountFixed2(row.balance)}
           </td>
         );
       case 'valBalance':
@@ -1500,7 +1500,7 @@ export function AccountStatementPage() {
         }
         return (
           <td key={k} className="overflow-hidden px-2 text-right num-display text-xs font-semibold text-amber-400">
-            {formatAmount(bv)}
+            {formatAmountFixed2(bv)}
           </td>
         );
       case 'currency':
@@ -1552,7 +1552,7 @@ export function AccountStatementPage() {
     const ai = Math.max(1, firstAmountColumnIndex(visibleCols));
     const tail = visibleCols.slice(ai);
     const labelText = totals.opening
-      ? t('accountStatement.table.totalWithOpening', { amount: formatAmount(totals.opening) })
+      ? t('accountStatement.table.totalWithOpening', { amount: formatAmountFixed2(totals.opening) })
       : t('accountStatement.table.total');
     const cells: ReactNode[] = [
       <td key="lab" colSpan={ai} className="overflow-hidden px-3 py-2 text-right">{labelText}</td>,
@@ -1562,22 +1562,22 @@ export function AccountStatementPage() {
         case 'debit':
           cells.push(
             <td key={k} className="overflow-hidden px-2 text-right num-display text-emerald-400">
-              {formatAmount(totals.debit)}
+              {formatAmountFixed2(totals.debit)}
             </td>); break;
         case 'credit':
           cells.push(
             <td key={k} className="overflow-hidden px-2 text-right num-display text-rose-400">
-              {formatAmount(totals.credit)}
+              {formatAmountFixed2(totals.credit)}
             </td>); break;
         case 'balance':
           cells.push(
             <td key={k} className="overflow-hidden px-2 text-right num-display text-primary">
-              {formatAmount(totals.balance)}
+              {formatAmountFixed2(totals.balance)}
             </td>); break;
         case 'valBalance':
           cells.push(
             <td key={k} className="overflow-hidden px-2 text-right num-display font-bold text-amber-400">
-              {formatAmount(totals.balanceValuated)}
+              {formatAmountFixed2(totals.balanceValuated)}
             </td>); break;
         case 'currency':
           cells.push(
@@ -1861,12 +1861,12 @@ export function AccountStatementPage() {
                         <span className="ms-auto inline-flex items-center gap-2">
                           {oe.debit > 0 && (
                             <span className="text-emerald-300">
-                              {t('accountStatement.openingEntries.debit')} <span className="num-display">{formatAmount(oe.debit)}</span>
+                              {t('accountStatement.openingEntries.debit')} <span className="num-display">{formatAmountFixed2(oe.debit)}</span>
                             </span>
                           )}
                           {oe.credit > 0 && (
                             <span className="text-rose-300">
-                              {t('accountStatement.openingEntries.credit')} <span className="num-display">{formatAmount(oe.credit)}</span>
+                              {t('accountStatement.openingEntries.credit')} <span className="num-display">{formatAmountFixed2(oe.credit)}</span>
                             </span>
                           )}
                           <span
@@ -1878,7 +1878,7 @@ export function AccountStatementPage() {
                             )}
                           >
                             {sign}
-                            <span className="num-display">{formatAmount(Math.abs(oe.net))}</span> {oe.currency}
+                            <span className="num-display">{formatAmountFixed2(Math.abs(oe.net))}</span> {oe.currency}
                           </span>
                           <Button
                             type="button"
@@ -1967,16 +1967,16 @@ export function AccountStatementPage() {
                             <span className="ms-auto inline-flex items-center gap-2">
                               {oe.debit > 0 && (
                                 <span className="text-emerald-300">
-                                  {t('accountStatement.openingEntries.debit')} <span className="num-display">{formatAmount(oe.debit)}</span>
+                                  {t('accountStatement.openingEntries.debit')} <span className="num-display">{formatAmountFixed2(oe.debit)}</span>
                                 </span>
                               )}
                               {oe.credit > 0 && (
                                 <span className="text-rose-300">
-                                  {t('accountStatement.openingEntries.credit')} <span className="num-display">{formatAmount(oe.credit)}</span>
+                                  {t('accountStatement.openingEntries.credit')} <span className="num-display">{formatAmountFixed2(oe.credit)}</span>
                                 </span>
                               )}
                               <span className={cn('rounded px-1.5 py-0.5 font-bold', isCredit ? 'bg-rose-500/20 text-rose-200' : 'bg-emerald-500/20 text-emerald-200')}>
-                                {sign}<span className="num-display">{formatAmount(Math.abs(oe.net))}</span> {oe.currency}
+                                {sign}<span className="num-display">{formatAmountFixed2(Math.abs(oe.net))}</span> {oe.currency}
                               </span>
                               <Button
                                 type="button"
@@ -2391,7 +2391,7 @@ export function AccountStatementPage() {
                         <Wallet className="h-3.5 w-3.5 text-blue-400 opacity-70" />
                       </div>
                       <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-blue-400', summaryAmountSizeClass(rd.openingBalanceValuated ?? 0))}>
-                        {formatAmount(rd.openingBalanceValuated ?? 0, 2)}
+                        {formatAmountFixed2(rd.openingBalanceValuated ?? 0)}
                       </div>
                     </div>
                     <div className="bg-card p-3">
@@ -2400,7 +2400,7 @@ export function AccountStatementPage() {
                         <TrendingUp className="h-3.5 w-3.5 text-emerald-400 opacity-70" />
                       </div>
                       <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-emerald-400', summaryAmountSizeClass(rd.totalDebitValuated ?? rd.totalDebit))}>
-                        {formatAmount(rd.totalDebitValuated ?? rd.totalDebit, 2)}
+                        {formatAmountFixed2(rd.totalDebitValuated ?? rd.totalDebit)}
                       </div>
                     </div>
                     <div className="bg-card p-3">
@@ -2409,7 +2409,7 @@ export function AccountStatementPage() {
                         <TrendingDown className="h-3.5 w-3.5 text-rose-400 opacity-70" />
                       </div>
                       <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-rose-400', summaryAmountSizeClass(rd.totalCreditValuated ?? rd.totalCredit))}>
-                        {formatAmount(rd.totalCreditValuated ?? rd.totalCredit, 2)}
+                        {formatAmountFixed2(rd.totalCreditValuated ?? rd.totalCredit)}
                       </div>
                     </div>
                     <div className="bg-primary/10 p-3 ring-1 ring-primary/20">
@@ -2418,7 +2418,7 @@ export function AccountStatementPage() {
                         <Scale className="h-3.5 w-3.5 text-primary opacity-80" />
                       </div>
                       <div className={cn('mt-1 max-w-full overflow-x-auto font-bold tabular-nums num-display whitespace-nowrap text-primary', summaryAmountSizeClass(rd.closingBalanceValuated ?? rd.closingBalance))}>
-                        {formatAmount(rd.closingBalanceValuated ?? rd.closingBalance, 2)}
+                        {formatAmountFixed2(rd.closingBalanceValuated ?? rd.closingBalance)}
                       </div>
                     </div>
                   </div>

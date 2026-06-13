@@ -19,7 +19,7 @@ import { currenciesApi } from '@/lib/api/currencies';
 import { BranchFilterSelect } from '@/components/branches/BranchSelect';
 import { useActiveFiscalYear } from '@/hooks/useActiveFiscalYear';
 import { companySettingsApi } from '@/lib/api/companySettings';
-import { formatAmount, cn } from '@/lib/utils';
+import { formatAmountFixed2, cn } from '@/lib/utils';
 import { useLocale, localizedAccountName, type AppLocale } from '@/lib/i18n';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
@@ -82,7 +82,7 @@ function sortFmCategories(cats: FinancialPartyCategoryDto[]): FinancialPartyCate
 
 function fmt(n: number): string {
   if (!n || Math.abs(n) < 0.005) return '—';
-  return formatAmount(n, 2);
+  return formatAmountFixed2(n);
 }
 
 const MAX_LEVELS = 5;
