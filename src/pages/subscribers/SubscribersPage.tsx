@@ -10,7 +10,7 @@ import {
 
   Building2, Plus, Pencil, Trash2, Search, ToggleLeft, ToggleRight,
 
-  Globe, Database,
+  Globe, Database, Store,
 
   X, Save, RefreshCw, CheckCircle2, XCircle, Server, HardDrive,
 
@@ -70,7 +70,7 @@ const EMPTY_FORM: SubscriberDto = {
 
   commissionRate: 5, apiBaseUrl: '', notes: '',
 
-  companyCode: '', domain: '', dbDataPath: '', dbLogPath: '',
+  companyCode: '', domain: '', storeDomain: '', dbDataPath: '', dbLogPath: '',
 
   feAppPool: '', feSiteName: '', fePath: '', feServer: '',
 
@@ -226,6 +226,8 @@ export function SubscribersPage() {
 
         domain:       id.domain,
 
+        storeDomain:  id.storeDomain,
+
         apiBaseUrl:   id.apiBaseUrl,
 
         dbDataPath:   id.dbDataPath,
@@ -316,6 +318,8 @@ export function SubscribersPage() {
 
         domain:       id.domain,
 
+        storeDomain:  id.storeDomain,
+
         apiBaseUrl:   id.apiBaseUrl,
 
         dbDataPath:   id.dbDataPath,
@@ -380,7 +384,7 @@ export function SubscribersPage() {
 
       notes: s.notes ?? '',
 
-      companyCode: s.companyCode ?? '', domain: s.domain ?? '',
+      companyCode: s.companyCode ?? '', domain: s.domain ?? '', storeDomain: s.storeDomain ?? '',
 
       dbDataPath: s.dbDataPath ?? '', dbLogPath: s.dbLogPath ?? '',
 
@@ -691,6 +695,20 @@ export function SubscribersPage() {
                               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary">
 
                               <Globe className="h-4 w-4" />
+
+                            </a>
+
+                          )}
+
+                          {s.storeDomain && (
+
+                            <a href={`https://${s.storeDomain}`} target="_blank" rel="noreferrer"
+
+                              title={s.storeDomain}
+
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-brand-500/10 hover:text-brand-600">
+
+                              <Store className="h-4 w-4" />
 
                             </a>
 
@@ -2241,19 +2259,39 @@ function DatabaseTab({
 
 
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="space-y-3">
 
         <div className="space-y-1">
 
           <Label className="flex items-center gap-1"><Globe className="h-3 w-3" />دومين الشركة</Label>
 
-          <Input dir="ltr" value={form.domain ?? ''} placeholder="code.iraqitradecenter_company.gcc.iq"
+          <Input dir="ltr" value={form.domain ?? ''} placeholder="ali.iraqi-trade-center.iq"
 
             onChange={e => setForm(f => ({ ...f, domain: e.target.value }))} />
 
         </div>
 
         <div className="space-y-1">
+
+          <Label className="flex items-center gap-1"><Store className="h-3 w-3" />دومين المتجر</Label>
+
+          <Input dir="ltr" value={form.storeDomain ?? ''} placeholder="store.ali.iraqi-trade-center.iq"
+
+            onChange={e => setForm(f => ({ ...f, storeDomain: e.target.value }))} />
+
+          <p className="text-[11px] text-muted-foreground">
+
+            متجر مستقل للشركة — يُشارك الرابط مباشرة. يُفضّل الصيغة store.{'{اسم}'}.iraqi-trade-center.iq ضمن نفس App Pool.
+
+          </p>
+
+        </div>
+
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+        <div className="space-y-1 sm:col-span-2">
 
           <Label className="flex items-center gap-1"><Link2 className="h-3 w-3" />رابط API</Label>
 

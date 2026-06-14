@@ -6,8 +6,8 @@
     <!-- إعدادات وقت التشغيل: روابط API والنطاقات (قابلة للتعديل على السيرفر) -->
     <script src="/runtime-config.js"></script>
 
-    <link rel="icon" type="image/png" href="/logo-parent.png?v=1" />
-    <link rel="apple-touch-icon" href="/logo-parent.png?v=1" />
+    <link rel="icon" type="image/png" href="/logo-parent.png?v=5" />
+    <link rel="apple-touch-icon" href="/logo-parent.png?v=5" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" id="itc-theme-color" content="#0E0F14" />
     <meta name="color-scheme" id="itc-color-scheme" content="dark" />
@@ -48,8 +48,9 @@
           var companyHost = cfg.companyHost || 'iraqitradecenter_company.gcc.iq';
           var suffix = cfg.companyDomainSuffix || '.iraqi-trade-center.iq';
           var host = window.location.hostname;
+          var sub = host.endsWith(suffix) ? host.slice(0, host.length - suffix.length) : '';
           var isCompany = host === companyHost ||
-            (host.endsWith(suffix) && host !== suffix.replace(/^\./, '') && host.indexOf('.') === host.lastIndexOf('.'));
+            (sub.length > 0 && sub.indexOf('.') === -1);
           if (isCompany) {
             document.documentElement.classList.add('theme-company');
             document.title = 'مركز التجارة العراقي - لوحة الشركة';
@@ -61,8 +62,8 @@
             setMeta('apple-mobile-web-app-title', 'لوحة الشركة');
             var icon = document.querySelector('link[rel="icon"]');
             var apple = document.querySelector('link[rel="apple-touch-icon"]');
-            if (icon) icon.setAttribute('href', '/logo.png?v=1');
-            if (apple) apple.setAttribute('href', '/logo.png?v=1');
+            if (icon) icon.setAttribute('href', '/logo.png?v=5');
+            if (apple) apple.setAttribute('href', '/logo.png?v=5');
           }
         } catch (e) { /* ignore */ }
       })();

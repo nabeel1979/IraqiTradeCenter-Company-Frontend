@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocale } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { CompanyHostBadge } from '@/components/layout/CompanyHostBadge';
+import { LogoViewer } from '@/components/LogoViewer';
 
 interface AuthPageShellProps {
   children: ReactNode;
@@ -56,11 +57,9 @@ export function AuthPageShell({ children, showBrand = true, header }: AuthPageSh
           {header ?? (showBrand && (
             <div className="mb-4 text-center sm:mb-5 lg:mb-0 lg:text-start">
               <div className="mb-3 inline-flex sm:mb-4 lg:mb-5">
-                <img
-                  src="/logo.png?v=3"
+                <LogoViewer
                   alt={t('app.name')}
                   className="h-24 w-24 object-contain sm:h-28 sm:w-28 lg:h-36 lg:w-36"
-                  draggable={false}
                 />
               </div>
               <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl lg:text-4xl">

@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import {
-  Receipt, Package, Users, Wallet, AlertTriangle, ShoppingBag
+  Receipt, Package, Users, Wallet, AlertTriangle, ShoppingBag,
+  Store, ExternalLink, Copy, Check,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +16,9 @@ import { formatIQD } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
 import { useLocale } from '@/lib/i18n';
 import { ShortcutsBar } from '@/components/dashboard/ShortcutsBar';
+import { getCompanyCode } from '@/lib/platform';
+import { getRuntimeConfig } from '@/lib/runtime-config';
+import { LogoViewer } from '@/components/LogoViewer';
 
 // بيانات تجريبية - في الإنتاج تُجلب من الـ API
 // ‎نستخدم مفاتيح ترجمة لليوم/العميل/المندوب/المخزون كي يتبدل النص مع اللغة.
@@ -63,6 +69,24 @@ export function DashboardPage() {
   const { t } = useTranslation();
   const { isRtl } = useLocale();
 
+  // رابط متجر الشركة داخل المتجر الرئيسي: iraqi-trade-center.iq/store/{CODE}
+  const companyCode = getCompanyCode();
+  const storeBaseDomain = (getRuntimeConfig().companyDomainSuffix || '.iraqi-trade-center.iq').replace(/^\./, '');
+  const storeUrl = companyCode ? `https://${storeBaseDomain}/store/${companyCode}` : null;
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  async function copyStoreLink() {
+    if (!storeUrl) return;
+    try {
+      await navigator.clipboard.writeText(storeUrl);
+      setLinkCopied(true);
+      toast.success(t('dashboard.storeLinkCopied', { defaultValue: 'تم نسخ رابط المتجر' }));
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      toast.error(t('dashboard.storeLinkCopyFailed', { defaultValue: 'تعذّر نسخ الرابط' }));
+    }
+  }
+
   const todayDate = new Intl.DateTimeFormat(
     isRtl ? 'ar-IQ-u-nu-latn' : 'en-GB',
     {
@@ -103,11 +127,9 @@ export function DashboardPage() {
         <div className="gold-underline absolute bottom-0 left-0 right-0" />
         <div className="relative flex items-center gap-3 sm:gap-5">
           <div className="shrink-0">
-            <img
-              src="/logo.png?v=3"
+            <LogoViewer
               alt={t('app.name')}
               className="h-16 w-16 object-contain sm:h-24 sm:w-24"
-              draggable={false}
             />
           </div>
           <div className="min-w-0 flex-1">
@@ -130,6 +152,40 @@ export function DashboardPage() {
               </span>
             </p>
           </div>
+
+          {/* بطاقة متجر الشركة: زيارة + نسخ رابط المشاركة */}
+          {storeUrl && (
+            <div className="hidden shrink-0 flex-col gap-2 rounded-xl border border-primary/25 bg-background/50 p-3 shadow-sm backdrop-blur-sm sm:flex">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground/80">
+                <Store className="h-4 w-4 text-primary" />
+                {t('dashboard.companyStore', { defaultValue: 'متجر الشركة' })}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <a
+                  href={storeUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {t('dashboard.visitStore', { defaultValue: 'زيارة' })}
+                </a>
+                <button
+                  type="button"
+                  onClick={copyStoreLink}
+                  title={storeUrl}
+                  className="inline-flex items-center gap-1 rounded-lg border border-primary/30 px-3 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-primary/10"
+                >
+                  {linkCopied
+                    ? <Check className="h-3.5 w-3.5 text-success" />
+                    : <Copy className="h-3.5 w-3.5" />}
+                  {linkCopied
+                    ? t('dashboard.linkCopied', { defaultValue: 'تم النسخ' })
+                    : t('dashboard.copyShareLink', { defaultValue: 'نسخ الرابط' })}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
