@@ -53,6 +53,7 @@ export interface WalletSettings {
   grandparentAccountCode?: string | null;
   grandparentAccountName?: string | null;
   grandparentIsDefault: boolean;
+  walletGroupName: string;
   intermediateAccountId?: number | null;
   intermediateAccountCode?: string | null;
   intermediateAccountName?: string | null;
@@ -103,6 +104,7 @@ export const storeWalletsApi = {
 
   updateSettings: async (body: {
     parentAccountCode: string;
+    walletGroupName?: string | null;
     defaultTopupAccountCode?: string | null;
     defaultWithdrawAccountCode?: string | null;
   }) => {
