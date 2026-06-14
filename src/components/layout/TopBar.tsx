@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Bell, Calendar, RefreshCw, ArrowDownLeft, ArrowUpRight, BookOpen,
   Menu, Sun, Moon, X, Languages, CheckCheck, ExternalLink,
-  Cloud, CloudOff, CloudUpload, AlertCircle,
+  Cloud, CloudOff, CloudUpload, AlertCircle, Maximize, Minimize,
+  Pin, Layers, DoorClosed, Trash2, FileText,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,6 +17,14 @@ import { useTheme } from '@/hooks/useTheme';
 import { useLocale, localizedName } from '@/lib/i18n';
 import { LicenseBadge } from '@/components/license/LicenseBadge';
 import { isParentHost } from '@/lib/platform';
+import { useFullscreen } from '@/hooks/useFullscreen';
+import {
+  useParkedPages,
+  parkPage,
+  removeParkedPage,
+  clearParkedPages,
+  type ParkedPage,
+} from '@/lib/parkedPages';
 
 /**
  * المسارات المُعرَّفة في النظام كمفاتيح ترجمة. أنماط ديناميكية مثل
@@ -269,6 +278,205 @@ function NotificationDropdown({ anchorEl, onClose, isRtl, locale, navigate }: No
   );
 }
 
+// ── حساب موضع القائمة المنسدلة أسفل الزر ────────────────────────────────────
+
+function useDropdownStyle(anchorEl: HTMLElement | null, isRtl: boolean, width: number): React.CSSProperties {
+  return useMemo<React.CSSProperties>(() => {
+    if (!anchorEl) return { display: 'none' };
+    const rect = anchorEl.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const dropW = Math.min(width, vw - 16);
+    const left = isRtl
+      ? Math.max(8, rect.left + rect.width - dropW)
+      : Math.max(8, Math.min(rect.left, vw - dropW - 8));
+    return {
+      position: 'fixed',
+      top: rect.bottom + 6,
+      left,
+      width: dropW,
+      zIndex: 9999,
+    };
+  }, [anchorEl, isRtl, width]);
+}
+
+// ── قائمة خيارات الإغلاق/التعليق ───────────────────────────────────────────
+
+interface CloseMenuDropdownProps {
+  anchorEl: HTMLElement | null;
+  onClose: () => void;
+  isRtl: boolean;
+  onChoose: (action: 'close' | 'suspend') => void;
+}
+
+function CloseMenuDropdown({ anchorEl, onClose, isRtl, onChoose }: CloseMenuDropdownProps) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLDivElement>(null);
+  const style = useDropdownStyle(anchorEl, isRtl, 240);
+
+  useEffect(() => {
+    const down = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (ref.current && !ref.current.contains(target) && anchorEl && !anchorEl.contains(target)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('touchstart', down);
+    return () => {
+      document.removeEventListener('mousedown', down);
+      document.removeEventListener('touchstart', down);
+    };
+  }, [anchorEl, onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      style={style}
+      dir={isRtl ? 'rtl' : 'ltr'}
+      className="overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-2xl"
+    >
+      <button
+        type="button"
+        onClick={() => onChoose('close')}
+        className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-start transition-colors hover:bg-secondary/60"
+      >
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
+          <DoorClosed className="h-4 w-4" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-foreground">{t('topbar.close.close')}</span>
+          <span className="block text-xs text-muted-foreground">{t('topbar.close.closeHint')}</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onChoose('suspend')}
+        className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-start transition-colors hover:bg-secondary/60"
+      >
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-500">
+          <Pin className="h-4 w-4" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-foreground">{t('topbar.close.suspend')}</span>
+          <span className="block text-xs text-muted-foreground">{t('topbar.close.suspendHint')}</span>
+        </span>
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+// ── قائمة الصفحات المعلّقة ──────────────────────────────────────────────────
+
+interface ParkedPagesDropdownProps {
+  anchorEl: HTMLElement | null;
+  onClose: () => void;
+  isRtl: boolean;
+  locale: string;
+  items: ParkedPage[];
+  onOpen: (page: ParkedPage) => void;
+  onRemove: (id: string) => void;
+  onClearAll: () => void;
+}
+
+function ParkedPagesDropdown({
+  anchorEl, onClose, isRtl, locale, items, onOpen, onRemove, onClearAll,
+}: ParkedPagesDropdownProps) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLDivElement>(null);
+  const style = useDropdownStyle(anchorEl, isRtl, 340);
+
+  useEffect(() => {
+    const down = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (ref.current && !ref.current.contains(target) && anchorEl && !anchorEl.contains(target)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('touchstart', down);
+    return () => {
+      document.removeEventListener('mousedown', down);
+      document.removeEventListener('touchstart', down);
+    };
+  }, [anchorEl, onClose]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      style={style}
+      dir={isRtl ? 'rtl' : 'ltr'}
+      className="flex max-h-[70vh] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">{t('topbar.parked.title')}</span>
+          {items.length > 0 && (
+            <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+              {items.length}
+            </span>
+          )}
+        </div>
+        {items.length > 0 && (
+          <button
+            type="button"
+            onClick={onClearAll}
+            title={t('topbar.parked.clearAll')}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{t('topbar.parked.clearAll')}</span>
+          </button>
+        )}
+      </div>
+
+      <div className="overflow-y-auto">
+        {items.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+            <Layers className="h-8 w-8 opacity-25" />
+            <span className="text-sm">{t('topbar.parked.empty')}</span>
+          </div>
+        ) : (
+          items.map(item => (
+            <div
+              key={item.id}
+              className="group flex items-center gap-2 border-b border-border/50 px-2 py-1.5 transition-colors hover:bg-secondary/50"
+            >
+              <button
+                type="button"
+                onClick={() => onOpen(item)}
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-start"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <FileText className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">{item.title}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground" dir="ltr">{item.path}</span>
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {timeAgo(new Date(item.parkedAt).toISOString(), locale)}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemove(item.id)}
+                title={t('topbar.parked.remove')}
+                aria-label={t('topbar.parked.remove')}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ── TopBar المكوّن الرئيسي ─────────────────────────────────────────────────
 
 export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
@@ -283,6 +491,20 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
   const isHome = location.pathname === '/';
   const [notifOpen, setNotifOpen] = useState(false);
   const bellRef = useRef<HTMLButtonElement>(null);
+  const { isFullscreen, toggleFullscreen } = useFullscreen();
+
+  // ── الصفحات المعلّقة (Parked / Suspended) ──────────────────────────────
+  const parkedPages = useParkedPages();
+  const [closeMenuOpen, setCloseMenuOpen] = useState(false);
+  const [parkedOpen, setParkedOpen] = useState(false);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const parkedBtnRef = useRef<HTMLButtonElement>(null);
+
+  const handleOpenParked = useCallback((page: ParkedPage) => {
+    setParkedOpen(false);
+    removeParkedPage(page.id);
+    navigate(page.path);
+  }, [navigate]);
 
   // ── عدد الإشعارات الغير مقروءة — يُحدَّث كل 30 ثانية
   const { data: unreadCount = 0 } = useQuery({
@@ -324,6 +546,21 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
     const anyType = voucherType as { nameEn?: string | null; nameAr?: string | null; name?: string | null };
     return localizedName(locale, anyType.nameAr ?? anyType.name, anyType.nameEn);
   }, [voucherType, locale]);
+
+  const currentTitle = voucherType ? voucherTypeName : meta.title;
+
+  /** خيار من قائمة الإغلاق: إغلاق مباشر أو تعليق الصفحة ثم العودة للرئيسية. */
+  const handleCloseChoose = useCallback((action: 'close' | 'suspend') => {
+    setCloseMenuOpen(false);
+    if (action === 'suspend') {
+      parkPage({
+        path: location.pathname + location.search,
+        title: currentTitle,
+        subtitle: meta.description,
+      });
+    }
+    navigate('/');
+  }, [location.pathname, location.search, currentTitle, meta.description, navigate]);
 
   /**
    * إعادة تحميل كاملة للصفحة (مثل F5/Ctrl+R في المتصفح).
@@ -435,17 +672,66 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
 
         {/* License Badge + Actions */}
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          {/* زر الإغلاق / العودة للرئيسية — يظهر في جميع الصفحات ما عدا الرئيسية */}
+          {/* زر الإغلاق / التعليق — يظهر في جميع الصفحات ما عدا الرئيسية */}
           {!isHome && (
             <button
+              ref={closeBtnRef}
               type="button"
-              onClick={() => navigate('/')}
-              title={t('topbar.backHome')}
-              aria-label={t('topbar.backHome')}
-              className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => { setParkedOpen(false); setCloseMenuOpen(v => !v); }}
+              title={t('topbar.closeMenu2')}
+              aria-label={t('topbar.closeMenu2')}
+              className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive',
+                closeMenuOpen && 'border-destructive/40 bg-destructive/10 text-destructive',
+              )}
             >
               <X className="h-4 w-4" />
             </button>
+          )}
+
+          {closeMenuOpen && (
+            <CloseMenuDropdown
+              anchorEl={closeBtnRef.current}
+              onClose={() => setCloseMenuOpen(false)}
+              isRtl={isRtl}
+              onChoose={handleCloseChoose}
+            />
+          )}
+
+          {/* زر الصفحات المعلّقة — يظهر عند وجود صفحات معلّقة */}
+          {parkedPages.length > 0 && (
+            <button
+              ref={parkedBtnRef}
+              type="button"
+              onClick={() => { setCloseMenuOpen(false); setParkedOpen(v => !v); }}
+              title={t('topbar.parked.tooltip')}
+              aria-label={t('topbar.parked.tooltip')}
+              className={cn(
+                'relative flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-primary',
+                parkedOpen && 'bg-secondary text-primary',
+              )}
+            >
+              <Layers className="h-4 w-4" />
+              <span className={cn(
+                'absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-bold text-white ring-2 ring-background',
+                isRtl ? 'left-1 top-1' : 'right-1 top-1',
+              )}>
+                {parkedPages.length > 99 ? '99+' : parkedPages.length}
+              </span>
+            </button>
+          )}
+
+          {parkedOpen && (
+            <ParkedPagesDropdown
+              anchorEl={parkedBtnRef.current}
+              onClose={() => setParkedOpen(false)}
+              isRtl={isRtl}
+              locale={locale}
+              items={parkedPages}
+              onOpen={handleOpenParked}
+              onRemove={removeParkedPage}
+              onClearAll={() => { clearParkedPages(); setParkedOpen(false); }}
+            />
           )}
 
           {/* ‎شارة ترخيص النظام — مخفيّة في الشركة الأم (تعمل بشكل مستمر) */}
@@ -520,6 +806,16 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
             className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-amber-400"
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void toggleFullscreen()}
+            title={isFullscreen ? t('topbar.exitFullscreen') : t('topbar.fullscreen')}
+            aria-label={isFullscreen ? t('topbar.exitFullscreen') : t('topbar.fullscreen')}
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </button>
 
           <button

@@ -16,7 +16,7 @@ import {
 
   Link2, Shield, Play, AlertTriangle, MoreVertical, ExternalLink, Settings,
 
-  Download, Clock, CalendarClock, CloudUpload,
+  Download, Clock, CalendarClock, CloudUpload, Phone,
 
 } from 'lucide-react';
 
@@ -66,11 +66,11 @@ const EMPTY_FORM: SubscriberDto = {
 
   dscrp: '', databaseName: '', authKey: '', startDate: '', endDate: '',
 
-  active: 1, adress: '', activity: 1, email: '', watsup: '',
+  active: 1, adress: '', activity: 1, email: '', watsup: '', phone2: '', phone3: '',
 
-  commissionRate: 5, apiBaseUrl: '', notes: '',
+  commissionRate: 5, apiBaseUrl: '', notes: '', googleMapUrl: '',
 
-  companyCode: '', domain: '', storeDomain: '', dbDataPath: '', dbLogPath: '',
+  companyCode: '', domain: '', dbDataPath: '', dbLogPath: '',
 
   feAppPool: '', feSiteName: '', fePath: '', feServer: '',
 
@@ -80,7 +80,7 @@ const EMPTY_FORM: SubscriberDto = {
 
 
 
-type DialogTab = 'basic' | 'database' | 'apppool' | 'backup' | 'license';
+type DialogTab = 'basic' | 'contact' | 'database' | 'apppool' | 'backup' | 'license';
 
 
 
@@ -226,8 +226,6 @@ export function SubscribersPage() {
 
         domain:       id.domain,
 
-        storeDomain:  id.storeDomain,
-
         apiBaseUrl:   id.apiBaseUrl,
 
         dbDataPath:   id.dbDataPath,
@@ -318,8 +316,6 @@ export function SubscribersPage() {
 
         domain:       id.domain,
 
-        storeDomain:  id.storeDomain,
-
         apiBaseUrl:   id.apiBaseUrl,
 
         dbDataPath:   id.dbDataPath,
@@ -378,13 +374,13 @@ export function SubscribersPage() {
 
       adress: s.adress ?? '', activity: s.activity,
 
-      email: s.email ?? '', watsup: s.watsup ?? '',
+      email: s.email ?? '', watsup: s.watsup ?? '', phone2: s.phone2 ?? '', phone3: s.phone3 ?? '',
 
       commissionRate: s.commissionRate, apiBaseUrl: s.apiBaseUrl ?? '',
 
-      notes: s.notes ?? '',
+      notes: s.notes ?? '', googleMapUrl: s.googleMapUrl ?? '',
 
-      companyCode: s.companyCode ?? '', domain: s.domain ?? '', storeDomain: s.storeDomain ?? '',
+      companyCode: s.companyCode ?? '', domain: s.domain ?? '',
 
       dbDataPath: s.dbDataPath ?? '', dbLogPath: s.dbLogPath ?? '',
 
@@ -700,11 +696,11 @@ export function SubscribersPage() {
 
                           )}
 
-                          {s.storeDomain && (
+                          {s.companyCode && (
 
-                            <a href={`https://${s.storeDomain}`} target="_blank" rel="noreferrer"
+                            <a href={`https://iraqi-trade-center.iq/store/${s.companyCode.toUpperCase()}`} target="_blank" rel="noreferrer"
 
-                              title={s.storeDomain}
+                              title={`متجر ${s.dscrp || s.companyCode}`}
 
                               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-brand-500/10 hover:text-brand-600">
 
@@ -787,6 +783,8 @@ export function SubscribersPage() {
               {([
 
                 { id: 'basic' as const, label: 'البيانات الأساسية', icon: Building2 },
+
+                { id: 'contact' as const, label: 'معلومات الاتصال', icon: Phone },
 
                 { id: 'database' as const, label: 'قاعدة البيانات', icon: Database },
 
@@ -924,25 +922,83 @@ export function SubscribersPage() {
 
 
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex items-center gap-3 pt-1">
+
+                    <Label>الحالة</Label>
+
+                    <button type="button"
+
+                      onClick={() => setForm(f => ({ ...f, active: f.active === 1 ? 0 : 1 }))}
+
+                      className={cn('flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors border',
+
+                        form.active === 1 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200')}>
+
+                      {form.active === 1 ? <><CheckCircle2 className="h-3.5 w-3.5" />نشط</> : <><XCircle className="h-3.5 w-3.5" />موقوف</>}
+
+                    </button>
+
+                  </div>
+
+                </>
+
+              )}
+
+
+
+              {dialogTab === 'contact' && (
+
+                <>
+
+                  <p className="text-sm text-muted-foreground">
+
+                    تُعرض هذه البيانات في متجر المنصة عند ضغط زر «معلومات التواصل» في صفحة الشركات.
+
+                  </p>
+
+
+
+                  <div className="space-y-1">
+
+                    <Label>الإيميل</Label>
+
+                    <Input type="email" dir="ltr" placeholder="info@company.iq" value={form.email ?? ''}
+
+                      onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+
+                  </div>
+
+
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
 
                     <div className="space-y-1">
 
-                      <Label>الإيميل</Label>
+                      <Label>هاتف 1 / واتساب</Label>
 
-                      <Input type="email" dir="ltr" placeholder="info@company.iq" value={form.email ?? ''}
+                      <Input dir="ltr" placeholder="+9647XXXXXXXXX" value={form.watsup ?? ''}
 
-                        onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+                        onChange={e => setForm(f => ({ ...f, watsup: e.target.value }))} />
 
                     </div>
 
                     <div className="space-y-1">
 
-                      <Label>واتساب</Label>
+                      <Label>هاتف 2</Label>
 
-                      <Input dir="ltr" placeholder="+9647XXXXXXXXX" value={form.watsup ?? ''}
+                      <Input dir="ltr" placeholder="+9647XXXXXXXXX" value={form.phone2 ?? ''}
 
-                        onChange={e => setForm(f => ({ ...f, watsup: e.target.value }))} />
+                        onChange={e => setForm(f => ({ ...f, phone2: e.target.value }))} />
+
+                    </div>
+
+                    <div className="space-y-1">
+
+                      <Label>هاتف 3</Label>
+
+                      <Input dir="ltr" placeholder="+9647XXXXXXXXX" value={form.phone3 ?? ''}
+
+                        onChange={e => setForm(f => ({ ...f, phone3: e.target.value }))} />
 
                     </div>
 
@@ -964,13 +1020,13 @@ export function SubscribersPage() {
 
                   <div className="space-y-1">
 
-                    <Label>ملاحظات</Label>
+                    <Label>نبذة عن الشركة</Label>
 
                     <textarea
 
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
 
-                      rows={2} placeholder="ملاحظات إضافية..."
+                      rows={4} placeholder="نبذة مختصرة تظهر في متجر المنصة..."
 
                       value={form.notes ?? ''}
 
@@ -982,21 +1038,21 @@ export function SubscribersPage() {
 
 
 
-                  <div className="flex items-center gap-3 pt-1">
+                  <div className="space-y-1">
 
-                    <Label>الحالة</Label>
+                    <Label>رابط خريطة Google</Label>
 
-                    <button type="button"
+                    <Input dir="ltr" placeholder="https://maps.google.com/... أو رابط embed"
 
-                      onClick={() => setForm(f => ({ ...f, active: f.active === 1 ? 0 : 1 }))}
+                      value={form.googleMapUrl ?? ''}
 
-                      className={cn('flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium transition-colors border',
+                      onChange={e => setForm(f => ({ ...f, googleMapUrl: e.target.value }))} />
 
-                        form.active === 1 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200')}>
+                    <p className="text-xs text-muted-foreground">
 
-                      {form.active === 1 ? <><CheckCircle2 className="h-3.5 w-3.5" />نشط</> : <><XCircle className="h-3.5 w-3.5" />موقوف</>}
+                      يمكن لصق رابط مشاركة Google Maps أو رابط embed. إن تُرك فارغاً يُستخدم العنوان لعرض الخريطة.
 
-                    </button>
+                    </p>
 
                   </div>
 
@@ -2273,15 +2329,12 @@ function DatabaseTab({
 
         <div className="space-y-1">
 
-          <Label className="flex items-center gap-1"><Store className="h-3 w-3" />دومين المتجر</Label>
-
-          <Input dir="ltr" value={form.storeDomain ?? ''} placeholder="store.ali.iraqi-trade-center.iq"
-
-            onChange={e => setForm(f => ({ ...f, storeDomain: e.target.value }))} />
+          <Label className="flex items-center gap-1"><Store className="h-3 w-3" />متجر الشركة</Label>
 
           <p className="text-[11px] text-muted-foreground">
 
-            متجر مستقل للشركة — يُشارك الرابط مباشرة. يُفضّل الصيغة store.{'{اسم}'}.iraqi-trade-center.iq ضمن نفس App Pool.
+            يُفتح ضمن المتجر الرئيسي عبر الرابط
+            {form.companyCode ? ` iraqi-trade-center.iq/store/${form.companyCode.toUpperCase()}` : ' iraqi-trade-center.iq/store/{الكود}'}.
 
           </p>
 
@@ -2295,7 +2348,7 @@ function DatabaseTab({
 
           <Label className="flex items-center gap-1"><Link2 className="h-3 w-3" />رابط API</Label>
 
-          <Input dir="ltr" value={form.apiBaseUrl ?? ''} placeholder="https://api_iraqitradecenter_company.gcc.iq"
+          <Input dir="ltr" value={form.apiBaseUrl ?? ''} placeholder="https://api-iraqitradecenter.gcc.iq/api"
 
             onChange={e => setForm(f => ({ ...f, apiBaseUrl: e.target.value }))} />
 

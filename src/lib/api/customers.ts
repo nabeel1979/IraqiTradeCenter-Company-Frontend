@@ -10,4 +10,9 @@ export const customersApi = {
     const res = await api.get<ApiResponse<CustomerStatementDto>>(`/customers/${id}/statement`, { params: { from, to } });
     return res.data.data!;
   },
+
+  update: async (id: number, data: { isActive?: boolean; storeUserCode?: string }) => {
+    const res = await api.patch<ApiResponse<CustomerDto>>(`/customers/${id}`, data);
+    return res.data.data!;
+  },
 };

@@ -42,7 +42,7 @@ import { companySettingsApi } from '@/lib/api/companySettings';
 import { printTrialBalance } from '@/lib/printUtils';
 import { readSessionJson, ReportNavKeys, saveStatementSource } from '@/lib/reportReturnState';
 import { auditApi } from '@/lib/api/audit';
-import { formatAmount, cn } from '@/lib/utils';
+import { formatAmountFixed2, cn } from '@/lib/utils';
 import { useLocale, localizedAccountName } from '@/lib/i18n';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
@@ -78,7 +78,7 @@ const TYPE_COLORS: Record<string, string> = {
 /** تنسيق رقم محاسبي: 0 → "—"، السالب بين قوسين */
 function fmt(n: number): string {
   if (!n || Math.abs(n) < 0.005) return '—';
-  return formatAmount(n, 2);
+  return formatAmountFixed2(n);
 }
 
 const TB_AMT = 'tb-amt border-r border-border/40';
@@ -1008,15 +1008,15 @@ function ProfitCalculationCard({
 
         {/* المعادلة بالأرقام */}
         <div className="rounded-md border border-border/60 bg-secondary/30 p-3 text-center text-xs">
-          <span className="text-emerald-300 num-display">{formatAmount(totalRevenue, 2)}</span>
+          <span className="text-emerald-300 num-display">{formatAmountFixed2(totalRevenue)}</span>
           <span className="mx-2 text-muted-foreground">−</span>
-          <span className="text-rose-300 num-display">{formatAmount(totalExpense, 2)}</span>
+          <span className="text-rose-300 num-display">{formatAmountFixed2(totalExpense)}</span>
           <span className="mx-2 text-muted-foreground">=</span>
           <span className={cn(
             'num-display font-bold',
             isProfit ? 'text-emerald-300' : 'text-rose-300'
           )}>
-            {formatAmount(netIncome, 2)}
+            {formatAmountFixed2(netIncome)}
           </span>
           <span className="ms-2 text-[10px] text-muted-foreground">{unit}</span>
         </div>
@@ -1048,7 +1048,7 @@ function Box({
           big ? 'text-xl' : 'text-base',
           tone === 'emerald' ? 'text-emerald-300' : 'text-rose-300',
         )}>
-          {formatAmount(value, 2)}
+          {formatAmountFixed2(value)}
         </div>
         <div className="text-[10px] text-muted-foreground">{unit}</div>
       </div>

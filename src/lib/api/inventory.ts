@@ -309,6 +309,7 @@ export interface ItemMovementDto {
   referenceId?: number | null;
   referenceNumber?: string | null;
   unitCost?: number | null;
+  totalValue?: number | null;
   unitPrice?: number | null;
   notes?: string | null;
   partyName?: string | null;
@@ -350,6 +351,13 @@ export function effectiveMovements(movements: ItemMovementDto[]): ItemMovementDt
     if (lr == null) return true;
     return new Date(m.movementDate).getTime() >= lr;
   });
+}
+
+/** إجمالي تكلفة/قيمة الحركة — من TotalValue أو unitCost × الكمية الأساسية */
+export function movementLineCost(m: Pick<ItemMovementDto, 'totalValue' | 'unitCost' | 'quantityInBase'>): number | null {
+  if (m.totalValue != null) return m.totalValue;
+  if (m.unitCost != null) return m.unitCost * m.quantityInBase;
+  return null;
 }
 
 export interface ItemStockCountRowDto {

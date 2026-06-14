@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, Receipt, Package, Users, UserCog, Inbox,
   BookOpen, Settings, LogOut, TrendingUp, ChevronDown,
-  Calculator, ShoppingCart, Warehouse, FolderTree, Scale,
+  Calculator, ShoppingCart, Warehouse, FolderTree, Scale, Store as StoreIcon,
   ChevronsDown, ChevronsUp, FileText, CalendarRange, Coins, Tag,
   Wallet, ArrowDownLeft, ArrowUpRight, X, Trash2, Activity,
   Landmark, Building2, CreditCard, ArrowLeftRight,
@@ -90,6 +90,10 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Building2,
     items: [
       { to: '/subscribers', labelKey: 'sidebar.items.subscribers', icon: Building2, permission: PERMS.Parent.Subscribers.Read },
+      { to: '/parent/store/users', labelKey: 'sidebar.items.storeUsers', icon: Users, permission: PERMS.Parent.Subscribers.Read },
+      { to: '/parent/store/trader-sales', labelKey: 'sidebar.items.traderSales', icon: StoreIcon, permission: PERMS.Parent.Subscribers.Read },
+      { to: '/parent/store/company-requests', labelKey: 'sidebar.items.companyRequests', icon: ClipboardList, permission: PERMS.Parent.Subscribers.Read },
+      { to: '/parent/store/carts', labelKey: 'sidebar.items.storeCarts', icon: ShoppingCart, permission: PERMS.Parent.Subscribers.Read },
     ],
   },
   {

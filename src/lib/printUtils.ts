@@ -2,10 +2,11 @@ import type {
   AccountBalancesDto,
   AccountStatementDto,
   JournalEntryDto,
+  SalesInvoiceDto,
   TrialBalanceDto,
 } from '@/types/api';
 import type { CompanySettingsDto } from '@/lib/api/companySettings';
-import { formatAmount, formatDate } from '@/lib/utils';
+import { formatAmount, formatAmountFixed2, formatDate } from '@/lib/utils';
 import { tafqeet } from '@/lib/tafqeet';
 import {
   getPrintI18n,
@@ -467,8 +468,8 @@ export function printJournalEntriesList(
       <td class="center">${entryCell}</td>
       <td class="center">${formatDate(e.entryDate)}</td>
       <td>${escapeHtml(e.description)} ${e.entryType === 'Opening' ? `<span class="badge badge-opening">${escapeHtml(i18n.entryType.openingBadge)}</span>` : ''}</td>
-      <td class="left num">${formatAmount(e.totalDebit)}</td>
-      <td class="left num">${formatAmount(e.totalCredit)}</td>
+      <td class="left num">${formatAmountFixed2(e.totalDebit)}</td>
+      <td class="left num">${formatAmountFixed2(e.totalCredit)}</td>
       <td class="center">${escapeHtml(e.currency || 'IQD')}</td>
       <td class="center">${statusBadgeHtml(e.status, i18n)}</td>
     </tr>
@@ -509,8 +510,8 @@ export function printJournalEntriesList(
       <tfoot>
         <tr>
           <th colspan="4" class="right">${escapeHtml(i18n.journalList.totals)}</th>
-          <th class="left num">${formatAmount(totalDebit)}</th>
-          <th class="left num">${formatAmount(totalCredit)}</th>
+          <th class="left num">${formatAmountFixed2(totalDebit)}</th>
+          <th class="left num">${formatAmountFixed2(totalCredit)}</th>
           <th colspan="2"></th>
         </tr>
       </tfoot>
@@ -524,6 +525,113 @@ export function printJournalEntriesList(
   `;
 
   openPrintWindow(html, `${i18n.journalList.previewTitle} - ${headerCompanyName}`.trim(), locale);
+}
+
+function invoiceStatusLabel(status: string, locale: PrintLocale): string {
+  const ar: Record<string, string> = {
+    Paid: 'مدفوعة',
+    PartiallyPaid: 'جزئياً',
+    Issued: 'مصدرة',
+    Draft: 'مسودة',
+    Cancelled: 'ملغاة',
+  };
+  const en: Record<string, string> = {
+    Paid: 'Paid',
+    PartiallyPaid: 'Partial',
+    Issued: 'Issued',
+    Draft: 'Draft',
+    Cancelled: 'Cancelled',
+  };
+  const map = locale === 'en' ? en : ar;
+  return map[status] ?? status;
+}
+
+export interface InvoicesListPrintOptions {
+  title: string;
+  partyColumnLabel: string;
+  filters?: PrintListFilters;
+}
+
+export function printInvoicesList(
+  invoices: SalesInvoiceDto[],
+  options: InvoicesListPrintOptions,
+  company: CompanySettingsDto | null = null,
+  locale: PrintLocale = getPrintLocale(),
+) {
+  const filters = options.filters ?? {};
+  const totalAmount = invoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
+  const totalPaid = invoices.reduce((s, i) => s + (i.paidAmount || 0), 0);
+  const totalRemaining = invoices.reduce((s, i) => s + (i.remainingAmount || 0), 0);
+
+  const rows = invoices.map((inv, idx) => `
+    <tr>
+      <td class="center">${idx + 1}</td>
+      <td class="center"><strong class="num">${escapeHtml(inv.invoiceNumber)}</strong></td>
+      <td class="center">${formatDate(inv.invoiceDate)}</td>
+      <td>${escapeHtml(inv.customerName ?? '—')}</td>
+      <td class="center">${escapeHtml(inv.currency || 'IQD')}</td>
+      <td class="left num">${formatAmountFixed2(inv.totalAmount)}</td>
+      <td class="left num">${formatAmountFixed2(inv.paidAmount)}</td>
+      <td class="left num">${formatAmountFixed2(inv.remainingAmount)}</td>
+      <td class="center">${escapeHtml(invoiceStatusLabel(inv.status, locale))}</td>
+    </tr>
+  `).join('');
+
+  const fromTxt = filters.fromDate ? formatDate(filters.fromDate) : '—';
+  const toTxt = filters.toDate ? formatDate(filters.toDate) : '—';
+  const statusTxt = filters.status ? invoiceStatusLabel(filters.status, locale) : (locale === 'en' ? 'All' : 'الكل');
+  const printedAt = formatPrintedAt(locale);
+  const headerCompanyName = locale === 'en' ? (company?.nameEn || company?.nameAr || '') : (company?.nameAr || '');
+  const colParty = escapeHtml(options.partyColumnLabel);
+  const listTitle = escapeHtml(options.title);
+  const emptyMsg = locale === 'en' ? 'No invoices' : 'لا توجد فواتير';
+  const totalsLbl = locale === 'en' ? 'Totals' : 'الإجماليات';
+
+  const html = `
+    ${buildBrandHeader(company, printedAt, getPrintI18n(locale), locale)}
+    <div class="report-title">${listTitle}</div>
+    <div class="doc-meta">
+      <div class="item"><span class="label">${locale === 'en' ? 'From' : 'من'}</span><span class="value">${fromTxt}</span></div>
+      <div class="item"><span class="label">${locale === 'en' ? 'To' : 'إلى'}</span><span class="value">${toTxt}</span></div>
+      <div class="item"><span class="label">${locale === 'en' ? 'Status' : 'الحالة'}</span><span class="value">${escapeHtml(statusTxt)}</span></div>
+      <div class="item"><span class="label">${locale === 'en' ? 'Count' : 'العدد'}</span><span class="value">${invoices.length}</span></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th class="center" style="width:30px">#</th>
+          <th class="center" style="width:90px">${locale === 'en' ? 'Invoice No.' : 'رقم الفاتورة'}</th>
+          <th class="center" style="width:80px">${locale === 'en' ? 'Date' : 'التاريخ'}</th>
+          <th>${colParty}</th>
+          <th class="center" style="width:50px">${locale === 'en' ? 'Currency' : 'العملة'}</th>
+          <th class="left" style="width:90px">${locale === 'en' ? 'Total' : 'الإجمالي'}</th>
+          <th class="left" style="width:90px">${locale === 'en' ? 'Paid' : 'المدفوع'}</th>
+          <th class="left" style="width:90px">${locale === 'en' ? 'Remaining' : 'المتبقي'}</th>
+          <th class="center" style="width:60px">${locale === 'en' ? 'Status' : 'الحالة'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows || `<tr><td colspan="9" class="center" style="padding:20px;color:#888">${emptyMsg}</td></tr>`}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="5" class="right">${totalsLbl}</th>
+          <th class="left num">${formatAmountFixed2(totalAmount)}</th>
+          <th class="left num">${formatAmountFixed2(totalPaid)}</th>
+          <th class="left num">${formatAmountFixed2(totalRemaining)}</th>
+          <th></th>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="signatures">
+      <div class="sig">${locale === 'en' ? 'Accountant' : 'المحاسب'}</div>
+      <div class="sig">${locale === 'en' ? 'Reviewer' : 'المراجع'}</div>
+      <div class="sig">${locale === 'en' ? 'Financial Manager' : 'المدير المالي'}</div>
+    </div>
+    ${buildFooter(company, listTitle)}
+  `;
+
+  openPrintWindow(html, `${listTitle} - ${headerCompanyName}`.trim(), locale);
 }
 
 export function printSingleJournalEntry(
@@ -544,8 +652,8 @@ export function printSingleJournalEntry(
       <td class="center">${idx + 1}</td>
       <td>${escapeHtml(accountDisplayName(l))}</td>
       <td>${escapeHtml(l.description ?? '')}</td>
-      <td class="left num">${l.isDebit ? formatAmount(l.amount) : '—'}</td>
-      <td class="left num">${!l.isDebit ? formatAmount(l.amount) : '—'}</td>
+      <td class="left num">${l.isDebit ? formatAmountFixed2(l.amount) : '—'}</td>
+      <td class="left num">${!l.isDebit ? formatAmountFixed2(l.amount) : '—'}</td>
     </tr>
   `).join('');
 
@@ -590,8 +698,8 @@ export function printSingleJournalEntry(
       <tfoot>
         <tr>
           <th colspan="3" class="right">${escapeHtml(i18n.singleEntry.total)}</th>
-          <th class="left num">${formatAmount(e.totalDebit)}</th>
-          <th class="left num">${formatAmount(e.totalCredit)}</th>
+          <th class="left num">${formatAmountFixed2(e.totalDebit)}</th>
+          <th class="left num">${formatAmountFixed2(e.totalCredit)}</th>
         </tr>
       </tfoot>
     </table>
@@ -839,8 +947,8 @@ export function printAccountStatement(
       if (k === 'desc') return `<td><em>${escapeHtml(i18n.statement.openingBalance)}</em></td>`;
       if (k === 'debit') return `<td class="left num">—</td>`;
       if (k === 'credit') return `<td class="left num">—</td>`;
-      if (k === 'balance') return `<td class="left num">${totals.opening !== 0 ? formatAmount(totals.opening) : '—'}</td>`;
-      if (k === 'valBalance') return `<td class="left num">${formatAmount(totals.openingValuated)}</td>`;
+      if (k === 'balance') return `<td class="left num">${totals.opening !== 0 ? formatAmountFixed2(totals.opening) : '—'}</td>`;
+      if (k === 'valBalance') return `<td class="left num">${formatAmountFixed2(totals.openingValuated)}</td>`;
       if (k === 'currency') return `<td class="center">${escapeHtml(cur)}</td>`;
       return '<td>—</td>';
     }).join('');
@@ -865,10 +973,10 @@ export function printAccountStatement(
         if (k === 'entry')     return `<td class="center">${entryCell}</td>`;
         if (k === 'account')   return `<td style="font-size:9.5px"><span class="num" style="color:#1f6f43">${escapeHtml(r.accountCode)}</span> ${escapeHtml(rowAccountName(r.accountCode, r.accountName))}</td>`;
         if (k === 'desc')      return `<td style="font-size:9.5px">${escapeHtml(r.lineDescription || r.description || '—')}</td>`;
-        if (k === 'debit')     return `<td class="left num">${r.debit > 0 ? formatAmount(r.debit) : '<span style="color:#bbb">—</span>'}</td>`;
-        if (k === 'credit')    return `<td class="left num">${r.credit > 0 ? formatAmount(r.credit) : '<span style="color:#bbb">—</span>'}</td>`;
-        if (k === 'balance')   return `<td class="left num"><strong class="c-balance">${formatAmount(r.runningBalance)}</strong></td>`;
-        if (k === 'valBalance')return `<td class="left num" style="color:#7a4f01"><strong>${formatAmount(r.runningValuated)}</strong></td>`;
+        if (k === 'debit')     return `<td class="left num">${r.debit > 0 ? formatAmountFixed2(r.debit) : '<span style="color:#bbb">—</span>'}</td>`;
+        if (k === 'credit')    return `<td class="left num">${r.credit > 0 ? formatAmountFixed2(r.credit) : '<span style="color:#bbb">—</span>'}</td>`;
+        if (k === 'balance')   return `<td class="left num"><strong class="c-balance">${formatAmountFixed2(r.runningBalance)}</strong></td>`;
+        if (k === 'valBalance')return `<td class="left num" style="color:#7a4f01"><strong>${formatAmountFixed2(r.runningValuated)}</strong></td>`;
         if (k === 'currency')  return `<td class="center" style="font-weight:700;color:#1d4ed8">${escapeHtml(r.currency)}</td>`;
         return '<td>—</td>';
       }).join('');
@@ -877,7 +985,7 @@ export function printAccountStatement(
 
     // صف الإجماليات — يحترم ترتيب الأعمدة المرئية ويملأ غير المبلغية بخلية فارغة
     const labelText = i18n.statement.totalsRowLabel(
-      totals.opening ? formatAmount(totals.opening) : null
+      totals.opening ? formatAmountFixed2(totals.opening) : null
     );
     const amountSet = new Set(['debit','credit','balance','valBalance','currency']);
     const firstAmtIdx = visibleCols.findIndex(c => amountSet.has(c));
@@ -889,10 +997,10 @@ export function printAccountStatement(
     }
     for (let i = leadingNonAmt; i < visibleCols.length; i++) {
       const k = visibleCols[i];
-      if (k === 'debit')           totalParts.push(`<th class="left num c-debit">${formatAmount(totals.debit)}</th>`);
-      else if (k === 'credit')     totalParts.push(`<th class="left num c-credit">${formatAmount(totals.credit)}</th>`);
-      else if (k === 'balance')    totalParts.push(`<th class="left num c-balance">${formatAmount(totals.balance)}</th>`);
-      else if (k === 'valBalance') totalParts.push(`<th class="left num c-valuated">${formatAmount(totals.balanceValuated)}</th>`);
+      if (k === 'debit')           totalParts.push(`<th class="left num c-debit">${formatAmountFixed2(totals.debit)}</th>`);
+      else if (k === 'credit')     totalParts.push(`<th class="left num c-credit">${formatAmountFixed2(totals.credit)}</th>`);
+      else if (k === 'balance')    totalParts.push(`<th class="left num c-balance">${formatAmountFixed2(totals.balance)}</th>`);
+      else if (k === 'valBalance') totalParts.push(`<th class="left num c-valuated">${formatAmountFixed2(totals.balanceValuated)}</th>`);
       else if (k === 'currency')   totalParts.push(`<th class="center"><b>${escapeHtml(cur)}</b></th>`);
       else                          totalParts.push(`<th>&nbsp;</th>`); // خلية فارغة للمحافظة على الترتيب
     }
@@ -907,9 +1015,9 @@ export function printAccountStatement(
             <span class="ccy-count">${escapeHtml(i18n.statement.movementsCount(rows.length))}</span>
           </div>
           <div class="ccy-summary">
-            <span>${escapeHtml(i18n.statement.debitLbl)} <b class="num c-debit">${formatAmount(totals.debit)}</b></span>
-            <span>${escapeHtml(i18n.statement.creditLbl)} <b class="num c-credit">${formatAmount(totals.credit)}</b></span>
-            <span>${escapeHtml(i18n.statement.balanceLbl)} <b class="num c-balance">${formatAmount(totals.balance)}</b></span>
+            <span>${escapeHtml(i18n.statement.debitLbl)} <b class="num c-debit">${formatAmountFixed2(totals.debit)}</b></span>
+            <span>${escapeHtml(i18n.statement.creditLbl)} <b class="num c-credit">${formatAmountFixed2(totals.credit)}</b></span>
+            <span>${escapeHtml(i18n.statement.balanceLbl)} <b class="num c-balance">${formatAmountFixed2(totals.balance)}</b></span>
           </div>
         </header>
         <table>
@@ -957,19 +1065,19 @@ export function printAccountStatement(
       <div class="base-summary-grid">
         <div class="bs-cell">
           <div class="bs-label">${escapeHtml(i18n.statement.openingBalanceLbl)}</div>
-          <div class="bs-value num c-opening">${formatAmount(data.openingBalanceValuated ?? data.openingBalance)}</div>
+          <div class="bs-value num c-opening">${formatAmountFixed2(data.openingBalanceValuated ?? data.openingBalance)}</div>
         </div>
         <div class="bs-cell">
           <div class="bs-label">${escapeHtml(i18n.statement.totalDebitLbl)}</div>
-          <div class="bs-value num c-debit">${formatAmount(data.totalDebitValuated ?? data.totalDebit)}</div>
+          <div class="bs-value num c-debit">${formatAmountFixed2(data.totalDebitValuated ?? data.totalDebit)}</div>
         </div>
         <div class="bs-cell">
           <div class="bs-label">${escapeHtml(i18n.statement.totalCreditLbl)}</div>
-          <div class="bs-value num c-credit">${formatAmount(data.totalCreditValuated ?? data.totalCredit)}</div>
+          <div class="bs-value num c-credit">${formatAmountFixed2(data.totalCreditValuated ?? data.totalCredit)}</div>
         </div>
         <div class="bs-cell highlight">
           <div class="bs-label">${escapeHtml(i18n.statement.closingBalanceLbl)}</div>
-          <div class="bs-value num c-balance"><b>${formatAmount(data.closingBalanceValuated ?? data.closingBalance)}</b></div>
+          <div class="bs-value num c-balance"><b>${formatAmountFixed2(data.closingBalanceValuated ?? data.closingBalance)}</b></div>
         </div>
       </div>
       ${
@@ -1337,7 +1445,7 @@ function buildVoucherCopy(
         <br/>
         ${escapeHtml(i18n.voucher.amountIs)}
         <span class="v-amount-box">
-          <span class="num">${formatAmount(amount)}</span>
+          <span class="num">${formatAmountFixed2(amount)}</span>
           <span class="currency">${escapeHtml(currency)}</span>
         </span>
       </div>
@@ -1416,7 +1524,7 @@ const TRIAL_BALANCE_TYPE_COLORS: Record<string, { bg: string; fg: string }> = {
 /** تنسيق رقم محاسبي للطباعة: 0 → "—" والسالب بين قوسين. */
 function tbFmt(n: number): string {
   if (!n || Math.abs(n) < 0.005) return '—';
-  return formatAmount(n, 2);
+  return formatAmountFixed2(n);
 }
 
 /** خيارات إضافية لطباعة ميزان المراجعة. */
@@ -1613,11 +1721,11 @@ export function printTrialBalance(
       <table class="tb-profit-grid">
         <tr>
           <td class="lbl">${escapeHtml(i18n.trialBalance.totalRevenue)}</td>
-          <td class="val num" style="color:#047857;">${formatAmount(data.totalRevenue, 2)}</td>
+          <td class="val num" style="color:#047857;">${formatAmountFixed2(data.totalRevenue)}</td>
           <td class="lbl">${escapeHtml(i18n.trialBalance.totalExpense)}</td>
-          <td class="val num" style="color:#b91c1c;">${formatAmount(data.totalExpense, 2)}</td>
+          <td class="val num" style="color:#b91c1c;">${formatAmountFixed2(data.totalExpense)}</td>
           <td class="lbl">${escapeHtml(profitLabel)}</td>
-          <td class="val num" style="color:${profitColor};font-size:14px;">${formatAmount(Math.abs(data.netIncome), 2)}</td>
+          <td class="val num" style="color:${profitColor};font-size:14px;">${formatAmountFixed2(Math.abs(data.netIncome))}</td>
         </tr>
       </table>
       ${profitInWords ? `
@@ -2160,7 +2268,7 @@ const ACCOUNT_BALANCES_TYPE_COLORS: Record<string, { bg: string; fg: string }> =
 /** نفس قاعدة tbFmt: 0 → "—" */
 function abFmt(n: number): string {
   if (!n || Math.abs(n) < 0.005) return '—';
-  return formatAmount(n, 2);
+  return formatAmountFixed2(n);
 }
 
 const FM_PARTY_KIND_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -2910,11 +3018,11 @@ export function printItemMovements(
       <td class="center"><span class="rep-badge" style="background:${r.isOut ? '#fee2e2' : '#dcfce7'};color:${r.isOut ? '#b91c1c' : '#15803d'};">${escapeHtml(r.typeLabel)}</span></td>
       <td>${escapeHtml(r.party || '—')}</td>
       <td>${escapeHtml(r.warehouse)}</td>
-      <td class="center num" style="font-weight:700;color:${r.isOut ? '#b91c1c' : '#15803d'};">${r.isOut ? '-' : '+'}${formatAmount(Math.abs(r.quantity), 2)}</td>
+      <td class="center num" style="font-weight:700;color:${r.isOut ? '#b91c1c' : '#15803d'};">${r.isOut ? '-' : '+'}${formatAmountFixed2(Math.abs(r.quantity))}</td>
       <td class="center">${escapeHtml(r.unit)}</td>
-      <td class="left num">${r.unitCost != null ? formatAmount(r.unitCost, 3) : '—'}</td>
-      <td class="center num" style="color:#64748b">${formatAmount(r.before, 2)}</td>
-      <td class="center num" style="font-weight:600">${formatAmount(r.after, 2)}</td>
+      <td class="left num">${r.unitCost != null ? formatAmountFixed2(r.unitCost) : '—'}</td>
+      <td class="center num" style="color:#64748b">${formatAmountFixed2(r.before)}</td>
+      <td class="center num" style="font-weight:600">${formatAmountFixed2(r.after)}</td>
       <td>${escapeHtml(r.reference || '—')}</td>
     </tr>`).join('');
 
@@ -2923,9 +3031,9 @@ export function printItemMovements(
     <div class="report-title">${ttp(locale, 'تقرير حركة المادة', 'Item Movement Report')}</div>
     <div class="rep-filters">${filterChips.join(' ')}</div>
     <div class="rep-summary">
-      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الوارد', 'Total In')}</div><div class="val" style="color:#15803d">${formatAmount(input.totalIn, 2)}</div></div>
-      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الصادر', 'Total Out')}</div><div class="val" style="color:#b91c1c">${formatAmount(input.totalOut, 2)}</div></div>
-      <div class="box"><div class="lbl">${ttp(locale, 'صافي الحركة', 'Net')}</div><div class="val">${formatAmount(input.net, 2)} ${escapeHtml(input.unitName ?? '')}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الوارد', 'Total In')}</div><div class="val" style="color:#15803d">${formatAmountFixed2(input.totalIn)}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الصادر', 'Total Out')}</div><div class="val" style="color:#b91c1c">${formatAmountFixed2(input.totalOut)}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'صافي الحركة', 'Net')}</div><div class="val">${formatAmountFixed2(input.net)} ${escapeHtml(input.unitName ?? '')}</div></div>
       <div class="box"><div class="lbl">${ttp(locale, 'عدد الحركات', 'Movements')}</div><div class="val num">${input.rows.length}</div></div>
     </div>
     <table class="rep-table">
@@ -2938,7 +3046,7 @@ export function printItemMovements(
           <th>${ttp(locale, 'المستودع', 'Warehouse')}</th>
           <th class="center">${ttp(locale, 'الكمية', 'Qty')}</th>
           <th class="center">${ttp(locale, 'وحدة الجرد', 'Unit')}</th>
-          <th class="left">${ttp(locale, 'السعر', 'Cost')}</th>
+          <th class="left">${ttp(locale, 'التكلفة', 'Cost')}</th>
           <th class="center">${ttp(locale, 'الرصيد قبل', 'Before')}</th>
           <th class="center">${ttp(locale, 'الرصيد بعد', 'After')}</th>
           <th>${ttp(locale, 'المرجع', 'Reference')}</th>
@@ -2981,6 +3089,8 @@ export interface StockCountPrintRow {
   warehouse: string;
   unit: string;
   quantity: number;
+  unitCost?: number;
+  totalCost?: number;
 }
 
 export interface StockCountPrintInput {
@@ -3015,9 +3125,13 @@ export function printStockCount(
       <td>${escapeHtml(r.name)}</td>
       <td>${escapeHtml(r.category || '—')}</td>
       <td>${escapeHtml(r.warehouse)}</td>
-      <td class="center num" style="font-weight:700;color:${r.quantity < 0 ? '#b91c1c' : '#0f172a'}">${formatAmount(r.quantity, 2)}</td>
+      <td class="center num" style="font-weight:700;color:${r.quantity < 0 ? '#b91c1c' : '#0f172a'}">${formatAmountFixed2(r.quantity)}</td>
       <td class="center">${escapeHtml(r.unit)}</td>
+      <td class="center num">${r.unitCost != null ? formatAmountFixed2(r.unitCost) : '—'}</td>
+      <td class="center num">${r.totalCost != null ? formatAmountFixed2(r.totalCost) : '—'}</td>
     </tr>`).join('');
+
+  const totalCost = input.rows.reduce((s, r) => s + (r.totalCost ?? 0), 0);
 
   const html = `
     ${buildBrandHeader(company, printedAt, i18n, locale)}
@@ -3026,7 +3140,7 @@ export function printStockCount(
     <div class="rep-summary">
       <div class="box"><div class="lbl">${ttp(locale, 'عدد السطور', 'Rows')}</div><div class="val num">${input.rows.length}</div></div>
       <div class="box"><div class="lbl">${ttp(locale, 'عدد المواد', 'Items')}</div><div class="val num">${input.itemCount}</div></div>
-      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الكمية', 'Total Qty')}</div><div class="val">${formatAmount(input.totalQuantity, 2)}</div></div>
+      <div class="box"><div class="lbl">${ttp(locale, 'إجمالي الكمية', 'Total Qty')}</div><div class="val">${formatAmountFixed2(input.totalQuantity)}</div></div>
     </div>
     <table class="rep-table">
       <thead>
@@ -3038,14 +3152,18 @@ export function printStockCount(
           <th>${ttp(locale, 'المستودع', 'Warehouse')}</th>
           <th class="center">${ttp(locale, 'الكمية', 'Quantity')}</th>
           <th class="center">${ttp(locale, 'وحدة الجرد', 'Unit')}</th>
+          <th class="center">${ttp(locale, 'تكلفة الوحدة', 'Unit cost')}</th>
+          <th class="center">${ttp(locale, 'التكلفة', 'Cost')}</th>
         </tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="7" class="center" style="padding:16px;color:#94a3b8">${ttp(locale, 'لا توجد بيانات', 'No data')}</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="9" class="center" style="padding:16px;color:#94a3b8">${ttp(locale, 'لا توجد بيانات', 'No data')}</td></tr>`}</tbody>
       <tfoot>
         <tr>
           <th colspan="5" class="center">${ttp(locale, 'الإجمالي', 'Total')}</th>
-          <th class="center num">${formatAmount(input.totalQuantity, 2)}</th>
+          <th class="center num">${formatAmountFixed2(input.totalQuantity)}</th>
           <th></th>
+          <th></th>
+          <th class="center num">${formatAmountFixed2(totalCost)}</th>
         </tr>
       </tfoot>
     </table>

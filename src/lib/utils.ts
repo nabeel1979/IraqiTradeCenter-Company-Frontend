@@ -72,6 +72,21 @@ export function formatAmount(amount: number | null | undefined, decimals = 3) {
   }).format(amount);
 }
 
+/** تقريب لأقرب جزء من مائة (منزلتين عشريتين) — نصف للأعلى عند 0.5 */
+export function roundAmount2(amount: number): number {
+  const sign = amount < 0 ? -1 : 1;
+  return sign * Math.round(Math.abs(amount) * 100) / 100;
+}
+
+/** تنسيق بمنزلتين عشريتين ثابتتين (100 → 100.00) — للجرد والتقارير المالية */
+export function formatAmountFixed2(amount: number | null | undefined) {
+  if (amount == null) return '—';
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(roundAmount2(amount));
+}
+
 /** المنطقة الزمنية الرسمية للنظام — بغداد UTC+3 */
 export const SYSTEM_TIMEZONE = 'Asia/Baghdad';
 

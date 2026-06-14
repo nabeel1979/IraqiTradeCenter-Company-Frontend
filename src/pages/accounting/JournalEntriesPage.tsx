@@ -54,7 +54,7 @@ import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
 import { cashBoxesApi } from '@/lib/api/cashBoxes';
 import { BranchFilterSelect } from '@/components/branches/BranchSelect';
 import { useAuthStore } from '@/lib/auth/auth-store';
-import { formatAmount, formatDate, cn, extractApiError } from '@/lib/utils';
+import { formatAmountFixed2, formatDate, cn, extractApiError } from '@/lib/utils';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import { printJournalEntriesList, printSingleJournalEntry } from '@/lib/printUtils';
@@ -293,7 +293,7 @@ function renderLineCell(
       return (
         <td className="border-l border-border/30 px-3 py-2 text-right num-display">
           {line.isDebit ? (
-            <span className="font-semibold text-emerald-400">{formatAmount(line.amount)}</span>
+            <span className="font-semibold text-emerald-400">{formatAmountFixed2(line.amount)}</span>
           ) : (
             <span className="text-muted-foreground/30">—</span>
           )}
@@ -303,7 +303,7 @@ function renderLineCell(
       return (
         <td className="border-l border-border/30 px-3 py-2 text-right num-display">
           {!line.isDebit ? (
-            <span className="font-semibold text-amber-400">{formatAmount(line.amount)}</span>
+            <span className="font-semibold text-amber-400">{formatAmountFixed2(line.amount)}</span>
           ) : (
             <span className="text-muted-foreground/30">—</span>
           )}
@@ -343,13 +343,13 @@ function renderTotalCell(
     case 'debit':
       return (
         <td className="border-l border-t-2 border-border/60 px-3 py-2 text-right num-display text-emerald-400">
-          {formatAmount(totalD)}
+          {formatAmountFixed2(totalD)}
         </td>
       );
     case 'credit':
       return (
         <td className="border-l border-t-2 border-border/60 px-3 py-2 text-right num-display text-amber-400">
-          {formatAmount(totalC)}
+          {formatAmountFixed2(totalC)}
         </td>
       );
   }
@@ -714,11 +714,11 @@ function EntryCard({
         <div className="flex items-center gap-3 text-xs">
           <div className="flex items-baseline gap-1">
             <span className="text-muted-foreground">{t('journalEntries.entry.debit')}</span>
-            <span className="num-display font-semibold text-emerald-400">{formatAmount(totalD)}</span>
+            <span className="num-display font-semibold text-emerald-400">{formatAmountFixed2(totalD)}</span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-muted-foreground">{t('journalEntries.entry.credit')}</span>
-            <span className="num-display font-semibold text-amber-400">{formatAmount(totalC)}</span>
+            <span className="num-display font-semibold text-amber-400">{formatAmountFixed2(totalC)}</span>
           </div>
           {!balanced && (
             <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive">

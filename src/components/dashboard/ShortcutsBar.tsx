@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Settings2, Plus, Sparkles, Wallet, TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -9,8 +9,15 @@ import { useAvailableNavItems, type AvailableNavItem } from '@/lib/nav/useAvaila
 import { ShortcutsSettingsDialog } from './ShortcutsSettingsDialog';
 import { cashBoxesApi, type CashBoxBalanceDto } from '@/lib/api/cashBoxes';
 import { usePermissions } from '@/lib/auth/usePermissions';
+import { PERMS } from '@/lib/auth/permissions';
 import { localizedAccountName } from '@/lib/i18n';
 import { useLocale } from '@/lib/i18n/useLocale';
+import { useActiveFiscalYear } from '@/hooks/useActiveFiscalYear';
+import {
+  writeSessionJson,
+  ReportNavKeys,
+  ACCOUNT_STATEMENT_PATH,
+} from '@/lib/reportReturnState';
 
 interface Props {
   className?: string;
@@ -82,7 +89,10 @@ function AddTile({ onClick }: { onClick: () => void }) {
 function CashBoxBalancesSection() {
   const { t } = useTranslation();
   const { locale } = useLocale();
-  const { cashBoxIds, isSuper } = usePermissions();
+  const navigate = useNavigate();
+  const { cashBoxIds, isSuper, can } = usePermissions();
+  const { defaultFromDate, defaultToDate } = useActiveFiscalYear();
+  const canReadStatement = can(PERMS.Accounting.AccountStatement.Read);
 
   const balancesQuery = useQuery({
     queryKey: ['cash-box-balances-dashboard'],
@@ -135,6 +145,22 @@ function CashBoxBalancesSection() {
     return localizedAccountName(locale, box.nameAr, box.nameEn ?? '');
   };
 
+  /** فتح كشف الحساب للصندوق المحدد مع تشغيل التقرير تلقائياً */
+  const openStatement = (b: CashBoxBalanceDto) => {
+    if (!canReadStatement) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const accountName = localizedAccountName(locale, b.nameAr, b.accountName ?? '');
+    writeSessionJson(ReportNavKeys.statementReturn, {
+      from: defaultFromDate || '',
+      to: defaultToDate || today,
+      accountId: b.accountId,
+      accountLabel: b.accountCode ? `${b.accountCode} - ${accountName}` : accountName,
+      selectedCurrencies: b.currency ? [b.currency] : [],
+      autoSubmit: true,
+    });
+    navigate(ACCOUNT_STATEMENT_PATH);
+  };
+
   return (
     <section className={CARD_CLS} aria-label={t('dashboard.cashBoxBalances', { defaultValue: 'أرصدة الصناديق' })}>
       <header className="mb-3 flex items-center justify-between gap-2">
@@ -170,8 +196,8 @@ function CashBoxBalancesSection() {
               {balances.map(b => {
                 const isPos = b.balance > 0;
                 const isNeg = b.balance < 0;
-                return (
-                  <div key={b.currency} className="flex items-center justify-between gap-2">
+                const rowContent = (
+                  <>
                     <span className="text-[11px] text-muted-foreground num-display">{b.currency}</span>
                     <div className="flex items-center gap-1">
                       {isPos
@@ -187,7 +213,25 @@ function CashBoxBalancesSection() {
                         {formatAmount(Math.abs(b.balance))}
                       </span>
                     </div>
-                  </div>
+                  </>
+                );
+                if (!canReadStatement) {
+                  return (
+                    <div key={b.currency} className="flex items-center justify-between gap-2">
+                      {rowContent}
+                    </div>
+                  );
+                }
+                return (
+                  <button
+                    key={b.currency}
+                    type="button"
+                    onClick={() => openStatement(b)}
+                    title={t('dashboard.openCashBoxStatement', { defaultValue: 'فتح كشف حساب الصندوق' })}
+                    className="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-primary/[0.06]"
+                  >
+                    {rowContent}
+                  </button>
                 );
               })}
             </div>

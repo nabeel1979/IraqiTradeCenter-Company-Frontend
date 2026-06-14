@@ -54,6 +54,10 @@ import { CountriesPage } from '@/pages/settings/CountriesPage';
 import { CitiesPage } from '@/pages/settings/CitiesPage';
 import { SystemConstantsPage } from '@/pages/settings/SystemConstantsPage';
 import { SubscribersPage } from '@/pages/subscribers/SubscribersPage';
+import { StoreTraderSalesPage } from '@/pages/parent-store/StoreTraderSalesPage';
+import { StoreCompanyRequestsPage } from '@/pages/parent-store/StoreCompanyRequestsPage';
+import { StoreUsersPage } from '@/pages/parent-store/StoreUsersPage';
+import { StoreCartsPage } from '@/pages/parent-store/StoreCartsPage';
 import { isParentHost } from '@/lib/platform';
 
 /**
@@ -68,6 +72,11 @@ function VoucherEntryRoute() {
 
 function CompanyOnlyRoute({ children }: { children: ReactNode }) {
   if (isParentHost()) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+function ParentOnlyRoute({ children }: { children: ReactNode }) {
+  if (!isParentHost()) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -182,8 +191,12 @@ export default function App() {
         <Route path="system/countries" element={<Navigate to="/settings/countries" replace />} />
         <Route path="system/cities" element={<Navigate to="/settings/cities" replace />} />
 
-        {/* Parent — Subscribers */}
+        {/* Parent — Subscribers & Store */}
         <Route path="subscribers" element={<SubscribersPage />} />
+        <Route path="parent/store/users" element={<ParentOnlyRoute><StoreUsersPage /></ParentOnlyRoute>} />
+        <Route path="parent/store/trader-sales" element={<ParentOnlyRoute><StoreTraderSalesPage /></ParentOnlyRoute>} />
+        <Route path="parent/store/company-requests" element={<ParentOnlyRoute><StoreCompanyRequestsPage /></ParentOnlyRoute>} />
+        <Route path="parent/store/carts" element={<ParentOnlyRoute><StoreCartsPage /></ParentOnlyRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

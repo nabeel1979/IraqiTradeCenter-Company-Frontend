@@ -49,6 +49,23 @@ export function invoiceListPathForCategory(category: InvoiceCategory): string {
   return route ? `/invoices/${route.path}` : '/invoices/sales';
 }
 
+/** معاملات الرجوع من جرد المخزون/حركة المادة إلى قائمة الفواتير. */
+export function invoiceInventoryReturnQuery(returnTo: string, returnLabel: string): string {
+  return `returnTo=${encodeURIComponent(returnTo)}&returnLabel=${encodeURIComponent(returnLabel)}`;
+}
+
+export function appendInvoiceReturnQuery(
+  basePath: string,
+  searchParams: URLSearchParams,
+): string {
+  const returnTo = searchParams.get('returnTo');
+  const returnLabel = searchParams.get('returnLabel');
+  if (!returnTo) return basePath;
+  const q = invoiceInventoryReturnQuery(returnTo, returnLabel ?? '');
+  const join = basePath.includes('?') ? '&' : '?';
+  return `${basePath}${join}${q}`;
+}
+
 export function findCategoryRoute(category: InvoiceCategory): InvoiceCategoryRoute {
   return INVOICE_CATEGORY_ROUTES.find(r => r.category === category)
     ?? INVOICE_CATEGORY_ROUTES.find(r => r.category === 1)!;

@@ -33,7 +33,7 @@ import { usePermissions } from '@/lib/auth/usePermissions';
 import { CASH_BOX_TRANSFERS_PATH } from '@/lib/accounting/journalEntrySource';
 import { navigateBackFromEntrySource } from '@/lib/reportReturnState';
 import { writeFmFocus, navigateToFinancialManagementAccount, resolveFmTargetForAccount } from '@/pages/financial-management/fmFocus';
-import { cn, formatAmount, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
+import { cn, formatAmountFixed2, extractApiError, toIsoLocalDate, isoDateForBackend } from '@/lib/utils';
 import { useLocale } from '@/lib/i18n/useLocale';
 import { localizedAccountName, localizedVoucherTypeName, type AppLocale } from '@/lib/i18n';
 import type { AccountDto, FinancialPartyDto, FinancialPartyKind } from '@/types/api';
@@ -1707,7 +1707,7 @@ export function VoucherEntryPage() {
                     <span className="num-display text-[10px] text-muted-foreground/70">{selectedPrimary.accountCode}</span>
                   </div>
                   <span className={cn('num-display font-bold', isCashDebit ? 'text-emerald-300' : 'text-amber-300')}>
-                    {formatAmount(amount)} {currency}
+                    {formatAmountFixed2(amount)} {currency}
                   </span>
                 </div>
                 <div className={cn(
@@ -1729,7 +1729,7 @@ export function VoucherEntryPage() {
                     </span>
                   </div>
                   <span className={cn('num-display font-bold', isCashDebit ? 'text-amber-300' : 'text-emerald-300')}>
-                    {formatAmount(amount)} {currency}
+                    {formatAmountFixed2(amount)} {currency}
                   </span>
                 </div>
 
@@ -1753,7 +1753,7 @@ export function VoucherEntryPage() {
                           'num-display text-[11px] font-bold',
                           primaryBalanceValue > 0 ? 'text-emerald-400' : primaryBalanceValue < 0 ? 'text-rose-400' : 'text-muted-foreground'
                         )}>
-                          {formatAmount(Math.abs(primaryBalanceValue))}{' '}
+                          {formatAmountFixed2(Math.abs(primaryBalanceValue))}{' '}
                           <span className="font-normal opacity-70">{currency}</span>
                         </span>
                       </div>
@@ -1769,7 +1769,7 @@ export function VoucherEntryPage() {
                           const after = primaryBalanceValue + (isCashDebit ? Number(amount) : -Number(amount));
                           return (
                             <span className={cn('num-display font-semibold', after >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80')}>
-                              {formatAmount(Math.abs(after))} {after < 0 ? '−' : ''}
+                              {formatAmountFixed2(Math.abs(after))} {after < 0 ? '−' : ''}
                             </span>
                           );
                         })()}
@@ -1795,7 +1795,7 @@ export function VoucherEntryPage() {
                           'num-display text-[11px] font-bold',
                           counterBalance.net > 0 ? 'text-emerald-400' : counterBalance.net < 0 ? 'text-rose-400' : 'text-muted-foreground'
                         )}>
-                          {formatAmount(Math.abs(counterBalance.net))} <span className="font-normal opacity-70">{currency}</span>
+                          {formatAmountFixed2(Math.abs(counterBalance.net))} <span className="font-normal opacity-70">{currency}</span>
                         </span>
                       </div>
                     ) : counterBalanceQuery.isFetching ? (
@@ -1813,7 +1813,7 @@ export function VoucherEntryPage() {
                           const after = counterBalance.net + (isCashDebit ? -Number(amount) : Number(amount));
                           return (
                             <span className={cn('num-display font-semibold', after >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80')}>
-                              {formatAmount(Math.abs(after))} {after < 0 ? '−' : ''}
+                              {formatAmountFixed2(Math.abs(after))} {after < 0 ? '−' : ''}
                             </span>
                           );
                         })()}
@@ -1836,7 +1836,7 @@ export function VoucherEntryPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t('voucherEntry.summary.debitLimit')}</span>
                   <span className="num-display font-bold text-emerald-300">
-                    {formatAmount(currencyLimits.debitLimit)}
+                    {formatAmountFixed2(currencyLimits.debitLimit)}
                   </span>
                 </div>
               )}
@@ -1844,7 +1844,7 @@ export function VoucherEntryPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t('voucherEntry.summary.creditLimit')}</span>
                   <span className="num-display font-bold text-amber-300">
-                    {formatAmount(currencyLimits.creditLimit)}
+                    {formatAmountFixed2(currencyLimits.creditLimit)}
                   </span>
                 </div>
               )}
@@ -1923,7 +1923,7 @@ export function VoucherEntryPage() {
               {editEntryQuery.data && (
                 <div className="rounded-md bg-secondary/40 p-3 text-xs text-muted-foreground">
                   <div>{t('voucherEntry.deleteConfirm.descLabel')} {editEntryQuery.data.description || '—'}</div>
-                  <div>{t('voucherEntry.deleteConfirm.amountLabel')} {formatAmount(amount)} {currency}</div>
+                  <div>{t('voucherEntry.deleteConfirm.amountLabel')} {formatAmountFixed2(amount)} {currency}</div>
                 </div>
               )}
               {entryAttachmentCount > 0 && (

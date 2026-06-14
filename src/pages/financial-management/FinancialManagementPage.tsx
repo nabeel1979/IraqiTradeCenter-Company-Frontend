@@ -8,7 +8,7 @@ import {
   ChevronRight, ChevronLeft, Lock, Phone, Mail, MapPin, User,
   Smartphone, StickyNote, Coins, AlertTriangle, X,
   CircleOff, ShieldAlert, Download, Upload, Wallet, CreditCard,
-  Scale, ArrowLeftRight, SlidersHorizontal,
+  Scale, ArrowLeftRight, SlidersHorizontal, Store,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,8 +38,10 @@ import {
   parsePendingFmFocus,
   readFmFocus,
   writeFmFocus,
+  type PartyPrefillPayload,
   type PendingFmFocus,
 } from '@/pages/financial-management/fmFocus';
+import { storePlatformApi, type StorePlatformUserProfile } from '@/lib/api/storePlatform';
 import type {
   FinancialPartyKind,
   FinancialPartyCategoryDto,
@@ -257,6 +259,7 @@ interface PartyDialogProps {
   kind: FinancialPartyKind;
   canCreate: boolean;
   canDelete: boolean;
+  prefill?: PartyPrefillPayload | null;
   onClose: () => void;
   onSaved: () => void;
   /** بدء بطاقة طرف جديدة دون مغادرة النافذة. */
@@ -296,6 +299,7 @@ function serializePartyFormSnapshot(input: {
   isActive: boolean;
   defaultSalesPriceType: number | null;
   showInStore: boolean;
+  storeUserCode: string;
   rows: PartyCurrencySnapshot[];
 }): string {
   return JSON.stringify({
@@ -313,6 +317,7 @@ function serializePartyFormSnapshot(input: {
     isActive: input.isActive,
     defaultSalesPriceType: input.defaultSalesPriceType,
     showInStore: input.showInStore,
+    storeUserCode: input.storeUserCode.trim().toUpperCase(),
     currencies: normalizePartyCurrencyRows(input.rows),
   });
 }
@@ -330,7 +335,10 @@ function partyDtoToCurrencyRows(editing: FinancialPartyDto): PartyCurrencySnapsh
   }));
 }
 
-function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, canDelete, onClose, onSaved, onNew, onRequestDelete }: PartyDialogProps) {
+function PartyDialog({
+  editing, categoryId, categoryNameAr, kind, canCreate, canDelete, prefill,
+  onClose, onSaved, onNew, onRequestDelete,
+}: PartyDialogProps) {
   const { t } = useTranslation();
   const { isRtl } = useLocale();
   const qc = useQueryClient();
@@ -341,9 +349,9 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
     staleTime: 5 * 60_000,
   });
 
-  const [tab, setTab]               = useState<PartyTab>('basic');
-  const [nameAr, setNameAr]         = useState(editing?.nameAr ?? '');
-  const [nameEn, setNameEn]         = useState(editing?.nameEn ?? '');
+  const [tab, setTab]               = useState<PartyTab>(prefill?.initialTab ?? 'basic');
+  const [nameAr, setNameAr]         = useState(editing?.nameAr ?? prefill?.nameAr ?? '');
+  const [nameEn, setNameEn]         = useState(editing?.nameEn ?? prefill?.nameEn ?? '');
   // ‎صفوف ديناميكية للعملات المسموحة + سقوف الائتمان (مدين/دائن) لكل عملة —
   // ‎على غرار شاشة الصناديق. كل صف يُمثّل عملة واحدة مع uid فريد لإدارة الـ keys.
   type CurrencyRow = { uid: string; currency: string; debit: string; credit: string; iban: string };
@@ -363,11 +371,11 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
     }
     return [];
   });
-  const [phone, setPhone]           = useState(editing?.phone ?? '');
-  const [mobile, setMobile]         = useState(editing?.mobile ?? '');
-  const [email, setEmail]           = useState(editing?.email ?? '');
-  const [address, setAddress]       = useState(editing?.address ?? '');
-  const [contactPerson, setContactPerson] = useState(editing?.contactPerson ?? '');
+  const [phone, setPhone]           = useState(editing?.phone ?? prefill?.phone ?? '');
+  const [mobile, setMobile]         = useState(editing?.mobile ?? prefill?.mobile ?? '');
+  const [email, setEmail]           = useState(editing?.email ?? prefill?.email ?? '');
+  const [address, setAddress]       = useState(editing?.address ?? prefill?.address ?? '');
+  const [contactPerson, setContactPerson] = useState(editing?.contactPerson ?? prefill?.contactPerson ?? '');
   const [notes, setNotes]           = useState(editing?.notes ?? '');
   const [addressEn, setAddressEn]   = useState(editing?.addressEn ?? '');
   const [bankAccountNumber, setBankAccountNumber] = useState(editing?.bankAccountNumber ?? '');
@@ -376,7 +384,11 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
   const [defaultSalesPriceType, setDefaultSalesPriceType] = useState<number | null>(
     editing?.defaultSalesPriceType ?? 4,
   );
-  const [showInStore, setShowInStore] = useState(editing?.showInStore ?? false);
+  const [showInStore, setShowInStore] = useState(prefill?.showInStore ?? editing?.showInStore ?? false);
+  const [storeUserCode, setStoreUserCode] = useState(prefill?.storeUserCode ?? editing?.storeUserCode ?? '');
+  const [storeProfile, setStoreProfile] = useState<StorePlatformUserProfile | null>(null);
+  const [storeLookupBusy, setStoreLookupBusy] = useState(false);
+  const linkStoreCustomerId = prefill?.linkStoreCustomerId ?? null;
 
   const isBankLike = isBankLikeKind(kind);
   const showContact = hasContactTab(kind);
@@ -433,15 +445,55 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
     return Array.from(new Set(dups));
   })();
 
+  const lookupStoreUser = async (code: string) => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) {
+      setStoreProfile(null);
+      return;
+    }
+    setStoreLookupBusy(true);
+    try {
+      const profile = await storePlatformApi.lookupUser(trimmed, linkStoreCustomerId ?? undefined);
+      setStoreProfile(profile);
+    } catch (e) {
+      setStoreProfile(null);
+      toast.error(extractApiError(e, t('financialManagement.parties.store.userNotFound')));
+    } finally {
+      setStoreLookupBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showTradingTabs || !storeUserCode.trim()) return;
+    void lookupStoreUser(storeUserCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const createMut = useMutation({
     mutationFn: (p: CreateFinancialPartyPayload) => financialManagementApi.createParty(p),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['financial-parties'] }); onSaved(); },
+    onSuccess: async (res) => {
+      await qc.refetchQueries({ queryKey: ['financial-parties'] });
+      qc.invalidateQueries({ queryKey: ['incoming-orders'] });
+      qc.invalidateQueries({ queryKey: ['incoming-order'] });
+      if (res?.message) toast.success(res.message);
+      onSaved();
+    },
     onError: (e) => toast.error(extractApiError(e)),
   });
 
   const updateMut = useMutation({
     mutationFn: (p: UpdateFinancialPartyPayload) => financialManagementApi.updateParty(editing!.id, p),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['financial-parties'] }); onSaved(); },
+    onSuccess: async (res) => {
+      await qc.refetchQueries({ queryKey: ['financial-parties'] });
+      qc.invalidateQueries({ queryKey: ['incoming-orders'] });
+      qc.invalidateQueries({ queryKey: ['incoming-order'] });
+      if (showInStore && storeUserCode.trim()) {
+        toast.success(t('financialManagement.parties.store.linkSuccess'));
+      } else if (res?.message) {
+        toast.success(res.message);
+      }
+      onSaved();
+    },
     onError: (e) => toast.error(extractApiError(e)),
   });
 
@@ -498,7 +550,19 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
       swiftCode: isBankLike ? (swiftCode.trim() || null) : null,
       defaultSalesPriceType: showTradingTabs ? defaultSalesPriceType : null,
       showInStore: showTradingTabs ? showInStore : false,
+      storeUserCode: showTradingTabs && showInStore
+        ? (storeUserCode.trim() || editing?.storeUserCode || '').toUpperCase() || null
+        : null,
+      linkStoreCustomerId: showTradingTabs && showInStore && linkStoreCustomerId
+        ? linkStoreCustomerId
+        : null,
     };
+    const effectiveStoreCode = (storeUserCode.trim() || editing?.storeUserCode || '').toUpperCase();
+    if (showTradingTabs && showInStore && !effectiveStoreCode) {
+      toast.error(t('financialManagement.parties.store.userCodeRequired'));
+      setTab('store');
+      return;
+    }
     if (editing) {
       updateMut.mutate({ ...payload, isActive });
     } else {
@@ -526,14 +590,15 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
       isActive: editing.isActive,
       defaultSalesPriceType: editing.defaultSalesPriceType ?? 4,
       showInStore: editing.showInStore ?? false,
+      storeUserCode: editing.storeUserCode ?? '',
       rows: partyDtoToCurrencyRows(editing),
     });
   }, [editing]);
 
   const currentSnapshot = useMemo(() => serializePartyFormSnapshot({
     nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes,
-    bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, rows,
-  }), [nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes, bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, rows]);
+    bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, storeUserCode, rows,
+  }), [nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes, bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, storeUserCode, rows]);
 
   // ‎في التعديل: زر الحفظ معطّل حتى يتغيّر شيء في البطاقة.
   const isDirty = !editing || currentSnapshot !== initialSnapshot;
@@ -831,7 +896,7 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
           )}
 
           {tab === 'store' && showTradingTabs && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
                 <div className="text-sm font-medium">{t('financialManagement.parties.store.title')}</div>
                 <p className="mt-1 text-xs text-muted-foreground">{t('financialManagement.parties.store.hint')}</p>
@@ -845,6 +910,65 @@ function PartyDialog({ editing, categoryId, categoryNameAr, kind, canCreate, can
                 />
                 {t('financialManagement.parties.store.showInStore')}
               </label>
+              {showInStore && (
+                <>
+                  <div>
+                    <Label className="mb-1.5 block text-sm">{t('financialManagement.parties.store.userCode')}</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={storeUserCode}
+                        onChange={e => setStoreUserCode(e.target.value.toUpperCase())}
+                        onBlur={() => void lookupStoreUser(storeUserCode)}
+                        placeholder={t('orders.storeUserCodePlaceholder')}
+                        className="font-mono"
+                        dir="ltr"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={storeLookupBusy || !storeUserCode.trim()}
+                        onClick={() => void lookupStoreUser(storeUserCode)}
+                      >
+                        {storeLookupBusy ? <LoadingSpinner className="h-4 w-4 py-0" /> : t('common.search')}
+                      </Button>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{t('financialManagement.parties.store.userCodeHint')}</p>
+                  </div>
+                  {storeProfile && (
+                    <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">{t('financialManagement.parties.store.userContact')}</p>
+                      <p className="font-medium">{storeProfile.fullName}</p>
+                      <p dir="ltr">{storeProfile.contactPhone || storeProfile.phone}</p>
+                      {storeProfile.email && <p dir="ltr">{storeProfile.email}</p>}
+                      {(storeProfile.city || storeProfile.address) && (
+                        <p>{[storeProfile.city, storeProfile.address, storeProfile.detailedAddress].filter(Boolean).join(' — ')}</p>
+                      )}
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="h-auto p-0 text-xs"
+                        onClick={() => {
+                          setPhone(storeProfile.contactPhone || storeProfile.phone || phone);
+                          if (storeProfile.contactPhone && storeProfile.contactPhone !== storeProfile.phone) {
+                            setMobile(storeProfile.phone);
+                          }
+                          setEmail(storeProfile.email || email);
+                          setContactPerson(storeProfile.fullName || contactPerson);
+                          const addr = [storeProfile.country, storeProfile.city, storeProfile.address, storeProfile.detailedAddress]
+                            .filter(Boolean).join(' — ');
+                          if (addr) setAddress(addr);
+                          if (!nameAr.trim() && storeProfile.fullName && storeProfile.fullName !== '—') {
+                            setNameAr(storeProfile.fullName);
+                          }
+                          toast.success(t('financialManagement.parties.store.contactApplied'));
+                        }}
+                      >
+                        {t('financialManagement.parties.store.applyContact')}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -901,6 +1025,9 @@ function PartyCard({
   const [expanded, setExpanded] = useState(false);
 
   const hasContact = party.kind !== 'CashBox' && (party.phone || party.mobile || party.email || party.address || party.contactPerson);
+  const showStoreLink = (party.kind === 'Customer' || party.kind === 'Supplier')
+    && party.showInStore
+    && !!party.storeUserCode?.trim();
 
   return (
     <div className={cn('rounded-lg border transition-all', party.isActive ? 'border-border' : 'border-border/40 opacity-60')}>
@@ -928,8 +1055,17 @@ function PartyCard({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className="font-mono text-xs text-primary" dir="ltr">{party.accountCode}</span>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap min-w-0">
+            <span className="font-mono text-xs text-primary shrink-0" dir="ltr">{party.accountCode}</span>
+            {showStoreLink && (
+              <span
+                className="inline-flex max-w-full items-center gap-1 rounded border border-sky-500/35 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300 shrink-0"
+                title={t('financialManagement.parties.store.linkedBadge')}
+              >
+                <Store className="h-2.5 w-2.5 shrink-0" aria-hidden />
+                <span className="font-mono truncate" dir="ltr">{party.storeUserCode}</span>
+              </span>
+            )}
             {showBalances && balanceRows?.map(row => {
               const debit = valuated ? (row.valuatedDebit ?? 0) : (row.debitBalance ?? 0);
               const credit = valuated ? (row.valuatedCredit ?? 0) : (row.creditBalance ?? 0);
@@ -1046,6 +1182,176 @@ function PartyCard({
 // ── Main Page ────────────────────────────────────────────────────
 interface FinancialManagementPageProps {
   kind: FinancialPartyKind;
+}
+
+// ── StoreLinkRequestsDialog ─────────────────────────────────────────────────
+interface StoreLinkRequestsDialogProps {
+  requests: import('@/lib/api/financialManagement').StoreLinkRequestDto[];
+  parties: FinancialPartyDto[];
+  onClose: () => void;
+  onDone: () => void;
+}
+
+function StoreLinkRequestsDialog({ requests, parties, onClose, onDone }: StoreLinkRequestsDialogProps) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [selectedPartyId, setSelectedPartyId] = useState<Record<number, number | null>>({});
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  const linkableParties = useMemo(
+    () => parties.filter(p => !p.storeUserCode?.trim()),
+    [parties],
+  );
+
+  const visibleRequests = useMemo(() => {
+    const linked = new Set(
+      parties
+        .map(p => p.storeUserCode?.trim().toUpperCase())
+        .filter(Boolean) as string[],
+    );
+    return requests.filter(r => !linked.has(r.userCode.trim().toUpperCase()));
+  }, [requests, parties]);
+
+  const approveMut = useMutation({
+    mutationFn: ({ linkId, partyId }: { linkId: number; partyId: number }) =>
+      financialManagementApi.approveLinkRequest(linkId, partyId),
+    onSuccess: () => {
+      toast.success(t('financialManagement.storeLinkRequests.approveSuccess'));
+      qc.invalidateQueries({ queryKey: ['financial-management', 'store-link-requests'] });
+      qc.invalidateQueries({ queryKey: ['financial-parties'] });
+      onDone();
+    },
+    onError: (e) => toast.error(extractApiError(e)),
+    onSettled: () => setProcessingId(null),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: (linkId: number) => financialManagementApi.rejectLinkRequest(linkId),
+    onSuccess: () => {
+      toast.success(t('financialManagement.storeLinkRequests.rejectSuccess'));
+      qc.invalidateQueries({ queryKey: ['financial-management', 'store-link-requests'] });
+      onDone();
+    },
+    onError: (e) => toast.error(extractApiError(e)),
+    onSettled: () => setProcessingId(null),
+  });
+
+  const handleApprove = (linkId: number) => {
+    const partyId = selectedPartyId[linkId];
+    if (!partyId) { toast.error(t('financialManagement.storeLinkRequests.selectParty')); return; }
+    setProcessingId(linkId);
+    approveMut.mutate({ linkId, partyId });
+  };
+
+  const handleReject = (linkId: number) => {
+    setProcessingId(linkId);
+    rejectMut.mutate(linkId);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="flex w-full max-w-2xl flex-col rounded-xl border border-border bg-card shadow-2xl"
+        style={{ maxHeight: '85vh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <Store className="h-4 w-4 text-amber-500" />
+            <h2 className="text-base font-semibold">{t('financialManagement.storeLinkRequests.title')}</h2>
+            <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-bold text-white">
+              {visibleRequests.length}
+            </span>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {visibleRequests.length === 0 ? (
+            <EmptyState title={t('financialManagement.storeLinkRequests.empty')} icon={Store} />
+          ) : (
+            visibleRequests.map(req => (
+              <div key={req.linkId} className="rounded-xl border border-border bg-background p-4 space-y-3">
+                {/* Trader info */}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-600">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm">{req.fullName}</span>
+                      <span className="font-mono text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">{req.userCode}</span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                      {req.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{req.phone}</span>}
+                      {req.contactPhone && <span className="flex items-center gap-1"><Smartphone className="h-3 w-3" />{req.contactPhone}</span>}
+                      {req.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{req.email}</span>}
+                      {(req.city || req.country) && (
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />{[req.city, req.country].filter(Boolean).join('، ')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {new Date(req.sentAt).toLocaleDateString('ar-IQ')}
+                  </span>
+                </div>
+
+                {/* Party picker + actions */}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      {t('financialManagement.storeLinkRequests.linkToParty')}
+                    </label>
+                    <select
+                      value={selectedPartyId[req.linkId] ?? ''}
+                      onChange={e => setSelectedPartyId(p => ({ ...p, [req.linkId]: Number(e.target.value) || null }))}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs"
+                      disabled={processingId === req.linkId}
+                    >
+                      <option value="">{t('financialManagement.storeLinkRequests.selectParty')}</option>
+                      {linkableParties.map(p => (
+                        <option key={p.id} value={p.id}>{p.accountCode} — {p.nameAr}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      className="h-8 gap-1 text-xs"
+                      disabled={processingId === req.linkId || !selectedPartyId[req.linkId]}
+                      onClick={() => handleApprove(req.linkId)}
+                    >
+                      {processingId === req.linkId && approveMut.isPending
+                        ? <LoadingSpinner className="h-3.5 w-3.5 py-0" />
+                        : <User className="h-3.5 w-3.5" />}
+                      {t('financialManagement.storeLinkRequests.approve')}
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-8 gap-1 text-xs text-destructive hover:bg-destructive/10"
+                      disabled={processingId === req.linkId}
+                      onClick={() => handleReject(req.linkId)}
+                    >
+                      {processingId === req.linkId && rejectMut.isPending
+                        ? <LoadingSpinner className="h-3.5 w-3.5 py-0" />
+                        : <X className="h-3.5 w-3.5" />}
+                      {t('financialManagement.storeLinkRequests.reject')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function FinancialManagementPage({ kind: activeKind }: FinancialManagementPageProps) {
@@ -1169,19 +1475,46 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
   const [editingCategory, setEditingCategory] = useState<FinancialPartyCategoryDto | null>(null);
   const [showPartyDialog, setShowPartyDialog] = useState(false);
   const [editingParty, setEditingParty] = useState<FinancialPartyDto | null>(null);
+  const [partyPrefill, setPartyPrefill] = useState<PartyPrefillPayload | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'category' | 'party'; id: number; name: string } | null>(null);
+  const [showLinkRequestsDialog, setShowLinkRequestsDialog] = useState(false);
+
+  // طلبات الربط المعلقة من التجار — تُجلب فقط عند العملاء/الموردين
+  const linkRequestsQuery = useQuery({
+    queryKey: ['financial-management', 'store-link-requests'],
+    queryFn: () => financialManagementApi.getStoreLinkRequests(),
+    staleTime: 30_000,
+    enabled: isTradingKind(activeKind),
+  });
+  const partiesQuery = useQuery({
+    queryKey: ['financial-parties', activeKind, selectedCatId],
+    queryFn: () => financialManagementApi.getParties({ kind: activeKind, categoryId: selectedCatId ?? undefined, includeInactive: true }),
+    enabled: canReadParties,
+    staleTime: 30_000,
+  });
+
+  const allPartiesForLinksQuery = useQuery({
+    queryKey: ['financial-parties', activeKind, 'all-for-links'],
+    queryFn: () => financialManagementApi.getParties({ kind: activeKind, includeInactive: true }),
+    enabled: canReadParties && isTradingKind(activeKind),
+    staleTime: 30_000,
+  });
+
+  const pendingLinkCount = useMemo(() => {
+    const requests = linkRequestsQuery.data ?? [];
+    const parties = allPartiesForLinksQuery.data ?? [];
+    const linkedCodes = new Set(
+      parties
+        .map(p => p.storeUserCode?.trim().toUpperCase())
+        .filter(Boolean) as string[],
+    );
+    return requests.filter(r => !linkedCodes.has(r.userCode.trim().toUpperCase())).length;
+  }, [linkRequestsQuery.data, allPartiesForLinksQuery.data]);
 
   const categoriesQuery = useQuery({
     queryKey: ['financial-party-categories', activeKind],
     queryFn: () => financialManagementApi.getCategories(activeKind, true),
     enabled: canReadCats,
-    staleTime: 30_000,
-  });
-
-  const partiesQuery = useQuery({
-    queryKey: ['financial-parties', activeKind, selectedCatId],
-    queryFn: () => financialManagementApi.getParties({ kind: activeKind, categoryId: selectedCatId ?? undefined, includeInactive: true }),
-    enabled: canReadParties,
     staleTime: 30_000,
   });
 
@@ -1246,20 +1579,65 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
   const focusLookupQuery = useQuery({
     queryKey: ['financial-parties', 'focus-lookup'],
     queryFn: () => financialManagementApi.getParties({ includeInactive: true }),
-    enabled: canReadParties && pendingFocus != null && pendingFocus.accountId != null,
+    enabled: canReadParties && pendingFocus != null
+      && (pendingFocus.accountId != null || pendingFocus.partyId != null),
   });
 
   useEffect(() => {
     if (!pendingFocus || focusAppliedRef.current) return;
 
-    // ‎إضافة بلا حساب مرجعي: نفتح نافذة جديدة بعد تحميل الفئات.
+    // ‎إضافة/تعديل بلا accountId (مثلاً من تفعيل طلبية متجر).
     if (pendingFocus.accountId == null) {
-      if (pendingFocus.mode !== 'add' || categories.length === 0) return;
-      focusAppliedRef.current = true;
-      clearFmFocus();
-      setPendingFocus(null);
-      setEditingParty(null);
-      setShowPartyDialog(true);
+      if (pendingFocus.mode === 'add') {
+        if (categories.length === 0) return;
+        if (pendingFocus.categoryId != null) {
+          const cat = categories.find(c => c.id === pendingFocus.categoryId);
+          if (!cat) return;
+          setSelectedCatId(cat.id);
+        }
+        const prefill = pendingFocus.prefill ?? null;
+        focusAppliedRef.current = true;
+        clearFmFocus();
+        setPendingFocus(null);
+        setEditingParty(null);
+        setPartyPrefill(prefill);
+        setShowPartyDialog(true);
+        return;
+      }
+
+      if (pendingFocus.mode === 'edit' && pendingFocus.partyId != null) {
+        const list = focusLookupQuery.data;
+        if (!list) return;
+        const party = list.find(p => p.id === pendingFocus.partyId);
+        if (!party) {
+          focusAppliedRef.current = true;
+          clearFmFocus();
+          setPendingFocus(null);
+          toast.error(t('financialManagement.parties.notAParty', { defaultValue: 'هذا الحساب ليس طرفاً مالياً' }));
+          return;
+        }
+        if (party.kind !== activeKind) {
+          writeFmFocus({
+            mode: 'edit',
+            kind: party.kind,
+            partyId: party.id,
+            prefill: pendingFocus.prefill,
+          });
+          navigate(getFinancialManagementPath(party.kind), { replace: true });
+          return;
+        }
+        if (categories.length === 0) return;
+        const prefill = pendingFocus.prefill ?? null;
+        focusAppliedRef.current = true;
+        clearFmFocus();
+        setPendingFocus(null);
+        setSelectedCatId(party.categoryId);
+        setEditingParty(party);
+        setPartyPrefill(prefill);
+        setShowPartyDialog(true);
+        return;
+      }
+
       return;
     }
 
@@ -1339,6 +1717,7 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
     setPendingFocus(null);
     setSelectedCatId(catId);
     setEditingParty(mode === 'add' ? null : party);
+    setPartyPrefill(pendingFocus.prefill ?? null);
     setShowPartyDialog(true);
   }, [pendingFocus, focusLookupQuery.data, categories, t, activeKind, navigate]);
 
@@ -1712,8 +2091,28 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
                     e.target.value = '';
                   }}
                 />
+                {isTradingKind(activeKind) && (
+                  <Button
+                    size="sm" variant="outline"
+                    className={`relative h-8 gap-1 text-xs shrink-0 ${
+                      pendingLinkCount > 0
+                        ? 'border-amber-500/50 text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20'
+                        : 'border-muted-foreground/30 text-muted-foreground hover:bg-muted/50'
+                    }`}
+                    onClick={() => setShowLinkRequestsDialog(true)}
+                    title={t('financialManagement.storeLinkRequests.title')}
+                  >
+                    <Store className="h-3.5 w-3.5" />
+                    {t('financialManagement.storeLinkRequests.title')}
+                    {pendingLinkCount > 0 && (
+                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+                        {pendingLinkCount}
+                      </span>
+                    )}
+                  </Button>
+                )}
                 {canCreateParty && selectedCategory && (
-                  <Button size="sm" className="h-8 gap-1 text-xs shrink-0" onClick={() => { setEditingParty(null); setShowPartyDialog(true); }}>
+                  <Button size="sm" className="h-8 gap-1 text-xs shrink-0" onClick={() => { setEditingParty(null); setPartyPrefill(null); setShowPartyDialog(true); }}>
                     <Plus className="h-3.5 w-3.5" />
                     {t('financialManagement.parties.new')}
                   </Button>
@@ -1739,7 +2138,7 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
                   key={party.id}
                   party={party}
                   canEdit={canEditParty}
-                  onEdit={() => { setEditingParty(party); setShowPartyDialog(true); }}
+                  onEdit={() => { setEditingParty(party); setPartyPrefill(null); setShowPartyDialog(true); }}
                   balanceRows={balancesByAccountId.get(party.accountId)}
                   showBalances={showPartyBalances}
                   showAccountTypes={showAccountTypes}
@@ -1807,22 +2206,37 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
 
       {showPartyDialog && selectedCategory && (
         <PartyDialog
-          key={editingParty?.id ?? 'new'}
+          key={`${editingParty?.id ?? 'new'}-${partyPrefill?.storeUserCode ?? ''}`}
           editing={editingParty}
+          prefill={partyPrefill}
           categoryId={selectedCategory.id}
           categoryNameAr={selectedCategory.nameAr}
           kind={activeKind}
           canCreate={canCreateParty}
           canDelete={canDeleteParty}
-          onClose={() => setShowPartyDialog(false)}
-          onSaved={() => { setShowPartyDialog(false); toast.success(t('common.success')); }}
-          onNew={() => setEditingParty(null)}
+          onClose={() => { setShowPartyDialog(false); setPartyPrefill(null); }}
+          onSaved={() => { setShowPartyDialog(false); setPartyPrefill(null); toast.success(t('common.success')); }}
+          onNew={() => { setEditingParty(null); setPartyPrefill(null); }}
           onRequestDelete={() => {
             if (!editingParty) return;
             const target = editingParty;
             setShowPartyDialog(false);
             setEditingParty(null);
             setConfirmDelete({ type: 'party', id: target.id, name: target.nameAr });
+          }}
+        />
+      )}
+
+      {/* Store Link Requests Dialog */}
+      {showLinkRequestsDialog && (
+        <StoreLinkRequestsDialog
+          requests={linkRequestsQuery.data ?? []}
+          parties={allPartiesForLinksQuery.data ?? partiesQuery.data ?? []}
+          onClose={() => setShowLinkRequestsDialog(false)}
+          onDone={() => {
+            linkRequestsQuery.refetch();
+            partiesQuery.refetch();
+            allPartiesForLinksQuery.refetch();
           }}
         />
       )}

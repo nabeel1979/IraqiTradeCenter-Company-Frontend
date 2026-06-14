@@ -85,7 +85,7 @@ export function navigateBackToJournalList(
   navigate(fallbackHref);
 }
 
-/** رجوع من «أصل القيد» — كشف حساب أو قائمة قيود. */
+/** رجوع من «أصل القيد» — كشف حساب أو قائمة قيود أو مصدر خارجي (فاتورة، …). */
 export function navigateBackFromEntrySource(
   navigate: (path: string) => void,
   fallbackHref: string,
@@ -106,6 +106,14 @@ export function navigateBackFromEntrySource(
       // تجاهل
     }
     navigate(ACCOUNT_STATEMENT_PATH);
+    return;
+  }
+  if (
+    returnTo
+    && !returnTo.startsWith('/accounting/journal')
+    && !returnTo.startsWith('/accounting/vouchers')
+  ) {
+    navigate(returnTo);
     return;
   }
   navigateBackToJournalList(navigate, fallbackHref);
