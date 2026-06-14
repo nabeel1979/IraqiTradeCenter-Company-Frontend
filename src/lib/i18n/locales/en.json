@@ -884,6 +884,8 @@
     "items": {
       "subscribers": "Subscribers",
       "digitalWallets": "Digital Wallets",
+      "walletPay": "Payment",
+      "walletWithdraw": "Withdrawal",
       "storeUsers": "Store",
       "traderSales": "Trader Sales",
       "companyRequests": "Company Requests",
@@ -3247,6 +3249,25 @@
       "leafWarning": "The selected account is a leaf — it will automatically be converted to a parent (group) account and will no longer accept direct journal entries after saving.",
       "saveAndConvert": "Save & convert account"
     }
+  },
+  "walletPosting": {
+    "payTitle": "Wallet Payment",
+    "withdrawTitle": "Wallet Withdrawal",
+    "payDesc": "Add balance to a wallet — a journal entry is generated and auto-posted to the daily journal",
+    "withdrawDesc": "Withdraw balance from a wallet — a journal entry is generated and auto-posted to the daily journal",
+    "account": "Account (Wallet)",
+    "searchWallet": "Search by owner name or account code…",
+    "selectWallet": "Please select a wallet account",
+    "confirmPay": "Confirm Payment",
+    "confirmWithdraw": "Confirm Withdrawal",
+    "autoEntryNote": "The entry is recorded with the current date & time and auto-posted to the daily journal.",
+    "posted": "Entry generated and posted to the daily journal",
+    "journalEntry": "Entry #",
+    "payAmount": "Added Amount",
+    "withdrawAmount": "Withdrawn Amount",
+    "counterAccount": "Counter Account",
+    "dateTime": "Date & Time",
+    "newOperation": "New Operation"
   },
   "storeParent": {
     "usersTitle": "Store Users",

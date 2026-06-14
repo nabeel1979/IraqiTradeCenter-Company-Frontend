@@ -117,12 +117,12 @@ export const storeWalletsApi = {
     return res.data;
   },
 
-  topup: async (id: string, body: { amount: number; fundingAccountCode: string; description?: string | null }) => {
+  topup: async (id: string, body: { amount: number; fundingAccountCode?: string | null; description?: string | null }) => {
     const res = await api.post<ApiResponse<WalletTransaction>>(`/parent/wallets/${id}/topup`, body);
     return res.data;
   },
 
-  withdraw: async (id: string, body: { amount: number; fundingAccountCode: string; description?: string | null }) => {
+  withdraw: async (id: string, body: { amount: number; fundingAccountCode?: string | null; description?: string | null }) => {
     const res = await api.post<ApiResponse<WalletTransaction>>(`/parent/wallets/${id}/withdraw`, body);
     return res.data;
   },
