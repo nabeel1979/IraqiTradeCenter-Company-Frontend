@@ -5,6 +5,7 @@ import { isCompanyHost } from '@/lib/platform';
 import { useCompanyIdentity } from '@/lib/company/useCompanyIdentity';
 import { useLocale } from '@/lib/i18n/useLocale';
 import { cn } from '@/lib/utils';
+import { LogoViewer } from '@/components/LogoViewer';
 
 interface SidebarBrandProps {
   onClose?: () => void;
@@ -24,20 +25,19 @@ export function SidebarBrand({ onClose }: SidebarBrandProps) {
     const titleEn = nameEn?.trim();
 
     return (
-      <NavLink to="/" title={t('sidebar.homeLink')} onClick={onClose} className={linkClass}>
+      <div title={t('sidebar.homeLink')} className={linkClass}>
         {logoBase64 ? (
-          <img
+          <LogoViewer
             src={logoBase64}
             alt={titleAr}
             className="h-12 w-12 shrink-0 rounded-md object-contain transition-transform group-hover:scale-105"
-            draggable={false}
           />
         ) : (
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10">
             <Building2 className="h-6 w-6 text-primary" />
           </div>
         )}
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-start">
+        <NavLink to="/" onClick={onClose} className="flex min-w-0 flex-1 flex-col gap-0.5 text-start">
           <h1
             className="w-full truncate font-display text-sm font-semibold leading-snug tracking-tight transition-colors group-hover:text-primary sm:text-base"
             title={titleAr}
@@ -59,27 +59,25 @@ export function SidebarBrand({ onClose }: SidebarBrandProps) {
           <p className="mt-0.5 w-full font-mono text-sm font-semibold tracking-[0.14em] text-primary sm:text-base">
             {companyCode}
           </p>
-        </div>
-      </NavLink>
+        </NavLink>
+      </div>
     );
   }
 
   return (
-    <NavLink to="/" title={t('sidebar.homeLink')} onClick={onClose} className={linkClass}>
-      <img
-        src="/logo.png?v=3"
+    <div title={t('sidebar.homeLink')} className={linkClass}>
+      <LogoViewer
         alt={t('app.name')}
         className="h-12 w-12 shrink-0 object-contain transition-transform group-hover:scale-105"
-        draggable={false}
       />
-      <div className="min-w-0">
+      <NavLink to="/" onClick={onClose} className="min-w-0">
         <h1 className="font-display text-base font-semibold leading-none tracking-tight transition-colors group-hover:text-primary">
           {t('app.name')}
         </h1>
         <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-primary/70">
           {t('app.subtitle')}
         </p>
-      </div>
-    </NavLink>
+      </NavLink>
+    </div>
   );
 }

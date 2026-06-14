@@ -17,6 +17,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useLocale, localizedName } from '@/lib/i18n';
 import { ShortcutsBar } from '@/components/dashboard/ShortcutsBar';
 import { dashboardApi } from '@/lib/api/dashboard';
+import { LogoViewer } from '@/components/LogoViewer';
 
 function StatusBadge({ status }: { status: string }) {
   const { t } = useTranslation();
@@ -114,11 +115,9 @@ export function DashboardPage() {
         <div className="gold-underline absolute bottom-0 left-0 right-0" />
         <div className="relative flex items-center gap-3 sm:gap-5">
           <div className="shrink-0">
-            <img
-              src="/logo.png?v=3"
+            <LogoViewer
               alt={t('app.name')}
               className="h-16 w-16 object-contain sm:h-24 sm:w-24"
-              draggable={false}
             />
           </div>
           <div className="min-w-0 flex-1">

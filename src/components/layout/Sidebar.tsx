@@ -90,6 +90,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Building2,
     items: [
       { to: '/subscribers', labelKey: 'sidebar.items.subscribers', icon: Building2, permission: PERMS.Parent.Subscribers.Read },
+      { to: '/parent/wallets', labelKey: 'sidebar.items.digitalWallets', icon: Wallet, permission: PERMS.Parent.Wallets.Read },
       { to: '/parent/store/users', labelKey: 'sidebar.items.storeUsers', icon: Users, permission: PERMS.Parent.Subscribers.Read },
       { to: '/parent/store/trader-sales', labelKey: 'sidebar.items.traderSales', icon: StoreIcon, permission: PERMS.Parent.Subscribers.Read },
       { to: '/parent/store/company-requests', labelKey: 'sidebar.items.companyRequests', icon: ClipboardList, permission: PERMS.Parent.Subscribers.Read },

@@ -204,6 +204,13 @@ export const PERMS = {
       Update: 'Parent.Subscribers.Update',
       Delete: 'Parent.Subscribers.Delete',
     },
+    Wallets: {
+      Read:     'Parent.Wallets.Read',
+      Create:   'Parent.Wallets.Create',
+      Topup:    'Parent.Wallets.Topup',
+      Withdraw: 'Parent.Wallets.Withdraw',
+      Transfer: 'Parent.Wallets.Transfer',
+    },
   },
 } as const;
 
@@ -222,6 +229,8 @@ export const ACTION_LABELS_AR: Record<string, string> = {
   Apply:    'تطبيق',
   Generate: 'توليد',
   Topup:    'شحن',
+  Withdraw: 'سحب',
+  Transfer: 'تحويل',
   Run:                'تشغيل',
   CrossBranchPosting: 'تحريك في فرع آخر',
 };
