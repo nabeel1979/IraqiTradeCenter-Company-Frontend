@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { X, Link2, GitBranch } from 'lucide-react';
+import { X, Link2, GitBranch, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
-import { storeWalletsApi } from '@/lib/api/storeWallets';
+import { storeWalletsApi, type CoaAccount } from '@/lib/api/storeWallets';
 import { extractApiError } from '@/lib/utils';
 
 interface Props {
@@ -42,10 +42,9 @@ export function WalletSettingsDialog({ onClose }: Props) {
     }
   }, [settings]);
 
-  // فقط الحسابات التجميعية (غير الورقية) يمكن اختيارها كجدّ للمحافظ
-  const grandparentCandidates = (coa ?? []).filter(
-    (a) => !a.isLeaf || a.code === grandparentCode,
-  );
+  const allAccounts: CoaAccount[] = coa ?? [];
+  const selectedAccount = allAccounts.find((a) => a.code === grandparentCode);
+  const isLeafSelected = selectedAccount?.isLeaf === true;
 
   const submit = async () => {
     if (!grandparentCode) {
@@ -108,6 +107,14 @@ export function WalletSettingsDialog({ onClose }: Props) {
               </div>
             </div>
 
+            {/* تنبيه عند اختيار حساب ورقي */}
+            {isLeafSelected && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <p>{t('wallets.settings.leafWarning')}</p>
+              </div>
+            )}
+
             <Labeled
               label={t('wallets.settings.grandparentAccount')}
               hint={settings?.grandparentIsDefault ? t('wallets.settings.grandparentDefaultHint') : undefined}
@@ -118,15 +125,17 @@ export function WalletSettingsDialog({ onClose }: Props) {
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="">{t('wallets.settings.selectParent')}</option>
-                {grandparentCandidates.map((a) => (
+                {allAccounts.map((a) => (
                   <option key={a.id} value={a.code}>
-                    {'\u00A0'.repeat(Math.max(0, (a.level - 1) * 2))}{a.nameAr} ({a.code})
+                    {'\u00A0'.repeat(Math.max(0, (a.level - 1) * 2))}
+                    {a.isLeaf ? '◦ ' : '▸ '}
+                    {a.nameAr} ({a.code})
                   </option>
                 ))}
               </select>
             </Labeled>
 
-            {/* عرض الحساب الوسيط الموجود إن كان قد أُنشئ */}
+            {/* عرض الحساب الوسيط إن أُنشئ */}
             {hasIntermediate && (
               <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs">
                 <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -168,8 +177,12 @@ export function WalletSettingsDialog({ onClose }: Props) {
           <Button variant="outline" onClick={() => onClose(false)} disabled={submitting}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={submit} disabled={submitting || loadingSettings}>
-            {t('common.save')}
+          <Button
+            onClick={submit}
+            disabled={submitting || loadingSettings}
+            variant={isLeafSelected ? 'destructive' : 'default'}
+          >
+            {isLeafSelected ? t('wallets.settings.saveAndConvert') : t('common.save')}
           </Button>
         </div>
       </div>

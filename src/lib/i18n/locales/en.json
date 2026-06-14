@@ -3239,7 +3239,9 @@
       "optional": "Optional",
       "none": "None",
       "saved": "Link settings saved",
-      "selectParentError": "Please select a group (non-leaf) account"
+      "selectParentError": "Please select an account",
+      "leafWarning": "The selected account is a leaf — it will automatically be converted to a parent (group) account and will no longer accept direct journal entries after saving.",
+      "saveAndConvert": "Save & convert account"
     }
   },
   "storeParent": {
