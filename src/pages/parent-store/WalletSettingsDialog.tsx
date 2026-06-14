@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { X, Link2 } from 'lucide-react';
+import { X, Link2, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { storeWalletsApi } from '@/lib/api/storeWallets';
@@ -14,7 +14,7 @@ interface Props {
 
 export function WalletSettingsDialog({ onClose }: Props) {
   const { t } = useTranslation();
-  const [parentCode, setParentCode] = useState('');
+  const [grandparentCode, setGrandparentCode] = useState('');
   const [topupCode, setTopupCode] = useState('');
   const [withdrawCode, setWithdrawCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -36,26 +36,26 @@ export function WalletSettingsDialog({ onClose }: Props) {
 
   useEffect(() => {
     if (settings) {
-      setParentCode(settings.parentAccountCode ?? '');
+      setGrandparentCode(settings.grandparentAccountCode ?? '');
       setTopupCode(settings.defaultTopupAccountCode ?? '');
       setWithdrawCode(settings.defaultWithdrawAccountCode ?? '');
     }
   }, [settings]);
 
-  // الحسابات التجميعية المرشّحة لتكون حساباً أباً (مع إبقاء المختار حالياً)
-  const parentCandidates = (coa ?? []).filter(
-    (a) => !a.isLeaf || a.code === parentCode,
+  // فقط الحسابات التجميعية (غير الورقية) يمكن اختيارها كجدّ للمحافظ
+  const grandparentCandidates = (coa ?? []).filter(
+    (a) => !a.isLeaf || a.code === grandparentCode,
   );
 
   const submit = async () => {
-    if (!parentCode) {
+    if (!grandparentCode) {
       toast.error(t('wallets.settings.selectParentError'));
       return;
     }
     setSubmitting(true);
     try {
       const res = await storeWalletsApi.updateSettings({
-        parentAccountCode: parentCode,
+        parentAccountCode: grandparentCode,
         defaultTopupAccountCode: topupCode || null,
         defaultWithdrawAccountCode: withdrawCode || null,
       });
@@ -71,6 +71,8 @@ export function WalletSettingsDialog({ onClose }: Props) {
       setSubmitting(false);
     }
   };
+
+  const hasIntermediate = !!settings?.intermediateAccountCode;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => onClose(false)}>
@@ -95,23 +97,44 @@ export function WalletSettingsDialog({ onClose }: Props) {
           <div className="flex justify-center py-12"><LoadingSpinner className="h-8 w-8" /></div>
         ) : (
           <div className="space-y-4 p-5">
+
+            {/* شرح الهيكل */}
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+              <p className="font-medium">{t('wallets.settings.structureTitle')}</p>
+              <div className="mt-1.5 space-y-0.5 font-mono" dir="ltr">
+                <p>▸ {grandparentCode || t('wallets.settings.yourChoice')} <span className="text-blue-500">← {t('wallets.settings.notTouched')}</span></p>
+                <p className="ps-4">▸ المحافظ الرقمية (.9) <span className="text-blue-500">← {t('wallets.settings.autoCreated')}</span></p>
+                <p className="ps-8">▸ محفظة .1 / .2 / .3 ...</p>
+              </div>
+            </div>
+
             <Labeled
-              label={t('wallets.settings.parentAccount')}
-              hint={settings?.parentIsDefault ? t('wallets.settings.parentDefaultHint') : undefined}
+              label={t('wallets.settings.grandparentAccount')}
+              hint={settings?.grandparentIsDefault ? t('wallets.settings.grandparentDefaultHint') : undefined}
             >
               <select
-                value={parentCode}
-                onChange={(e) => setParentCode(e.target.value)}
+                value={grandparentCode}
+                onChange={(e) => setGrandparentCode(e.target.value)}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="">{t('wallets.settings.selectParent')}</option>
-                {parentCandidates.map((a) => (
+                {grandparentCandidates.map((a) => (
                   <option key={a.id} value={a.code}>
                     {'\u00A0'.repeat(Math.max(0, (a.level - 1) * 2))}{a.nameAr} ({a.code})
                   </option>
                 ))}
               </select>
             </Labeled>
+
+            {/* عرض الحساب الوسيط الموجود إن كان قد أُنشئ */}
+            {hasIntermediate && (
+              <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs">
+                <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="text-muted-foreground">{t('wallets.settings.intermediateLabel')}:</span>
+                <span className="font-medium">{settings!.intermediateAccountName}</span>
+                <span className="font-mono text-muted-foreground" dir="ltr">({settings!.intermediateAccountCode})</span>
+              </div>
+            )}
 
             <Labeled label={t('wallets.settings.defaultTopup')} hint={t('wallets.settings.optional')}>
               <select

@@ -49,10 +49,13 @@ export interface CoaAccount {
 }
 
 export interface WalletSettings {
-  parentAccountId?: number | null;
-  parentAccountCode?: string | null;
-  parentAccountName?: string | null;
-  parentIsDefault: boolean;
+  grandparentAccountId?: number | null;
+  grandparentAccountCode?: string | null;
+  grandparentAccountName?: string | null;
+  grandparentIsDefault: boolean;
+  intermediateAccountId?: number | null;
+  intermediateAccountCode?: string | null;
+  intermediateAccountName?: string | null;
   defaultTopupAccountCode?: string | null;
   defaultTopupAccountName?: string | null;
   defaultWithdrawAccountCode?: string | null;

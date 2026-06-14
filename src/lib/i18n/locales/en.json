@@ -3225,16 +3225,21 @@
     "settings": {
       "button": "Link to chart of accounts",
       "title": "Link wallets to chart of accounts",
-      "desc": "Choose the parent account where wallet accounts are created, and default funding accounts",
-      "parentAccount": "Wallet parent account",
-      "selectParent": "Select parent account…",
-      "parentDefaultHint": "Currently default: \"Digital Wallets\" (2.9). You can link it to another account from the tree.",
+      "desc": "Choose the grandparent account under which the \"Digital Wallets\" intermediate account is created",
+      "structureTitle": "Resulting account structure:",
+      "yourChoice": "your choice",
+      "notTouched": "unchanged",
+      "autoCreated": "auto-created",
+      "grandparentAccount": "Wallet grandparent account (group)",
+      "selectParent": "Select a group account…",
+      "grandparentDefaultHint": "Not configured — default account 2.9 will be used directly under liabilities root",
+      "intermediateLabel": "Digital Wallets intermediate account",
       "defaultTopup": "Default funding account (top-up)",
       "defaultWithdraw": "Default funding account (withdraw)",
       "optional": "Optional",
       "none": "None",
       "saved": "Link settings saved",
-      "selectParentError": "Please select a parent account"
+      "selectParentError": "Please select a group (non-leaf) account"
     }
   },
   "storeParent": {
