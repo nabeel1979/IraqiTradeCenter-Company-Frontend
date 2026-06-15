@@ -410,6 +410,8 @@
     "fmManagedTooltip": "This account is managed by Financial Management — edit and delete only from Suppliers/Customers/Banks/Cash Boxes/Payment Companies pages.",
     "settlementLinkedBadge": "Settlement",
     "settlementLinkedTooltip": "Linked to account settlement settings: {{roles}}",
+    "walletManagedBadge": "Wallet",
+    "walletManagedTooltip": "This account belongs to the digital wallets — add/edit/delete is managed exclusively from the Digital Wallets window.",
     "openAccountSettlementsTooltip": "Open account settlement settings",
     "settlementRole": {
       "Transit": "Transit account",

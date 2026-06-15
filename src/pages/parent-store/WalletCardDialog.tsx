@@ -70,7 +70,14 @@ export function WalletCardDialog({ walletId, onClose }: Props) {
           <div className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-primary" />
             <div>
-              <div className="font-semibold">{t('wallets.card.title')}</div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">{t('wallets.card.title')}</span>
+                {card && (
+                  <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {card.currency}
+                  </span>
+                )}
+              </div>
               {card && <div className="text-xs text-muted-foreground">{card.userName}</div>}
             </div>
           </div>
@@ -168,7 +175,7 @@ function DetailsTab({ card }: { card: NonNullable<Awaited<ReturnType<typeof stor
       <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3">
         <div>
           <div className="text-xs text-muted-foreground">{t('wallets.currentBalance')}</div>
-          <div className="text-lg font-bold tabular-nums" dir="ltr">{formatMoney(card.balance)} {card.currency}</div>
+          <div className="text-lg font-bold tabular-nums" dir="ltr">{formatMoney(card.balance)}</div>
         </div>
         <Badge variant={card.isActive ? 'success' : 'destructive'}>
           {card.isActive ? t('wallets.active') : t('wallets.inactive')}

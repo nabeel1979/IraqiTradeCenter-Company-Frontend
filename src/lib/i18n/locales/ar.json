@@ -410,6 +410,8 @@
     "fmManagedTooltip": "هذا الحساب مُدار من الإدارة المالية — التعديل والحذف يتم حصراً من صفحات الموردين/العملاء/المصارف/الصناديق/شركات الدفع.",
     "settlementLinkedBadge": "تسوية",
     "settlementLinkedTooltip": "مرتبط بإعدادات تسوية الحسابات: {{roles}}",
+    "walletManagedBadge": "محفظة",
+    "walletManagedTooltip": "هذا الحساب مرتبط بالمحافظ الرقمية — تتم إدارته (إضافة/تعديل/حذف) حصراً من نافذة المحافظ الرقمية.",
     "openAccountSettlementsTooltip": "فتح إعدادات تسوية الحسابات",
     "settlementRole": {
       "Transit": "حساب وسيط",
