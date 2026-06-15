@@ -3,8 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
-  Search, Wallet as WalletIcon, ArrowDownCircle, ArrowUpCircle,
-  ArrowLeftRight, FileText, RefreshCw, Link2,
+  Search, Wallet as WalletIcon, FileText, RefreshCw, Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,7 +14,6 @@ import { storeWalletsApi, type WalletListItem } from '@/lib/api/storeWallets';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import { extractApiError } from '@/lib/utils';
-import { WalletActionDialog, type WalletActionMode } from '@/pages/parent-store/WalletActionDialog';
 import { WalletStatementDialog } from '@/pages/parent-store/WalletStatementDialog';
 import { WalletSettingsDialog } from '@/pages/parent-store/WalletSettingsDialog';
 
@@ -27,13 +25,9 @@ export function WalletsPage() {
   const { t } = useTranslation();
   const { can } = usePermissions();
   const canCreate = can(PERMS.Parent.Wallets.Create);
-  const canTopup = can(PERMS.Parent.Wallets.Topup);
-  const canWithdraw = can(PERMS.Parent.Wallets.Withdraw);
-  const canTransfer = can(PERMS.Parent.Wallets.Transfer);
 
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  const [action, setAction] = useState<{ wallet: WalletListItem; mode: WalletActionMode } | null>(null);
   const [statement, setStatement] = useState<WalletListItem | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
@@ -141,21 +135,6 @@ export function WalletsPage() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap items-center justify-center gap-1">
-                          {canTopup && (
-                            <IconBtn title={t('wallets.topup')} onClick={() => setAction({ wallet: w, mode: 'topup' })}>
-                              <ArrowDownCircle className="h-4 w-4 text-emerald-600" />
-                            </IconBtn>
-                          )}
-                          {canWithdraw && (
-                            <IconBtn title={t('wallets.withdraw')} onClick={() => setAction({ wallet: w, mode: 'withdraw' })}>
-                              <ArrowUpCircle className="h-4 w-4 text-amber-600" />
-                            </IconBtn>
-                          )}
-                          {canTransfer && (
-                            <IconBtn title={t('wallets.transfer')} onClick={() => setAction({ wallet: w, mode: 'transfer' })}>
-                              <ArrowLeftRight className="h-4 w-4 text-sky-600" />
-                            </IconBtn>
-                          )}
                           <IconBtn title={t('wallets.statement')} onClick={() => setStatement(w)}>
                             <FileText className="h-4 w-4 text-muted-foreground" />
                           </IconBtn>
@@ -169,18 +148,6 @@ export function WalletsPage() {
           )}
         </CardContent>
       </Card>
-
-      {action && (
-        <WalletActionDialog
-          wallet={action.wallet}
-          mode={action.mode}
-          wallets={data ?? []}
-          onClose={(changed) => {
-            setAction(null);
-            if (changed) refetch();
-          }}
-        />
-      )}
 
       {statement && (
         <WalletStatementDialog wallet={statement} onClose={() => setStatement(null)} />
