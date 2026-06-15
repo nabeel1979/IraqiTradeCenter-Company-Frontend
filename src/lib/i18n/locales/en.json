@@ -11,6 +11,7 @@
     "delete": "Delete",
     "edit": "Edit",
     "view": "View",
+    "download": "Download",
     "create": "Create",
     "new": "New",
     "add": "Add",
@@ -3189,6 +3190,7 @@
     "withdraw": "Withdraw",
     "transfer": "Transfer",
     "statement": "Statement",
+    "openCard": "Open customer card",
     "currentBalance": "Current balance",
     "amount": "Amount",
     "fundingSource": "Funding source (cash/payment co.)",
@@ -3248,6 +3250,27 @@
       "selectParentError": "Please select an account",
       "leafWarning": "The selected account is a leaf — it will automatically be converted to a parent (group) account and will no longer accept direct journal entries after saving.",
       "saveAndConvert": "Save & convert account"
+    },
+    "card": {
+      "title": "Customer card",
+      "details": "Account details",
+      "documents": "Documents - Archive",
+      "userCode": "Code",
+      "phone": "Phone",
+      "email": "Email",
+      "txCount": "Transactions",
+      "createdAt": "Created at",
+      "freeze": "Freeze account",
+      "unfreeze": "Unfreeze",
+      "delete": "Delete card",
+      "deleteBlocked": "Cannot delete — the account has transactions",
+      "confirmDelete": "Confirm card deletion?",
+      "deleted": "Card deleted",
+      "upload": "Upload document",
+      "uploaded": "Document uploaded",
+      "docDeleted": "Document deleted",
+      "noDocs": "No documents in archive",
+      "docsHint": "Upload customer documents (ID, contract, proxy…)"
     }
   },
   "walletPosting": {

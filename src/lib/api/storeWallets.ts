@@ -34,6 +34,36 @@ export interface WalletTransaction {
   createdAt: string;
 }
 
+export interface WalletCard {
+  id: string;
+  storeUserId: string;
+  userCode: string;
+  userName: string;
+  phone?: string | null;
+  email?: string | null;
+  accountType: string;
+  walletType: number;
+  walletTypeName: string;
+  accountCode: string;
+  balance: number;
+  currency: string;
+  isActive: boolean;
+  createdAt: string;
+  transactionCount: number;
+  canDelete: boolean;
+}
+
+export interface WalletDocument {
+  id: string;
+  walletId: string;
+  displayName: string;
+  originalFileName: string;
+  contentType?: string | null;
+  sizeBytes: number;
+  uploadedBy?: string | null;
+  createdAt: string;
+}
+
 export interface FundingAccount {
   code: string;
   nameAr: string;
@@ -130,5 +160,67 @@ export const storeWalletsApi = {
   transfer: async (id: string, body: { toWalletId: string; amount: number; description?: string | null }) => {
     const res = await api.post<ApiResponse<WalletTransaction>>(`/parent/wallets/${id}/transfer`, body);
     return res.data;
+  },
+
+  card: async (id: string) => {
+    const res = await api.get<ApiResponse<WalletCard>>(`/parent/wallets/${id}/card`);
+    if (!res.data.success || !res.data.data) throw new Error('Failed to load wallet card');
+    return res.data.data;
+  },
+
+  setStatus: async (id: string, active: boolean) => {
+    const res = await api.post<{ success: boolean; message?: string; isActive?: boolean }>(
+      `/parent/wallets/${id}/status`, { active });
+    return res.data;
+  },
+
+  remove: async (id: string) => {
+    const res = await api.delete<{ success: boolean; message?: string }>(`/parent/wallets/${id}`);
+    return res.data;
+  },
+
+  documents: {
+    list: async (walletId: string): Promise<WalletDocument[]> => {
+      const res = await api.get<ApiResponse<WalletDocument[]>>(`/parent/wallets/${walletId}/documents`);
+      return res.data.data ?? [];
+    },
+
+    upload: async (
+      walletId: string,
+      file: File,
+      opts?: { displayName?: string; onProgress?: (percent: number) => void },
+    ): Promise<WalletDocument | null> => {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (opts?.displayName) fd.append('displayName', opts.displayName);
+      const res = await api.post<ApiResponse<WalletDocument>>(
+        `/parent/wallets/${walletId}/documents`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          skipGlobalErrorHandler: true,
+          onUploadProgress: (evt) => {
+            if (!opts?.onProgress || !evt.total) return;
+            opts.onProgress(Math.round((evt.loaded / evt.total) * 100));
+          },
+        });
+      return res.data.data ?? null;
+    },
+
+    download: async (walletId: string, doc: WalletDocument): Promise<void> => {
+      const res = await api.get(`/parent/wallets/${walletId}/documents/${doc.id}/download`, {
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = doc.originalFileName || doc.displayName || 'document';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    remove: async (walletId: string, docId: string): Promise<void> => {
+      await api.delete(`/parent/wallets/${walletId}/documents/${docId}`);
+    },
   },
 };

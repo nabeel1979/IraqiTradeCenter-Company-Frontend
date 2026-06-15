@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
-  Search, Wallet as WalletIcon, FileText, RefreshCw, Link2,
+  Search, Wallet as WalletIcon, RefreshCw, Link2,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,8 @@ import { PERMS } from '@/lib/auth/permissions';
 import { extractApiError } from '@/lib/utils';
 import { WalletStatementDialog } from '@/pages/parent-store/WalletStatementDialog';
 import { WalletSettingsDialog } from '@/pages/parent-store/WalletSettingsDialog';
+import { WalletRowActions } from '@/pages/parent-store/WalletRowActions';
+import { WalletCardDialog } from '@/pages/parent-store/WalletCardDialog';
 
 export function formatMoney(value: number): string {
   return value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
@@ -29,6 +31,7 @@ export function WalletsPage() {
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [statement, setStatement] = useState<WalletListItem | null>(null);
+  const [card, setCard] = useState<WalletListItem | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
 
@@ -134,11 +137,10 @@ export function WalletsPage() {
                         </Badge>
                       </td>
                       <td className="px-3 py-2">
-                        <div className="flex flex-wrap items-center justify-center gap-1">
-                          <IconBtn title={t('wallets.statement')} onClick={() => setStatement(w)}>
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                          </IconBtn>
-                        </div>
+                        <WalletRowActions
+                          onStatement={() => setStatement(w)}
+                          onOpenCard={() => setCard(w)}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -153,22 +155,19 @@ export function WalletsPage() {
         <WalletStatementDialog wallet={statement} onClose={() => setStatement(null)} />
       )}
 
+      {card && (
+        <WalletCardDialog
+          walletId={card.id}
+          onClose={(changed) => {
+            setCard(null);
+            if (changed) refetch();
+          }}
+        />
+      )}
+
       {settingsOpen && (
         <WalletSettingsDialog onClose={() => setSettingsOpen(false)} />
       )}
     </div>
-  );
-}
-
-function IconBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className="rounded-md p-1.5 transition-colors hover:bg-accent"
-    >
-      {children}
-    </button>
   );
 }
