@@ -58,6 +58,8 @@ import { StoreTraderSalesPage } from '@/pages/parent-store/StoreTraderSalesPage'
 import { StoreCompanyRequestsPage } from '@/pages/parent-store/StoreCompanyRequestsPage';
 import { StoreUsersPage } from '@/pages/parent-store/StoreUsersPage';
 import { StoreCartsPage } from '@/pages/parent-store/StoreCartsPage';
+import { WalletsPage } from '@/pages/parent-store/WalletsPage';
+import { WalletPostingPage } from '@/pages/parent-store/WalletPostingPage';
 import { isParentHost } from '@/lib/platform';
 
 /**
@@ -194,6 +196,9 @@ export default function App() {
 
         {/* Parent — Subscribers & Store */}
         <Route path="subscribers" element={<SubscribersPage />} />
+        <Route path="parent/wallets" element={<ParentOnlyRoute><WalletsPage /></ParentOnlyRoute>} />
+        <Route path="parent/wallets/pay" element={<ParentOnlyRoute><WalletPostingPage mode="pay" /></ParentOnlyRoute>} />
+        <Route path="parent/wallets/withdraw" element={<ParentOnlyRoute><WalletPostingPage mode="withdraw" /></ParentOnlyRoute>} />
         <Route path="parent/store/users" element={<ParentOnlyRoute><StoreUsersPage /></ParentOnlyRoute>} />
         <Route path="parent/store/trader-sales" element={<ParentOnlyRoute><StoreTraderSalesPage /></ParentOnlyRoute>} />
         <Route path="parent/store/company-requests" element={<ParentOnlyRoute><StoreCompanyRequestsPage /></ParentOnlyRoute>} />

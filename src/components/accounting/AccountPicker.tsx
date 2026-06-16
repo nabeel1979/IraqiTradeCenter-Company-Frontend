@@ -36,6 +36,7 @@ export function AccountPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
+  const [dropUp, setDropUp] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -90,6 +91,18 @@ export function AccountPicker({
   useEffect(() => {
     setHighlight(0);
   }, [query, open]);
+
+  // ‎فتح القائمة للأعلى إذا لم تكفِ المساحة أسفل الحقل (مثل آخر حقل في نافذة)
+  useEffect(() => {
+    if (!open) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const estimated = 320; // ‎ارتفاع القائمة التقريبي (max-h-72 + التذييل)
+    setDropUp(spaceBelow < estimated && spaceAbove > spaceBelow);
+  }, [open]);
 
   const select = (a: AccountDto) => {
     onChange(a.id, `${a.code} - ${localizedAccountName(locale, a.nameAr, a.nameEn)}`);
@@ -166,7 +179,12 @@ export function AccountPicker({
         )}
       </div>
       {open && (
-        <div className="absolute z-40 mt-1 w-full min-w-[280px] overflow-hidden rounded-md border border-border bg-popover shadow-xl">
+        <div
+          className={cn(
+            'absolute z-40 w-full min-w-[280px] overflow-hidden rounded-md border border-border bg-popover shadow-xl',
+            dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
+          )}
+        >
           <div className="max-h-72 overflow-y-auto">
             {allowClear && (
               <button

@@ -9,7 +9,7 @@ import {
   ChevronsDown, ChevronsUp, FileText, CalendarRange, Coins, Tag,
   Wallet, ArrowDownLeft, ArrowUpRight, X, Trash2, Activity,
   Landmark, Building2, CreditCard, ArrowLeftRight,
-  Settings2, ClipboardList,
+  Settings2, ClipboardList, ArrowDownCircle, ArrowUpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/auth/auth-store';
@@ -91,6 +91,9 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Building2,
     items: [
       { to: '/subscribers', labelKey: 'sidebar.items.subscribers', icon: Building2, permission: PERMS.Parent.Subscribers.Read },
+      { to: '/parent/wallets', labelKey: 'sidebar.items.digitalWallets', icon: Wallet, permission: PERMS.Parent.Wallets.Read },
+      { to: '/parent/wallets/pay', labelKey: 'sidebar.items.walletPay', icon: ArrowDownCircle, permission: PERMS.Parent.Wallets.Topup },
+      { to: '/parent/wallets/withdraw', labelKey: 'sidebar.items.walletWithdraw', icon: ArrowUpCircle, permission: PERMS.Parent.Wallets.Withdraw },
       { to: '/parent/store/users', labelKey: 'sidebar.items.storeUsers', icon: Users, permission: PERMS.Parent.Subscribers.Read },
       { to: '/parent/store/trader-sales', labelKey: 'sidebar.items.traderSales', icon: StoreIcon, permission: PERMS.Parent.Subscribers.Read },
       { to: '/parent/store/company-requests', labelKey: 'sidebar.items.companyRequests', icon: ClipboardList, permission: PERMS.Parent.Subscribers.Read },

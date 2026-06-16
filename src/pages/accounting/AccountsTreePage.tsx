@@ -663,11 +663,14 @@ function AccountNode({
   // ‎حساب مُدار من الإدارة المالية (نوع أو طرف) — لا تعديل ولا حذف من الشجرة.
   const fmManaged = account.isManagedByFinancialManagement === true;
   const whManaged = account.isLockedForWarehouse === true;
-  const canAddChild = account.level < MAX_LEVEL && !blocked && !inactive && !lockedForParties && !fmManaged && !whManaged;
+  // ‎حساب مرتبط بالمحافظ الرقمية (الوسيط/الفردي) — يُدار من نافذة المحافظ فقط:
+  // ‎لا إضافة فروع ولا تعديل ولا حذف من الشجرة.
+  const walletManaged = account.isLockedForWallet === true;
+  const canAddChild = account.level < MAX_LEVEL && !blocked && !inactive && !lockedForParties && !fmManaged && !whManaged && !walletManaged;
   // ‎الحساب الذي له أبناء لا يقبل الحذف (يجب حذف أبنائه أولاً) — نخفي الأيقونة
   // ‎بدلاً من إظهارها وفشل العملية لاحقاً.
-  const canDelete = !blocked && !hasChildren && !fmManaged && !whManaged;
-  const canEdit = !fmManaged && !whManaged;
+  const canDelete = !blocked && !hasChildren && !fmManaged && !whManaged && !walletManaged;
+  const canEdit = !fmManaged && !whManaged && !walletManaged;
 
   // ‎نُبرز هذا الحساب بإطار/خلفية مميّزة عند مطابقة البحث ليلفت النظر بسهولة
   const isSearchHit = !!q && accountSearchHaystack(account.code, account.nameAr, account.nameEn).includes(q);
@@ -752,6 +755,17 @@ function AccountNode({
           >
             <Lock className="h-3 w-3" />
             مستودع
+          </Link>
+        )}
+
+        {walletManaged && (
+          <Link
+            to="/parent/wallets"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 transition-colors hover:border-emerald-500/70 hover:bg-emerald-500/20 hover:text-emerald-300"
+            title={t('accountsTree.walletManagedTooltip')}
+          >
+            <Lock className="h-3 w-3" />
+            {t('accountsTree.walletManagedBadge')}
           </Link>
         )}
 
