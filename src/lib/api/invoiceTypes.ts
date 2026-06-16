@@ -44,7 +44,7 @@ export interface InvoiceTypeDto {
   displayOrder: number;
 }
 
-export type UpsertInvoiceTypePayload = Omit<InvoiceTypeDto, 'id' | 'isSystem'> & { code: string };
+export type UpsertInvoiceTypePayload = Omit<InvoiceTypeDto, 'id' | 'isSystem' | 'code'> & { code?: string };
 
 export interface InvoiceSettingsDto {
   inventoryMethod: InventoryMethod;

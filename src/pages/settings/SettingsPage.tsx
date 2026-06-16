@@ -56,8 +56,10 @@ interface SectionDef {
 }
 
 interface SectionContentProps {
-  /** بيانات إعدادات الشركة الحالية (إن كانت محمَّلة) — تُمرَّر للأقسام المعتمِدة عليها. */
+  /** مسودة محلية — تُحدَّث أثناء الكتابة لمزامنة الأقسام عند التنقّل بينها. */
   settings: CompanySettingsDto | null;
+  /** آخر نسخة محفوظة من الخادم — تُستخدم لاكتشاف التغييرات (isDirty). */
+  savedSettings: CompanySettingsDto | null;
   /** تحديث محلي فوري قبل الحفظ (اختياري — ليتزامن المحتوى عند تنقّل المستخدم بين الأقسام). */
   onLocalChange?: (next: Partial<CompanySettingsDto>) => void;
 }
@@ -260,6 +262,7 @@ export function SettingsPage() {
 
           <ActiveComponent
             settings={draft}
+            savedSettings={data ?? null}
             onLocalChange={(patch) => setDraft(s => s ? { ...s, ...patch } : s)}
           />
         </div>
@@ -373,7 +376,7 @@ function CollapsibleSettingsPanel({
 // ─────────────────────────────────────────────────────────────────────────
 // قسم: هوية الشركة
 // ─────────────────────────────────────────────────────────────────────────
-function IdentitySection({ settings, onLocalChange }: SectionContentProps) {
+function IdentitySection({ settings, savedSettings, onLocalChange }: SectionContentProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -419,8 +422,15 @@ function IdentitySection({ settings, onLocalChange }: SectionContentProps) {
     onSuccess: (saved) => {
       toast.success(t('settings.identitySaved'));
       queryClient.setQueryData(['company-settings'], saved);
+      // ‎تحديث هوية الشركة المعروضة في القائمة/الترويسة/شاشة الدخول فوراً بعد الحفظ.
+      queryClient.invalidateQueries({ queryKey: ['company-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['company-registered-name'] });
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || t('common.error')),
+    onError: (e: any) => toast.error(
+      e?.response?.data?.message
+      || e?.response?.data?.errors?.[0]
+      || t('common.error'),
+    ),
   });
 
   const onSave = () => {
@@ -429,12 +439,12 @@ function IdentitySection({ settings, onLocalChange }: SectionContentProps) {
   };
 
   const isDirty = useMemo(() => {
-    if (!settings) return false;
+    if (!savedSettings) return false;
     const keys: (keyof CompanySettingsDto)[] = [
       'nameAr', 'nameEn', 'address', 'addressEn', 'phone', 'email', 'website', 'taxNumber', 'logoBase64',
     ];
-    return keys.some(k => String(form[k] ?? '') !== String(settings[k] ?? ''));
-  }, [form, settings]);
+    return keys.some(k => String(form[k] ?? '') !== String(savedSettings[k] ?? ''));
+  }, [form, savedSettings]);
 
   return (
     <Card>
@@ -533,7 +543,7 @@ function IdentitySection({ settings, onLocalChange }: SectionContentProps) {
               </Field>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              <Field label={t('settings.email')} icon={Mail}>
+              <Field label={t('settings.emailLabel')} icon={Mail}>
                 <Input
                   type="email"
                   value={form.email ?? ''}
@@ -565,7 +575,7 @@ function IdentitySection({ settings, onLocalChange }: SectionContentProps) {
 // ─────────────────────────────────────────────────────────────────────────
 // قسم: الطباعة والتقارير (رأس + تذييل + معاينة)
 // ─────────────────────────────────────────────────────────────────────────
-function PrintingSection({ settings, onLocalChange }: SectionContentProps) {
+function PrintingSection({ settings, savedSettings, onLocalChange }: SectionContentProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<CompanySettingsDto>(settings!);
@@ -600,10 +610,10 @@ function PrintingSection({ settings, onLocalChange }: SectionContentProps) {
   });
 
   const isDirty = useMemo(() => {
-    if (!settings) return false;
-    return (form.printHeader ?? '') !== (settings.printHeader ?? '')
-      || (form.printFooter ?? '') !== (settings.printFooter ?? '');
-  }, [form, settings]);
+    if (!savedSettings) return false;
+    return (form.printHeader ?? '') !== (savedSettings.printHeader ?? '')
+      || (form.printFooter ?? '') !== (savedSettings.printFooter ?? '');
+  }, [form, savedSettings]);
 
   return (
     <Card>

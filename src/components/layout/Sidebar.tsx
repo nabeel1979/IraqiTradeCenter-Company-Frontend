@@ -17,6 +17,7 @@ import { UserAvatar } from '@/components/shared/UserAvatar';
 import { Separator } from '@/components/ui/separator';
 import { useSidebarPrefs } from '@/lib/sidebarPreferences';
 import { journalVoucherTypesApi } from '@/lib/api/journalVoucherTypes';
+import { invoiceTypesApi } from '@/lib/api/invoiceTypes';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
 import { useLocale, localizedVoucherTypeName } from '@/lib/i18n';
@@ -227,6 +228,14 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
     staleTime: 60_000,
   });
 
+  // جلب أنواع الفواتير المفعّلة لعرضها ديناميكياً ضمن مجموعة "الفواتير"
+  const invoiceTypesQuery = useQuery({
+    queryKey: ['invoice-types', 'enabled'],
+    queryFn: () => invoiceTypesApi.list(true),
+    staleTime: 60_000,
+    enabled: can(PERMS.Sales.Invoices.Read),
+  });
+
   // مجموعة "السندات" الديناميكية بناءً على ShowInSidebar (لجميع الطبائع)
   // - Debit/Credit → صفحة سند مبسّطة (صندوق + حساب مقابل)
   // - Mixed → صفحة قيد متعدد البنود (مثل القيود اليومية) مع تثبيت نوع السند
@@ -248,6 +257,25 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
         permission: PERMS.Accounting.Vouchers.read(vt.code),
       }));
   }, [voucherTypesQuery.data, locale]);
+
+  // ‎عناصر الفواتير الديناميكية — عنصر لكل نوع فاتورة مفعّل، يحمل اسم النوع كـ label.
+  const dynamicInvoiceItems: DynamicNavItem[] = useMemo(() => {
+    const types = invoiceTypesQuery.data ?? [];
+    return types.map(it => ({
+      to: `/invoices/type/${it.id}`,
+      labelKey: '',
+      dynamicLabel: locale === 'en' ? (it.nameEn || it.nameAr) : it.nameAr,
+      icon: Receipt as React.ComponentType<{ className?: string }>,
+      permission: PERMS.Sales.Invoices.Read,
+      exact: true,
+    }));
+  }, [invoiceTypesQuery.data, locale]);
+
+  // مسارات التصنيفات الأربعة الثابتة — تُستبدل بعناصر الأنواع الديناميكية
+  const categoryPaths = useMemo(
+    () => new Set(INVOICE_CATEGORY_ROUTES.map(r => `/invoices/${r.path}`)),
+    [],
+  );
 
   const groupsWithVouchers: NavGroup[] = useMemo(() => {
     // ‎صفحة "أنواع السندات" (إعدادات) تُعرض الآن ضمن مجموعة "السندات" بدل المحاسبة.
@@ -274,9 +302,18 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
     return next;
   }, [dynamicVoucherItems]);
 
+  // ‎حقن عناصر أنواع الفواتير الديناميكية مكان مسارات التصنيفات الأربعة الثابتة.
+  const groupsWithDynamic: NavGroup[] = useMemo(() => {
+    return groupsWithVouchers.map(g => {
+      if (g.key !== 'invoices') return g;
+      const rest = g.items.filter(i => !categoryPaths.has(i.to));
+      return { ...g, items: [...dynamicInvoiceItems, ...rest] };
+    });
+  }, [groupsWithVouchers, dynamicInvoiceItems, categoryPaths]);
+
   // فلترة الـ items داخل كل مجموعة بناءً على صلاحية القراءة، ثم إخفاء المجموعات الفارغة (إلا direct).
   const permissionFiltered: NavGroup[] = useMemo(() => {
-    return groupsWithVouchers
+    return groupsWithDynamic
       .filter(g => g.key !== 'parent' || isParentHost())
       .map(g => ({
         ...g,
@@ -288,7 +325,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
         }),
       }))
       .filter(g => g.direct || g.items.length > 0);
-  }, [groupsWithVouchers, can, canAny]);
+  }, [groupsWithDynamic, can, canAny]);
 
   const visibleGroups = permissionFiltered.filter(g => g.mandatory || !isHidden(g.key));
   // أقسام قابلة للطي فقط (لا تشمل direct links)

@@ -120,6 +120,7 @@ export default function App() {
         <Route path="invoices/purchase" element={<InvoicesListPage category={2} />} />
         <Route path="invoices/purchase-return" element={<InvoicesListPage category={3} />} />
         <Route path="invoices/sales-return" element={<InvoicesListPage category={4} />} />
+        <Route path="invoices/type/:typeId" element={<InvoicesListPage />} />
         <Route path="invoices/new" element={<CreateInvoicePage />} />
         <Route path="invoices/:id/edit" element={<CreateInvoicePage />} />
         <Route path="invoices/constants" element={<InvoiceConstantsHubPage />} />

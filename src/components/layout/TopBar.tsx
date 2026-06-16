@@ -3,7 +3,7 @@ import {
   Bell, Calendar, RefreshCw, ArrowDownLeft, ArrowUpRight, BookOpen,
   Menu, Sun, Moon, X, Languages, CheckCheck, ExternalLink,
   Cloud, CloudOff, CloudUpload, AlertCircle, Maximize, Minimize,
-  Pin, Layers, DoorClosed, Trash2, FileText,
+  Pin, Layers, DoorClosed, Trash2, FileText, Store,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/useTheme';
 import { useLocale, localizedName } from '@/lib/i18n';
 import { LicenseBadge } from '@/components/license/LicenseBadge';
-import { isParentHost } from '@/lib/platform';
+import { isParentHost, isCompanyHost, getCompanyCode } from '@/lib/platform';
 import { useFullscreen } from '@/hooks/useFullscreen';
 import {
   useParkedPages,
@@ -493,6 +493,12 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
   const bellRef = useRef<HTMLButtonElement>(null);
   const { isFullscreen, toggleFullscreen } = useFullscreen();
 
+  // ‎رابط متجر الشركة الإلكتروني — يظهر فقط في واجهة شركة لها كود معرّف.
+  const companyCode = getCompanyCode();
+  const storeUrl = isCompanyHost() && companyCode
+    ? `https://iraqi-trade-center.iq/store/${companyCode.toUpperCase()}`
+    : null;
+
   // ── الصفحات المعلّقة (Parked / Suspended) ──────────────────────────────
   const parkedPages = useParkedPages();
   const [closeMenuOpen, setCloseMenuOpen] = useState(false);
@@ -732,6 +738,20 @@ export function TopBar({ onOpenSidebar }: TopBarProps = {}) {
               onRemove={removeParkedPage}
               onClearAll={() => { clearParkedPages(); setParkedOpen(false); }}
             />
+          )}
+
+          {/* ‎أيقونة المتجر الإلكتروني — تفتح متجر الشركة في تبويب جديد */}
+          {storeUrl && (
+            <a
+              href={storeUrl}
+              target="_blank"
+              rel="noreferrer"
+              title={locale === 'ar' ? 'فتح المتجر الإلكتروني' : 'Open online store'}
+              aria-label={locale === 'ar' ? 'فتح المتجر الإلكتروني' : 'Open online store'}
+              className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-secondary/40 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+            >
+              <Store className="h-4 w-4" />
+            </a>
           )}
 
           {/* ‎شارة ترخيص النظام — مخفيّة في الشركة الأم (تعمل بشكل مستمر) */}
