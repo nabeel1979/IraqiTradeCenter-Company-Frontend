@@ -4,6 +4,7 @@ import type { ApiResponse } from '@/types/api';
 export interface WalletListItem {
   id: string;
   storeUserId: string;
+  walletGroupId?: string | null;
   userCode: string;
   userName: string;
   accountType: string;
@@ -14,6 +15,35 @@ export interface WalletListItem {
   currency: string;
   isActive: boolean;
   createdAt: string;
+}
+
+/** محفظة مخصّصة (مجموعة) لها حساب أب وأعضاء. */
+export interface WalletGroup {
+  id: string;
+  name: string;
+  grandparentAccountId?: number | null;
+  grandparentAccountCode?: string | null;
+  grandparentAccountName?: string | null;
+  grandparentIsDefault: boolean;
+  intermediateAccountCode?: string | null;
+  intermediateAccountName?: string | null;
+  defaultTopupAccountCode?: string | null;
+  defaultTopupAccountName?: string | null;
+  defaultWithdrawAccountCode?: string | null;
+  defaultWithdrawAccountName?: string | null;
+  memberCount: number;
+  totalBalance: number;
+  isActive: boolean;
+  isDefault: boolean;
+  isLocked: boolean;
+  createdAt: string;
+}
+
+export interface WalletGroupRequest {
+  name: string;
+  parentAccountCode: string;
+  defaultTopupAccountCode?: string | null;
+  defaultWithdrawAccountCode?: string | null;
 }
 
 export interface WalletTransaction {
@@ -94,12 +124,66 @@ export interface WalletSettings {
 }
 
 export const storeWalletsApi = {
-  list: async (search?: string) => {
+  list: async (opts?: { groupId?: string; search?: string }) => {
+    const params: Record<string, string> = {};
+    if (opts?.groupId) params.groupId = opts.groupId;
+    if (opts?.search) params.search = opts.search;
     const res = await api.get<ApiResponse<WalletListItem[]>>('/parent/wallets', {
-      params: search ? { search } : undefined,
+      params: Object.keys(params).length ? params : undefined,
     });
     if (!res.data.success || !res.data.data) throw new Error('Failed to load wallets');
     return res.data.data;
+  },
+
+  groups: {
+    list: async (): Promise<WalletGroup[]> => {
+      const res = await api.get<ApiResponse<WalletGroup[]>>('/parent/wallet-groups');
+      if (!res.data.success || !res.data.data) throw new Error('Failed to load wallet groups');
+      return res.data.data;
+    },
+    get: async (id: string): Promise<WalletGroup> => {
+      const res = await api.get<ApiResponse<WalletGroup>>(`/parent/wallet-groups/${id}`);
+      if (!res.data.success || !res.data.data) throw new Error('Failed to load wallet group');
+      return res.data.data;
+    },
+    create: async (body: WalletGroupRequest) => {
+      const res = await api.post<ApiResponse<WalletGroup>>('/parent/wallet-groups', body, {
+        skipGlobalErrorHandler: true,
+      });
+      return res.data;
+    },
+    update: async (id: string, body: WalletGroupRequest) => {
+      const res = await api.put<ApiResponse<WalletGroup>>(`/parent/wallet-groups/${id}`, body, {
+        skipGlobalErrorHandler: true,
+      });
+      return res.data;
+    },
+    remove: async (id: string) => {
+      const res = await api.delete<{ success: boolean; message?: string }>(
+        `/parent/wallet-groups/${id}`, { skipGlobalErrorHandler: true });
+      return res.data;
+    },
+    backfill: async (id: string) => {
+      const res = await api.post<{ success: boolean; created: number; message?: string }>(
+        `/parent/wallet-groups/${id}/backfill`, {}, { skipGlobalErrorHandler: true });
+      return res.data;
+    },
+    backfillCompanies: async (id: string) => {
+      const res = await api.post<{ success: boolean; created: number; message?: string }>(
+        `/parent/wallet-groups/${id}/backfill-companies`, {}, { skipGlobalErrorHandler: true });
+      return res.data;
+    },
+    enrollCompany: async (id: string, companyCode: string, companyName?: string) => {
+      const res = await api.post<{ success: boolean; message?: string }>(
+        `/parent/wallet-groups/${id}/enroll-company`,
+        { companyCode, companyName }, { skipGlobalErrorHandler: true });
+      return res.data;
+    },
+    setDefault: async (id: string) => {
+      const res = await api.post<ApiResponse<WalletGroup> & { message?: string }>(
+        `/parent/wallet-groups/${id}/default`, {}, { skipGlobalErrorHandler: true });
+      return res.data;
+    },
   },
 
   get: async (id: string) => {
@@ -124,27 +208,6 @@ export const storeWalletsApi = {
     const res = await api.get<ApiResponse<CoaAccount[]>>('/parent/wallets/coa-accounts');
     if (!res.data.success || !res.data.data) throw new Error('Failed to load accounts');
     return res.data.data;
-  },
-
-  getSettings: async () => {
-    const res = await api.get<ApiResponse<WalletSettings>>('/parent/wallets/settings');
-    if (!res.data.success || !res.data.data) throw new Error('Failed to load settings');
-    return res.data.data;
-  },
-
-  updateSettings: async (body: {
-    parentAccountCode: string;
-    walletGroupName?: string | null;
-    defaultTopupAccountCode?: string | null;
-    defaultWithdrawAccountCode?: string | null;
-  }) => {
-    const res = await api.put<ApiResponse<WalletSettings>>('/parent/wallets/settings', body);
-    return res.data;
-  },
-
-  backfill: async () => {
-    const res = await api.post<{ success: boolean; created: number }>('/parent/wallets/backfill');
-    return res.data;
   },
 
   topup: async (id: string, body: { amount: number; fundingAccountCode?: string | null; description?: string | null }) => {

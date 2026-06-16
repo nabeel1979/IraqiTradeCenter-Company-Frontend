@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Plus,
@@ -43,7 +43,8 @@ import { printInvoice, printInvoicesList, type InvoicePrintData } from '@/lib/pr
 const PAGE_SIZE_OPTIONS = [10, 50, 100, 1000] as const;
 
 interface InvoicesListPageProps {
-  category: InvoiceCategory;
+  /** التصنيف الثابت لصفحات الفواتير الأربع. يُتجاهل عند فتح الصفحة بنمط نوع محدد (/invoices/type/:typeId). */
+  category?: InvoiceCategory;
 }
 
 interface RowMenu {
@@ -92,10 +93,28 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
   const { t, i18n } = useTranslation();
   const { locale, isRtl } = useLocale();
   const navigate = useNavigate();
+  const params = useParams();
   const { can } = usePermissions();
   const canEdit = can(PERMS.Sales.Invoices.Update);
-  const routeCfg = findCategoryRoute(category);
-  const isSupplierSide = category === 2 || category === 3;
+
+  const typeIdParam = params.typeId ? Number(params.typeId) : undefined;
+  const byType = typeIdParam != null && !Number.isNaN(typeIdParam);
+
+  const typesQuery = useQuery({
+    queryKey: ['invoice-types', 'enabled'],
+    queryFn: () => invoiceTypesApi.list(true),
+  });
+
+  const selectedType = byType
+    ? (typesQuery.data ?? []).find(tp => tp.id === typeIdParam)
+    : undefined;
+
+  const effectiveCategory: InvoiceCategory = byType
+    ? (selectedType?.category ?? category ?? 1)
+    : (category ?? 1);
+
+  const routeCfg = findCategoryRoute(effectiveCategory);
+  const isSupplierSide = effectiveCategory === 2 || effectiveCategory === 3;
   const partyColLabel = isSupplierSide ? 'المورد' : t('invoices.list.colCustomer');
 
   const { defaultFromDate, defaultToDate, datesReady } = useActiveFiscalYear();
@@ -130,7 +149,9 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  const invoiceListPath = invoiceListPathForCategory(category);
+  const invoiceListPath = byType
+    ? `/invoices/type/${typeIdParam}`
+    : invoiceListPathForCategory(effectiveCategory);
   const invoiceReturnLabel = t(`routes.${routeCfg.routeKey}.title`);
   const inventoryReturnQuery = invoiceInventoryReturnQuery(invoiceListPath, invoiceReturnLabel);
 
@@ -146,9 +167,10 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
   }, [isRtl]);
 
   const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ['invoices', category, search, status, fromDate, toDate, pageNumber, pageSize],
+    queryKey: ['invoices', byType ? `type:${typeIdParam}` : `cat:${effectiveCategory}`, search, status, fromDate, toDate, pageNumber, pageSize],
     queryFn: () => invoicesApi.list({
-      category,
+      category: byType ? undefined : effectiveCategory,
+      invoiceTypeId: byType ? typeIdParam : undefined,
       search: search || undefined,
       status: status || undefined,
       fromDate: fromDate || undefined,
@@ -160,11 +182,6 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
     staleTime: 0,
   });
 
-  const typesQuery = useQuery({
-    queryKey: ['invoice-types', 'enabled'],
-    queryFn: () => invoiceTypesApi.list(true),
-  });
-
   const { data: company } = useQuery({
     queryKey: ['company-settings'],
     queryFn: companySettingsApi.get,
@@ -172,9 +189,10 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
   });
 
   const defaultType = useMemo(() => {
-    const types = (typesQuery.data ?? []).filter(tp => tp.category === category);
+    if (byType) return selectedType;
+    const types = (typesQuery.data ?? []).filter(tp => tp.category === effectiveCategory);
     return types.find(tp => tp.code === routeCfg.systemCode) ?? types[0];
-  }, [typesQuery.data, category, routeCfg.systemCode]);
+  }, [byType, selectedType, typesQuery.data, effectiveCategory, routeCfg.systemCode]);
 
   const newInvoiceUrl = defaultType
     ? `/invoices/new?typeId=${defaultType.id}`
@@ -189,7 +207,7 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
   };
   const typeName = defaultType
     ? (isArabic ? defaultType.nameAr : (defaultType.nameEn || defaultType.nameAr))
-    : (isArabic ? categoryFallback[category]?.ar : categoryFallback[category]?.en) ?? '';
+    : (isArabic ? categoryFallback[effectiveCategory]?.ar : categoryFallback[effectiveCategory]?.en) ?? '';
 
   const listPrintTitle = defaultType
     ? (locale === 'en' ? (defaultType.nameEn || defaultType.nameAr) : defaultType.nameAr)
@@ -221,7 +239,8 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
   const handlePrintList = async () => {
     try {
       const all = await invoicesApi.list({
-        category,
+        category: byType ? undefined : effectiveCategory,
+        invoiceTypeId: byType ? typeIdParam : undefined,
         search: search || undefined,
         status: status || undefined,
         fromDate: fromDate || undefined,
@@ -249,7 +268,8 @@ export function InvoicesListPage({ category }: InvoicesListPageProps) {
         entityId: '*',
         summary: `${t('invoices.list.print')} (${all.items.length})`,
         details: {
-          category,
+          category: byType ? null : effectiveCategory,
+          invoiceTypeId: byType ? typeIdParam : null,
           search: search || null,
           status: status || null,
           fromDate: fromDate || null,

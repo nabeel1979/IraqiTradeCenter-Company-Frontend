@@ -2,21 +2,22 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { X, Link2, GitBranch, AlertTriangle } from 'lucide-react';
+import { X, Link2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { accountingApi } from '@/lib/api/accounting';
-import { storeWalletsApi } from '@/lib/api/storeWallets';
+import { storeWalletsApi, type WalletGroup } from '@/lib/api/storeWallets';
 import { extractApiError } from '@/lib/utils';
 import type { AccountDto } from '@/types/api';
 
 interface Props {
+  /** المحفظة قيد التعديل، أو null لإنشاء محفظة جديدة. */
+  group: WalletGroup | null;
   onClose: (changed: boolean) => void;
 }
 
-/** يُسطّح شجرة الحسابات إلى قائمة مسطّحة. */
 function flattenAccounts(nodes: AccountDto[]): AccountDto[] {
   const out: AccountDto[] = [];
   const walk = (ns: AccountDto[]) => {
@@ -29,20 +30,18 @@ function flattenAccounts(nodes: AccountDto[]): AccountDto[] {
   return out;
 }
 
-export function WalletSettingsDialog({ onClose }: Props) {
+export function WalletGroupDialog({ group, onClose }: Props) {
   const { t } = useTranslation();
-  const [grandparentCode, setGrandparentCode] = useState('');
-  const [groupName, setGroupName] = useState('');
-  const [topupCode, setTopupCode] = useState('');
-  const [withdrawCode, setWithdrawCode] = useState('');
+  const isEdit = !!group;
+  const structureLocked = isEdit && !!group?.isLocked;
+
+  const [name, setName] = useState(group?.name ?? '');
+  const [grandparentCode, setGrandparentCode] = useState(group?.grandparentAccountCode ?? '');
+  const [topupCode, setTopupCode] = useState(group?.defaultTopupAccountCode ?? '');
+  const [withdrawCode, setWithdrawCode] = useState(group?.defaultWithdrawAccountCode ?? '');
   const [submitting, setSubmitting] = useState(false);
 
-  const { data: settings, isLoading: loadingSettings } = useQuery({
-    queryKey: ['wallet-settings'],
-    queryFn: () => storeWalletsApi.getSettings(),
-  });
-
-  const { data: tree } = useQuery({
+  const { data: tree, isLoading: loadingTree } = useQuery({
     queryKey: ['accounts', 'tree'],
     queryFn: accountingApi.getTree,
   });
@@ -51,21 +50,19 @@ export function WalletSettingsDialog({ onClose }: Props) {
   const leafAccounts = useMemo(() => allAccounts.filter((a) => a.isLeaf), [allAccounts]);
 
   useEffect(() => {
-    if (settings) {
-      setGrandparentCode(settings.grandparentAccountCode ?? '');
-      setGroupName(settings.walletGroupName ?? '');
-      setTopupCode(settings.defaultTopupAccountCode ?? '');
-      setWithdrawCode(settings.defaultWithdrawAccountCode ?? '');
+    if (group) {
+      setName(group.name);
+      setGrandparentCode(group.grandparentAccountCode ?? '');
+      setTopupCode(group.defaultTopupAccountCode ?? '');
+      setWithdrawCode(group.defaultWithdrawAccountCode ?? '');
     }
-  }, [settings]);
+  }, [group]);
 
-  // الربط بين الكود (ما نرسله للخادم) والمعرّف (قيمة الـ picker)
   const idByCode = (code: string): number | null =>
     allAccounts.find((a) => a.code === code)?.id ?? null;
   const codeById = (id: number | null): string =>
     (id ? allAccounts.find((a) => a.id === id)?.code : '') ?? '';
 
-  // الحساب الجدّ قد يكون قد تحوّل إلى أب (لم يعُد ورقياً) — نعرضه عبر initialLabel
   const grandparentInList = useMemo(
     () => leafAccounts.some((a) => a.code === grandparentCode),
     [leafAccounts, grandparentCode],
@@ -82,23 +79,24 @@ export function WalletSettingsDialog({ onClose }: Props) {
   const isLeafSelected = selectedGrandparent?.isLeaf === true;
 
   const submit = async () => {
-    if (!grandparentCode) {
-      toast.error(t('wallets.settings.selectParentError'));
-      return;
-    }
+    if (!structureLocked && !name.trim()) { toast.error(t('wallets.groups.nameRequired')); return; }
+    if (!structureLocked && !grandparentCode) { toast.error(t('wallets.settings.selectParentError')); return; }
     setSubmitting(true);
     try {
-      const res = await storeWalletsApi.updateSettings({
+      const body = {
+        name: name.trim(),
         parentAccountCode: grandparentCode,
-        walletGroupName: groupName.trim() || null,
         defaultTopupAccountCode: topupCode || null,
         defaultWithdrawAccountCode: withdrawCode || null,
-      });
+      };
+      const res = isEdit
+        ? await storeWalletsApi.groups.update(group!.id, body)
+        : await storeWalletsApi.groups.create(body);
       if (res && (res as { success: boolean }).success === false) {
         toast.error((res as { message?: string }).message ?? t('common.error'));
         return;
       }
-      toast.success(t('wallets.settings.saved'));
+      toast.success(isEdit ? t('wallets.groups.updated') : t('wallets.groups.created'));
       onClose(true);
     } catch (e) {
       toast.error(extractApiError(e));
@@ -107,8 +105,7 @@ export function WalletSettingsDialog({ onClose }: Props) {
     }
   };
 
-  const hasIntermediate = !!settings?.intermediateAccountCode;
-  const groupDisplay = groupName.trim() || t('wallets.settings.groupNameDefault');
+  const groupDisplay = name.trim() || t('wallets.settings.groupNameDefault');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => onClose(false)}>
@@ -120,7 +117,9 @@ export function WalletSettingsDialog({ onClose }: Props) {
           <div className="flex items-center gap-2">
             <Link2 className="h-5 w-5 text-primary" />
             <div>
-              <h2 className="text-base font-semibold">{t('wallets.settings.title')}</h2>
+              <h2 className="text-base font-semibold">
+                {isEdit ? t('wallets.groups.editTitle') : t('wallets.groups.createTitle')}
+              </h2>
               <p className="text-xs text-muted-foreground">{t('wallets.settings.desc')}</p>
             </div>
           </div>
@@ -129,32 +128,36 @@ export function WalletSettingsDialog({ onClose }: Props) {
           </button>
         </div>
 
-        {loadingSettings ? (
+        {loadingTree ? (
           <div className="flex justify-center py-12"><LoadingSpinner className="h-8 w-8" /></div>
         ) : (
           <div className="space-y-4 overflow-y-auto p-5">
-
-            {/* شرح الهيكل */}
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
               <p className="font-medium">{t('wallets.settings.structureTitle')}</p>
               <div className="mt-1.5 space-y-0.5 font-mono" dir="ltr">
                 <p>▸ {grandparentCode || t('wallets.settings.yourChoice')} <span className="text-blue-500">← {t('wallets.settings.notTouched')}</span></p>
                 <p className="ps-4">▸ {groupDisplay} (.9) <span className="text-blue-500">← {t('wallets.settings.autoCreated')}</span></p>
-                <p className="ps-8">▸ محفظة .1 / .2 / .3 ...</p>
+                <p className="ps-8">▸ {t('wallets.groups.members')} .1 / .2 / .3 ...</p>
               </div>
             </div>
 
-            {/* اسم المحفظة (مجموعة المحافظ) */}
-            <Labeled label={t('wallets.settings.groupName')} hint={t('wallets.settings.groupNameHint')}>
+            {structureLocked && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <p>{t('wallets.groups.structureLocked')}</p>
+              </div>
+            )}
+
+            <Labeled label={t('wallets.groups.nameLabel')} hint={t('wallets.settings.groupNameHint')}>
               <Input
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                placeholder={t('wallets.settings.groupNameDefault')}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('wallets.groups.namePlaceholder')}
                 maxLength={120}
+                disabled={structureLocked}
               />
             </Labeled>
 
-            {/* تنبيه عند اختيار حساب ورقي */}
             {isLeafSelected && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -162,42 +165,37 @@ export function WalletSettingsDialog({ onClose }: Props) {
               </div>
             )}
 
-            <Labeled
-              label={t('wallets.settings.grandparentAccount')}
-              hint={settings?.grandparentIsDefault ? t('wallets.settings.grandparentDefaultHint') : undefined}
-            >
-              <AccountPicker
-                accounts={grandparentOptions}
-                value={idByCode(grandparentCode)}
-                initialLabel={
-                  selectedGrandparent
-                    ? `${selectedGrandparent.code} - ${selectedGrandparent.nameAr}`
-                    : settings?.grandparentAccountCode
-                      ? `${settings.grandparentAccountCode} - ${settings.grandparentAccountName ?? ''}`
-                      : ''
-                }
-                onChange={(id) => setGrandparentCode(codeById(id))}
-                placeholder={t('wallets.settings.searchAccount')}
-              />
+            <Labeled label={t('wallets.settings.grandparentAccount')}>
+              {structureLocked ? (
+                <div className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground" dir="ltr">
+                  {group?.grandparentAccountCode
+                    ? `${group.grandparentAccountCode} - ${group.grandparentAccountName ?? ''}`
+                    : `2.9 - ${t('wallets.settings.groupNameDefault')}`}
+                </div>
+              ) : (
+                <AccountPicker
+                  accounts={grandparentOptions}
+                  value={idByCode(grandparentCode)}
+                  initialLabel={
+                    selectedGrandparent
+                      ? `${selectedGrandparent.code} - ${selectedGrandparent.nameAr}`
+                      : group?.grandparentAccountCode
+                        ? `${group.grandparentAccountCode} - ${group.grandparentAccountName ?? ''}`
+                        : ''
+                  }
+                  onChange={(id) => setGrandparentCode(codeById(id))}
+                  placeholder={t('wallets.settings.searchAccount')}
+                />
+              )}
             </Labeled>
-
-            {/* عرض الحساب الوسيط إن أُنشئ */}
-            {hasIntermediate && (
-              <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs">
-                <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="text-muted-foreground">{t('wallets.settings.intermediateLabel')}:</span>
-                <span className="font-medium">{settings!.intermediateAccountName}</span>
-                <span className="font-mono text-muted-foreground" dir="ltr">({settings!.intermediateAccountCode})</span>
-              </div>
-            )}
 
             <Labeled label={t('wallets.settings.defaultTopup')} hint={t('wallets.settings.optional')}>
               <AccountPicker
                 accounts={leafAccounts}
                 value={idByCode(topupCode)}
                 initialLabel={
-                  settings?.defaultTopupAccountCode
-                    ? `${settings.defaultTopupAccountCode} - ${settings.defaultTopupAccountName ?? ''}`
+                  group?.defaultTopupAccountCode
+                    ? `${group.defaultTopupAccountCode} - ${group.defaultTopupAccountName ?? ''}`
                     : ''
                 }
                 onChange={(id) => setTopupCode(codeById(id))}
@@ -211,8 +209,8 @@ export function WalletSettingsDialog({ onClose }: Props) {
                 accounts={leafAccounts}
                 value={idByCode(withdrawCode)}
                 initialLabel={
-                  settings?.defaultWithdrawAccountCode
-                    ? `${settings.defaultWithdrawAccountCode} - ${settings.defaultWithdrawAccountName ?? ''}`
+                  group?.defaultWithdrawAccountCode
+                    ? `${group.defaultWithdrawAccountCode} - ${group.defaultWithdrawAccountName ?? ''}`
                     : ''
                 }
                 onChange={(id) => setWithdrawCode(codeById(id))}
@@ -229,7 +227,7 @@ export function WalletSettingsDialog({ onClose }: Props) {
           </Button>
           <Button
             onClick={submit}
-            disabled={submitting || loadingSettings}
+            disabled={submitting || loadingTree}
             variant={isLeafSelected ? 'destructive' : 'default'}
           >
             {isLeafSelected ? t('wallets.settings.saveAndConvert') : t('common.save')}

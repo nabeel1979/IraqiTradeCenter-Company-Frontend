@@ -120,9 +120,12 @@ export function InvoiceTypesPage() {
 
   const saveMut = useMutation({
     mutationFn: async () => {
-      const payload = { ...form, code: editing ? editing.code : form.code.trim().toUpperCase() };
-      if (editing) await invoiceTypesApi.update(editing.id, payload);
-      else await invoiceTypesApi.create(payload);
+      if (editing) {
+        await invoiceTypesApi.update(editing.id, { ...form, code: editing.code });
+      } else {
+        // الرمز يُولَّد تلقائياً في الخادم — لا نرسله عند الإضافة
+        await invoiceTypesApi.create({ ...form, code: undefined });
+      }
     },
     onSuccess: () => {
       toast.success(editing ? 'تم التحديث' : 'تم الإضافة');
@@ -274,10 +277,10 @@ export function InvoiceTypesPage() {
                   <Label>الاسم (إنجليزي)</Label>
                   <Input dir="ltr" value={form.nameEn ?? ''} onChange={e => setForm(f => ({ ...f, nameEn: e.target.value }))} />
                 </div>
-                {!editing && (
+                {editing && (
                   <div className="space-y-1">
-                    <Label>الرمز *</Label>
-                    <Input dir="ltr" className="font-mono uppercase" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} />
+                    <Label>الرمز</Label>
+                    <Input dir="ltr" className="font-mono uppercase" value={editing.code} readOnly disabled />
                   </div>
                 )}
                 <div className="space-y-1">
@@ -428,7 +431,6 @@ export function InvoiceTypesPage() {
 
               <Button className="w-full gap-2" disabled={saveMut.isPending} onClick={() => {
                 if (!form.nameAr.trim()) { toast.error('اسم الفاتورة مطلوب'); return; }
-                if (!editing && !form.code.trim()) { toast.error('الرمز مطلوب'); return; }
                 saveMut.mutate();
               }}>
                 <Save className="h-4 w-4" />حفظ

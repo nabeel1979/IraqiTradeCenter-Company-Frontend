@@ -1,15 +1,19 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ArrowDownCircle, ArrowUpCircle, Search, CheckCircle2, Wallet as WalletIcon,
+  ArrowDownCircle, ArrowUpCircle, Search, CheckCircle2, Wallet as WalletIcon, ArrowRight, Printer,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { storeWalletsApi, type WalletListItem, type WalletTransaction } from '@/lib/api/storeWallets';
+import { accountingApi } from '@/lib/api/accounting';
+import { companySettingsApi } from '@/lib/api/companySettings';
+import { printSingleJournalEntry } from '@/lib/printUtils';
 import { extractApiError } from '@/lib/utils';
 import { formatMoney } from '@/pages/parent-store/WalletsPage';
 
@@ -21,6 +25,8 @@ interface Props {
 
 export function WalletPostingPage({ mode }: Props) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { groupId = '' } = useParams<{ groupId: string }>();
   const isPay = mode === 'pay';
 
   const [walletId, setWalletId] = useState('');
@@ -29,10 +35,39 @@ export function WalletPostingPage({ mode }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<{ tx: WalletTransaction; wallet: WalletListItem } | null>(null);
 
-  const { data: wallets, isLoading } = useQuery({
-    queryKey: ['parent-wallets', ''],
-    queryFn: () => storeWalletsApi.list(),
+  const { data: group } = useQuery({
+    queryKey: ['wallet-group', groupId],
+    queryFn: () => storeWalletsApi.groups.get(groupId),
+    enabled: !!groupId,
   });
+
+  const { data: wallets, isLoading } = useQuery({
+    queryKey: ['parent-wallets', groupId, ''],
+    queryFn: () => storeWalletsApi.list({ groupId }),
+    enabled: !!groupId,
+  });
+
+  const { data: company } = useQuery({
+    queryKey: ['company-settings-print'],
+    queryFn: () => companySettingsApi.get(),
+    staleTime: 5 * 60_000,
+  });
+
+  const [printing, setPrinting] = useState(false);
+
+  const printReceipt = async (tx: WalletTransaction) => {
+    setPrinting(true);
+    try {
+      const full = await accountingApi.getJournalEntryById(tx.journalEntryId);
+      printSingleJournalEntry(full, company ?? null);
+    } catch (e) {
+      toast.error(extractApiError(e));
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const groupName = group?.name ?? '';
 
   const selected = wallets?.find((w) => w.id === walletId) ?? null;
 
@@ -77,9 +112,18 @@ export function WalletPostingPage({ mode }: Props) {
     <div className="mx-auto max-w-2xl space-y-4">
       <Card>
         <CardHeader>
+          <button
+            onClick={() => navigate(`/parent/wallets/${groupId}`)}
+            className="mb-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ArrowRight className="h-3.5 w-3.5" />
+            {t('wallets.groups.backMembers')}
+          </button>
           <CardTitle className="flex items-center gap-2">
             <Icon className={`h-5 w-5 ${accent}`} />
-            {isPay ? t('walletPosting.payTitle') : t('walletPosting.withdrawTitle')}
+            {groupName
+              ? (isPay ? t('walletPosting.payTitleNamed', { name: groupName }) : t('walletPosting.withdrawTitleNamed', { name: groupName }))
+              : (isPay ? t('walletPosting.payTitle') : t('walletPosting.withdrawTitle'))}
           </CardTitle>
           <CardDescription>
             {isPay ? t('walletPosting.payDesc') : t('walletPosting.withdrawDesc')}
@@ -95,6 +139,8 @@ export function WalletPostingPage({ mode }: Props) {
               tx={done.tx}
               wallet={done.wallet}
               onNew={reset}
+              onPrint={() => printReceipt(done.tx)}
+              printing={printing}
             />
           ) : (
             <>
@@ -157,8 +203,8 @@ export function WalletPostingPage({ mode }: Props) {
 }
 
 function SuccessView({
-  mode, tx, wallet, onNew,
-}: { mode: Mode; tx: WalletTransaction; wallet: WalletListItem; onNew: () => void }) {
+  mode, tx, wallet, onNew, onPrint, printing,
+}: { mode: Mode; tx: WalletTransaction; wallet: WalletListItem; onNew: () => void; onPrint: () => void; printing: boolean }) {
   const { t } = useTranslation();
   return (
     <div className="space-y-4">
@@ -186,7 +232,11 @@ function SuccessView({
         {tx.description && <Row label={t('wallets.note')} value={tx.description} />}
       </dl>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onPrint} disabled={printing}>
+          <Printer className="h-4 w-4" />
+          {t('walletPosting.printReceipt')}
+        </Button>
         <Button onClick={onNew}>{t('walletPosting.newOperation')}</Button>
       </div>
     </div>
