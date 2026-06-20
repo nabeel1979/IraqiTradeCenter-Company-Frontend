@@ -155,6 +155,7 @@ export const storeParentApi = {
     fullName: string;
     fullNameEn?: string | null;
     contactPhone?: string | null;
+    phone?: string | null;
     email?: string | null;
     businessName?: string | null;
     businessNameEn?: string | null;

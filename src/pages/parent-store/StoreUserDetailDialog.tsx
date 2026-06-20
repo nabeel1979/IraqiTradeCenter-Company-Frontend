@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { PhoneInput } from '@/components/shared/PhoneInput';
 import { storeParentApi, type StoreUserRow } from '@/lib/api/storeParent';
 import { geographyApi } from '@/lib/api/geography';
 import { api } from '@/lib/api/client';
@@ -44,6 +45,7 @@ export function StoreUserDetailDialog({
   const [fullName, setFullName] = useState(user.fullName);
   const [fullNameEn, setFullNameEn] = useState(user.fullNameEn ?? '');
   const [contactPhone, setContactPhone] = useState(user.contactPhone ?? '');
+  const [phone, setPhone] = useState(user.phone ?? '');
   const [email, setEmail] = useState(user.email ?? '');
   const [businessName, setBusinessName] = useState(user.businessName ?? '');
   const [businessNameEn, setBusinessNameEn] = useState(user.businessNameEn ?? '');
@@ -106,6 +108,7 @@ export function StoreUserDetailDialog({
     setFullName(user.fullName);
     setFullNameEn(user.fullNameEn ?? '');
     setContactPhone(user.contactPhone ?? '');
+    setPhone(user.phone ?? '');
     setEmail(user.email ?? '');
     setBusinessName(user.businessName ?? '');
     setBusinessNameEn(user.businessNameEn ?? '');
@@ -145,6 +148,7 @@ export function StoreUserDetailDialog({
       fullName: fullName.trim(),
       fullNameEn: fullNameEn.trim() || null,
       contactPhone: contactPhone.trim() || null,
+      phone: phone.trim() || null,
       email: email.trim() || null,
       businessName: isBusiness ? businessName.trim() || null : null,
       businessNameEn: isBusiness ? businessNameEn.trim() || null : null,
@@ -360,7 +364,10 @@ export function StoreUserDetailDialog({
                   <Field label={t('storeParent.fields.fullNameEn')} value={fullNameEn} onChange={setFullNameEn} dir="ltr" />
                   <Field label={t('storeParent.fields.contactPhone')} value={contactPhone} onChange={setContactPhone} mono />
                   <Field label={t('storeParent.fields.email')} value={email} onChange={setEmail} mono />
-                  <Field label={t('storeParent.fields.whatsapp')} value={user.phone} onChange={() => {}} disabled mono />
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">{t('storeParent.fields.whatsapp')}</label>
+                    <PhoneInput value={phone} onChange={setPhone} size="sm" />
+                  </div>
                 </div>
               </Section>
 
