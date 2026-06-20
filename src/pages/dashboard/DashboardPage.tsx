@@ -116,6 +116,7 @@ export function DashboardPage() {
         <div className="relative flex items-center gap-3 sm:gap-5">
           <div className="shrink-0">
             <LogoViewer
+              src="/logo.png?v=5"
               alt={t('app.name')}
               className="h-16 w-16 object-contain sm:h-24 sm:w-24"
             />

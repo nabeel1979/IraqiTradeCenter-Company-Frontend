@@ -25,10 +25,15 @@ export function isParentHost(host = currentHost()): boolean {
 
 /** يستخرج معرف الشركة من الـ subdomain (مثال: 8UX5PDPP) أو null. */
 export function getCompanyCode(host = currentHost()): string | null {
-  const suffix = getRuntimeConfig().companyDomainSuffix;
+  const cfg = getRuntimeConfig();
+  const suffix = cfg.companyDomainSuffix;
   if (suffix && host.endsWith(suffix)) {
     const sub = host.slice(0, -suffix.length);
-    if (sub && !sub.includes('.')) return sub.toUpperCase();
+    if (sub && !sub.includes('.')) {
+      const slug = sub.toLowerCase();
+      const alias = cfg.subdomainAliases?.[slug];
+      return (alias ?? sub).toUpperCase();
+    }
   }
   return null;
 }

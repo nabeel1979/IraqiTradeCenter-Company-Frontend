@@ -142,9 +142,10 @@ export function StockCountReportPage() {
 
   const summary = useMemo(() => {
     const totalQuantity = rows.reduce((s, r) => s + r.quantity, 0);
+    const totalGiftQuantity = rows.reduce((s, r) => s + (r.giftQuantity ?? 0), 0);
     const totalCost = rows.reduce((s, r) => s + (r.totalCost ?? 0), 0);
     const itemCount = new Set(rows.map(r => r.itemId)).size;
-    return { totalQuantity, totalCost, itemCount };
+    return { totalQuantity, totalGiftQuantity, totalCost, itemCount };
   }, [rows]);
 
   const warehouseLabel = useMemo(() => {
@@ -383,6 +384,7 @@ export function StockCountReportPage() {
                         <Th>{tt('التصنيف', 'Category')}</Th>
                         <Th>{tt('المستودع', 'Warehouse')}</Th>
                         <Th center>{tt('الكمية', 'Quantity')}</Th>
+                        <Th center>{tt('منها هدايا', 'Of which gifts')}</Th>
                         <Th center>{tt('وحدة الجرد', 'Unit')}</Th>
                         <Th center>{tt('تكلفة الوحدة', 'Unit cost')}</Th>
                         <Th center>{tt('التكلفة', 'Cost')}</Th>
@@ -398,6 +400,7 @@ export function StockCountReportPage() {
                           <td className="px-2 py-1.5 text-muted-foreground">{(locale === 'en' ? r.categoryNameEn || r.categoryName : r.categoryName) ?? '—'}</td>
                           <td className="px-2 py-1.5">{locale === 'en' ? r.warehouseNameEn || r.warehouseName : r.warehouseName}</td>
                           <td className={cn('px-2 py-1.5 text-center num-display font-bold', r.quantity < 0 && 'text-rose-600')}>{formatAmountFixed2(r.quantity)}</td>
+                          <td className="px-2 py-1.5 text-center num-display text-emerald-600">{(r.giftQuantity ?? 0) !== 0 ? formatAmountFixed2(r.giftQuantity ?? 0) : '—'}</td>
                           <td className="px-2 py-1.5 text-center">{locale === 'en' ? r.baseUnitNameEn || r.baseUnitName : r.baseUnitName}</td>
                           <td className="px-2 py-1.5 text-center num-display text-muted-foreground">{formatAmountFixed2(r.unitCost)}</td>
                           <td className="px-2 py-1.5 text-center num-display font-medium">{formatAmountFixed2(r.totalCost)}</td>
@@ -418,6 +421,7 @@ export function StockCountReportPage() {
                       <tr className="border-t bg-muted/40 font-semibold">
                         <td className="px-2 py-2 text-center" colSpan={5}>{tt('الإجمالي', 'Total')}</td>
                         <td className="px-2 py-2 text-center num-display">{formatAmountFixed2(summary.totalQuantity)}</td>
+                        <td className="px-2 py-2 text-center num-display text-emerald-600">{formatAmountFixed2(summary.totalGiftQuantity)}</td>
                         <td />
                         <td />
                         <td className="px-2 py-2 text-center num-display">{formatAmountFixed2(summary.totalCost)}</td>

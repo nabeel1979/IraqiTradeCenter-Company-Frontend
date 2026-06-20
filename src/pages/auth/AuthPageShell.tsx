@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useLocale } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { CompanyHostBadge } from '@/components/layout/CompanyHostBadge';
-import { useFullscreen } from '@/hooks/useFullscreen';
 import { LogoViewer } from '@/components/LogoViewer';
+import { useFullscreen } from '@/hooks/useFullscreen';
 
 interface AuthPageShellProps {
   children: ReactNode;

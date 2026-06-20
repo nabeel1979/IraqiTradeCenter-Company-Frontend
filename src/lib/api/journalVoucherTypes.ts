@@ -48,6 +48,13 @@ export const journalVoucherTypesApi = {
     return res.data.data ?? [];
   },
 
+  generateCode: async (): Promise<string> => {
+    const res = await api.get<ApiResponse<{ code: string }>>('/journal-voucher-types/generate-code', {
+      skipGlobalErrorHandler: true,
+    });
+    return res.data.data?.code ?? '';
+  },
+
   getById: async (id: number): Promise<JournalVoucherTypeDto | null> => {
     const res = await api.get<ApiResponse<JournalVoucherTypeDto | null>>(`/journal-voucher-types/${id}`);
     return res.data.data ?? null;

@@ -61,6 +61,7 @@ export function StockMovementsPage() {
   const [displayUomId, setDisplayUomId] = useState<number | null>(null);
   // فلترة حسب الفاتورة (مخفية داخل أيقونة)
   const [invoiceFilter, setInvoiceFilter] = useState('');
+  const [giftOnly, setGiftOnly] = useState(false);
   // popovers مخفية داخل أيقونات
   const [showPresets, setShowPresets] = useState(false);
   const [showInvoiceFilter, setShowInvoiceFilter] = useState(false);
@@ -236,11 +237,12 @@ export function StockMovementsPage() {
       running += signedOf(m);
       inPeriod.push({ ...m, runBefore: before, runAfter: running });
     }
-    const filtered = invoiceFilter
+    let filtered = invoiceFilter
       ? inPeriod.filter(m => m.referenceNumber === invoiceFilter)
       : inPeriod;
+    if (giftOnly) filtered = filtered.filter(m => m.isGift);
     return { rows: filtered, openingBalanceBase: opening };
-  }, [movementsQuery.data, runKey, invoiceFilter]);
+  }, [movementsQuery.data, runKey, invoiceFilter, giftOnly]);
 
   // الإجماليات تُحسب بالوحدة الأساسية (الأصغر) ثم تُحوَّل لوحدة العرض المختارة
   const baseTotals = useMemo(() => {
@@ -479,6 +481,19 @@ export function StockMovementsPage() {
                 )}
               </div>
 
+              {/* تبديل عرض الهدايا فقط */}
+              <button
+                type="button"
+                onClick={() => setGiftOnly(o => !o)}
+                className={cn(
+                  'flex h-9 items-center gap-1 rounded-md border px-2 text-xs font-medium',
+                  giftOnly ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600' : 'border-input bg-background text-muted-foreground hover:bg-accent',
+                )}
+                title={tt('عرض الهدايا فقط', 'Show gifts only')}
+              >
+                {tt('هدايا فقط', 'Gifts only')}
+              </button>
+
               {/* فلترة حسب الفاتورة مخفية داخل أيقونة */}
               <div className="relative" ref={invoiceFilterRef}>
                 <button
@@ -592,6 +607,11 @@ export function StockMovementsPage() {
                               <span className={cn('inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium', info?.color)}>
                                 {info ? tt(info.ar, info.en) : m.type}
                               </span>
+                              {m.isGift && (
+                                <span className="ms-1 inline-block rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-600">
+                                  {tt('هدية', 'Gift')}
+                                </span>
+                              )}
                             </td>
                             <td className="px-2 py-1.5">{m.partyName ?? '—'}</td>
                             <td className="px-2 py-1.5">{m.warehouseName}</td>

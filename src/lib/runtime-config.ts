@@ -11,6 +11,8 @@ export interface RuntimeConfig {
   parentHosts: string[];
   companyHost: string;
   companyDomainSuffix: string;
+  /** subdomain مخصص → CompanyCode، مثل ali → Y46N8C23 */
+  subdomainAliases?: Record<string, string>;
 }
 
 const DEFAULTS: RuntimeConfig = {
@@ -38,6 +40,7 @@ export function getRuntimeConfig(): RuntimeConfig {
     parentHosts: (injected.parentHosts && injected.parentHosts.length ? injected.parentHosts : DEFAULTS.parentHosts),
     companyHost: injected.companyHost || DEFAULTS.companyHost,
     companyDomainSuffix: injected.companyDomainSuffix || DEFAULTS.companyDomainSuffix,
+    subdomainAliases: injected.subdomainAliases,
   };
   return cached;
 }

@@ -22,6 +22,7 @@ export interface Subscriber {
   googleMapUrl:    string | null;
   companyCode:     string | null;
   domain:          string | null;
+  storeDomain:     string | null;
   dbDataPath:      string | null;
   dbLogPath:       string | null;
   dbProvisioned:   boolean;
@@ -55,6 +56,7 @@ export interface SubscriberDto {
   googleMapUrl?:    string;
   companyCode?:     string;
   domain?:          string;
+  storeDomain?:     string;
   dbDataPath?:      string;
   dbLogPath?:       string;
   feAppPool?:       string;
@@ -218,6 +220,7 @@ export interface GeneratedCompanyIdentity {
   companyCode:            string;
   databaseName:           string;
   domain:                 string;
+  storeDomain:            string;
   apiBaseUrl:             string;
   dbDataPath:             string;
   dbLogPath:              string;

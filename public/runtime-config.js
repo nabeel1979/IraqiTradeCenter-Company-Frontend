@@ -20,4 +20,9 @@ window.__ITC_CONFIG__ = {
 
   /* لاحقة نطاقات الشركات: {code}.iraqi-trade-center.iq */
   companyDomainSuffix: ".iraqi-trade-center.iq",
+
+  /* نطاقات مخصصة → كود الشركة (عندما لا يطابق الـ subdomain الكود) */
+  subdomainAliases: {
+    ali: "Y46N8C23",
+  },
 };
