@@ -2909,7 +2909,7 @@ export function printInvoice(
     ${header}
     ${bannerHtml}
     ${infoHtml}
-    ${buildLinesTable(regularLines, false)}
+    ${regularLines.length > 0 ? buildLinesTable(regularLines, false) : ''}
     ${giftLines.length > 0 ? buildLinesTable(giftLines, true) : ''}
     ${buildExpensesTable()}
     ${buildTotals()}

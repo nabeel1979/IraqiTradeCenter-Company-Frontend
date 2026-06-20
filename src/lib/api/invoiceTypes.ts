@@ -27,6 +27,7 @@ export interface InvoiceTypeDto {
   additionAccountId?: number | null;
   profitAccountId?: number | null;
   lossAccountId?: number | null;
+  giftAccountId?: number | null;
   postDiscountAndAddition: boolean;
   generatesJournalEntry: boolean;
   affectsInventory: boolean;

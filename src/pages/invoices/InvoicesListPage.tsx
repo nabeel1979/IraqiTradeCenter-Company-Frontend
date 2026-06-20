@@ -67,7 +67,7 @@ function buildInvoicePrintData(inv: SalesInvoiceDto, typeName: string): InvoiceP
       quantity: l.quantity,
       unitPrice: l.unitPrice,
       lineDiscount: l.lineDiscount,
-      isGift: false,
+      isGift: l.isGift ?? false,
     })),
     discountPct: inv.discountPercentage ?? 0,
     effectiveDiscount: inv.discountAmount,

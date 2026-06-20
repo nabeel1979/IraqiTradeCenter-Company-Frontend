@@ -31,7 +31,7 @@ import { resolveUnitPriceForParty } from '@/lib/inventory/partyItemPrice';
 import { invoiceListPathForCategory } from '@/pages/invoices/invoiceRoutes';
 import { InvoiceTotalsPanel } from '@/pages/invoices/components/InvoiceTotalsPanel';
 import { OrderStatusBadge } from '@/pages/orders/components/OrderStatusBadge';
-import { cn, formatMoney, formatDate, formatAmount, extractApiError } from '@/lib/utils';
+import { cn, formatMoney, formatDate, formatAmount, extractApiError, roundAmount2 } from '@/lib/utils';
 import { isStockInsufficientMessage, buildStockInsufficientMessage } from '@/lib/stockErrors';
 import { StockInsufficientDialog } from '@/components/shared/StockInsufficientDialog';
 import { EntityAuditDialog } from '@/components/audit/EntityAuditDialog';
@@ -185,6 +185,8 @@ export function CreateInvoicePage() {
   const [showAudit, setShowAudit] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [issuePrintPrompt, setIssuePrintPrompt] = useState<IssuePrintPrompt | null>(null);
+  // ‎بنود سعرها أقل من التكلفة — يُعرض حوار تأكيد قبل إصدار الفاتورة.
+  const [belowCostConfirm, setBelowCostConfirm] = useState<Array<{ name: string; cost: number; price: number }> | null>(null);
   const [stockError, setStockError] = useState<string | null>(null);
   const [lineImageViewer, setLineImageViewer] = useState<{
     itemId: number;
@@ -215,6 +217,7 @@ export function CreateInvoicePage() {
   const [itemMovementsId, setItemMovementsId] = useState<{ id: number; name: string } | null>(null);
   const [movFromDate, setMovFromDate] = useState('');
   const [movToDate, setMovToDate] = useState('');
+  const [movGiftOnly, setMovGiftOnly] = useState(false);
   const [itemStockId, setItemStockId] = useState<{ id: number; name: string } | null>(null);
   const [stockUomId, setStockUomId] = useState<number | null>(null); // وحدة قياس جرد المخزون المختارة
 
@@ -257,10 +260,11 @@ export function CreateInvoicePage() {
       const d = dayOf(m.movementDate);
       if (movFromDate && d < movFromDate) continue;
       if (movToDate && d > movToDate) continue;
+      if (movGiftOnly && !m.isGift) continue;
       out.push({ ...m, runBefore: before, runAfter: running });
     }
     return out;
-  }, [itemMovementsQuery.data, movFromDate, movToDate]);
+  }, [itemMovementsQuery.data, movFromDate, movToDate, movGiftOnly]);
   const itemStockQuery = useQuery({
     queryKey: ['item-stock', itemStockId?.id],
     queryFn: () => inventoryApi.getStockPerWarehouse(itemStockId!.id),
@@ -574,10 +578,10 @@ export function CreateInvoicePage() {
 
   // ── الحسابات ──
   const subTotal = useMemo(() => lines.reduce((sum, l) => sum + (l.quantity * l.unitPrice - (l.isGift ? l.quantity * l.unitPrice : l.lineDiscount)), 0), [lines]);
-  const effectiveDiscount = useMemo(() => (discountPct > 0 ? Math.round((subTotal * discountPct) / 100) : discountAmt), [subTotal, discountPct, discountAmt]);
+  const effectiveDiscount = useMemo(() => (discountPct > 0 ? roundAmount2((subTotal * discountPct) / 100) : discountAmt), [subTotal, discountPct, discountAmt]);
   const afterDiscount = subTotal - effectiveDiscount;
-  const taxAmount = useMemo(() => Math.round((afterDiscount * taxRate) / 100), [afterDiscount, taxRate]);
-  const total = afterDiscount + additionAmt + taxAmount;
+  const taxAmount = useMemo(() => roundAmount2((afterDiscount * taxRate) / 100), [afterDiscount, taxRate]);
+  const total = roundAmount2(afterDiscount + additionAmt + taxAmount);
 
   const buildPrintData = useCallback((issuedInvoiceNumber?: string): InvoicePrintData => {
     const warehouseName = activeWarehouses.find(w => w.id === warehouseId)?.nameAr ?? null;
@@ -669,13 +673,27 @@ export function CreateInvoicePage() {
     resetForNewInvoice();
   }, [issuePrintPrompt, companyQuery.data, locale, resetForNewInvoice]);
 
-  useEffect(() => { if (discountPct > 0) setDiscountAmt(Math.round(subTotal * discountPct / 100)); }, [subTotal]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (additionPct > 0) setAdditionAmt(Math.round(subTotal * additionPct / 100)); }, [subTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (discountPct > 0) setDiscountAmt(roundAmount2(subTotal * discountPct / 100)); }, [subTotal]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (additionPct > 0) setAdditionAmt(roundAmount2(subTotal * additionPct / 100)); }, [subTotal]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleDiscountPct = useCallback((val: number) => { setDiscountPct(val); setDiscountAmt(val > 0 ? Math.round(subTotal * val / 100) : 0); }, [subTotal]);
-  const handleDiscountAmt = useCallback((val: number) => { setDiscountAmt(val); setDiscountPct(val > 0 && subTotal > 0 ? parseFloat((val / subTotal * 100).toFixed(2)) : 0); }, [subTotal]);
-  const handleAdditionPct = useCallback((val: number) => { setAdditionPct(val); setAdditionAmt(val > 0 ? Math.round(subTotal * val / 100) : 0); }, [subTotal]);
-  const handleAdditionAmt = useCallback((val: number) => { setAdditionAmt(val); setAdditionPct(val > 0 && subTotal > 0 ? parseFloat((val / subTotal * 100).toFixed(2)) : 0); }, [subTotal]);
+  const handleDiscountPct = useCallback((val: number) => { setDiscountPct(val); setDiscountAmt(val > 0 ? roundAmount2(subTotal * val / 100) : 0); }, [subTotal]);
+
+  // ‎فاتورة مبيعات: نجلب نسبة خصم الطرف الافتراضية (إن فُعِّلت) عند اختياره.
+  const isSalesInvoice = invoiceType?.category === 1;
+  const handleSelectParty = useCallback((p: FinancialPartyDto) => {
+    setParty(p);
+    setShowPartyDrop(false);
+    setPartySearch('');
+    if (isSalesInvoice && p.salesDiscountEnabled && (p.salesDiscountPercentage ?? 0) > 0) {
+      const pct = Math.min(100, Math.max(0, p.salesDiscountPercentage ?? 0));
+      setDiscountPct(pct);
+      setDiscountAmt(0);
+      toast.success(t('invoices.create.partyDiscountApplied', { pct }));
+    }
+  }, [isSalesInvoice, t]);
+  const handleDiscountAmt = useCallback((val: number) => { setDiscountAmt(roundAmount2(val)); setDiscountPct(val > 0 && subTotal > 0 ? parseFloat((val / subTotal * 100).toFixed(2)) : 0); }, [subTotal]);
+  const handleAdditionPct = useCallback((val: number) => { setAdditionPct(val); setAdditionAmt(val > 0 ? roundAmount2(subTotal * val / 100) : 0); }, [subTotal]);
+  const handleAdditionAmt = useCallback((val: number) => { setAdditionAmt(roundAmount2(val)); setAdditionPct(val > 0 && subTotal > 0 ? parseFloat((val / subTotal * 100).toFixed(2)) : 0); }, [subTotal]);
 
   const openAddParty = () => { writeFmFocus({ mode: 'add', kind: partyKind }); navigate(getFinancialManagementPath(partyKind)); };
 
@@ -907,16 +925,19 @@ export function CreateInvoicePage() {
 
   const handleSave = () => {
     const regularLines = lines.filter(l => !l.isGift);
+    const hasGiftLine = lines.some(l => l.isGift);
     if (!party) return toast.error(partyKind === 'Supplier' ? t('invoices.create.selectSupplier') : t('invoices.create.selectCustomer'));
-    if (regularLines.length === 0) return toast.error(t('invoices.create.addLines'));
+    // ‎يُسمح بفاتورة هدايا فقط (بدون بنود عادية) طالما يوجد سطر هدية واحد على الأقل.
+    if (regularLines.length === 0 && !hasGiftLine) return toast.error(t('invoices.create.addLines'));
     if (lines.some(l => l.unitOfMeasureId === 0)) return toast.error(t('invoices.create.selectUom'));
     if (lines.some(l => l.quantity <= 0)) return toast.error(t('invoices.create.qtyMustBePositive'));
     if (regularLines.some(l => l.unitPrice <= 0)) return toast.error(t('invoices.create.priceMustBePositive'));
     if (showWarehouse && !warehouseId) return toast.error(t('invoices.create.selectWarehouse'));
-    if (isCash && !paymentMeansAccountId) return toast.error(t('invoices.create.selectPaymentMeans'));
+    if (isCash && total > 0 && !paymentMeansAccountId) return toast.error(t('invoices.create.selectPaymentMeans'));
     if (enableCustomInvoiceNumber && !customInvoiceNumber.trim()) return toast.error(t('invoices.create.enterManualNumber'));
     if (!invoiceDate) return toast.error(t('invoices.create.selectInvoiceDate'));
-    if (total <= 0) return toast.error(t('invoices.create.totalMustBePositive'));
+    // ‎فاتورة الهدايا فقط إجماليها صفر — مسموحة.
+    if (total <= 0 && !hasGiftLine) return toast.error(t('invoices.create.totalMustBePositive'));
     const activeExpenses = expenseLines.filter(e => e.debitAmount > 0 || e.creditAmount > 0);
     if (activeExpenses.length > 0) {
       if (activeExpenses.some(e => !e.accountId)) return toast.error(t('invoices.create.selectExpenseAccount'));
@@ -925,6 +946,29 @@ export function CreateInvoicePage() {
       if (Math.round((expDebit - expCredit) * 1000) !== 0)
         return toast.error(t('invoices.create.expenseUnbalanced', { debit: expDebit.toLocaleString(), credit: expCredit.toLocaleString() }));
     }
+
+    // ‎تنبيه البيع بأقل من التكلفة (فواتير المبيعات فقط): نقارن سعر بيع
+    // ‎البند بكلفة المادة لوحدة البند نفسها (كلفة الأساس × معامل التحويل).
+    if (isSalesInvoice) {
+      const below = regularLines
+        .map(l => {
+          const unit = l.itemDetail?.units.find(u => u.unitOfMeasureId === l.unitOfMeasureId);
+          const cost = (l.itemDetail?.purchasePrice ?? 0) * (unit?.conversionFactor ?? 1);
+          return { name: l.itemName, cost, price: l.unitPrice };
+        })
+        .filter(x => x.cost > 0 && x.price < x.cost);
+      if (below.length > 0) {
+        setBelowCostConfirm(below);
+        return;
+      }
+    }
+
+    submitInvoice();
+  };
+
+  // ‎بناء الحمولة وإرسالها — مستخرَجة لتُستدعى مباشرةً أو بعد تأكيد البيع بأقل من التكلفة.
+  const submitInvoice = () => {
+    if (!party) return;
     const payload: CreateInvoicePayload = {
       financialPartyId: party.id, invoiceTypeId: typeId ?? undefined,
       warehouseId: showWarehouse ? warehouseId ?? undefined : undefined,
@@ -934,7 +978,7 @@ export function CreateInvoicePage() {
       invoiceDate, currency, taxRate,
       discountPercentage: discountPct, discountAmount: discountPct > 0 ? 0 : discountAmt,
       additionAmount: additionAmt, notes: notes || undefined,
-      lines: lines.map(l => ({ itemId: l.itemId, unitOfMeasureId: l.unitOfMeasureId, quantity: l.quantity, unitPriceOverride: l.unitPrice, lineDiscount: l.isGift ? l.quantity * l.unitPrice : l.lineDiscount })),
+      lines: lines.map(l => ({ itemId: l.itemId, unitOfMeasureId: l.unitOfMeasureId, quantity: l.quantity, unitPriceOverride: l.unitPrice, lineDiscount: l.isGift ? l.quantity * l.unitPrice : l.lineDiscount, isGift: l.isGift ?? false })),
       expenses: expenseLines
         .filter(e => e.accountId && (e.debitAmount > 0 || e.creditAmount > 0))
         .map(e => ({ accountId: e.accountId!, debitAmount: e.debitAmount, creditAmount: e.creditAmount, description: e.description || undefined })),
@@ -1495,7 +1539,7 @@ export function CreateInvoicePage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={lines.filter(l => !l.isGift).length === 0}
+            disabled={lines.length === 0}
             onClick={() => printInvoice(buildPrintData(), companyQuery.data ?? null, locale)}
           >
             <Printer className="h-4 w-4" /> {t('invoices.create.print')}
@@ -1503,7 +1547,7 @@ export function CreateInvoicePage() {
           <Button variant="outline" size="sm" onClick={() => navigate(listPath)}>
             <X className="h-4 w-4" /> {t('common.cancel')}
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving || lines.filter(l => !l.isGift).length === 0 || !party}>
+          <Button size="sm" onClick={handleSave} disabled={saving || lines.length === 0 || !party}>
             <Save className="h-4 w-4" />
             {isEdit && !isDraft ? (saving ? t('invoices.create.savingChanges') : t('invoices.create.saveChanges')) : (saving ? t('invoices.create.issuing') : t('invoices.create.issue'))}
           </Button>
@@ -1664,7 +1708,7 @@ export function CreateInvoicePage() {
                           </div>
                         ) : visibleParties.map(p => (
                           <button key={p.id} type="button" className="flex w-full items-center gap-3 border-b border-border/40 px-3 py-2 text-right hover:bg-accent"
-                            onClick={() => { setParty(p); setShowPartyDrop(false); setPartySearch(''); }}>
+                            onClick={() => handleSelectParty(p)}>
                             <span className="font-medium">{partyDisplayName(p)}</span>
                             <span className="font-mono text-xs text-muted-foreground">{p.accountCode}</span>
                           </button>
@@ -1925,6 +1969,15 @@ export function CreateInvoicePage() {
                   <X className="h-3 w-3" />
                 </button>
               )}
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5"
+                  checked={movGiftOnly}
+                  onChange={e => setMovGiftOnly(e.target.checked)}
+                />
+                <span className="text-emerald-600">الهدايا فقط</span>
+              </label>
               <span className="ms-auto text-muted-foreground num-display">
                 {movementRows.length} حركة
               </span>
@@ -1956,7 +2009,10 @@ export function CreateInvoicePage() {
                           return (
                             <tr key={m.id} className="border-t border-border/40 hover:bg-accent/30">
                               <td className="py-1.5 px-2 text-muted-foreground">{formatDate(m.movementDate, { short: true })}</td>
-                              <td className={cn('py-1.5 px-2 font-medium', info.color)}>{info.label}</td>
+                              <td className={cn('py-1.5 px-2 font-medium', info.color)}>
+                                {info.label}
+                                {m.isGift && <span className="ms-1 rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] font-semibold text-emerald-600">هدية</span>}
+                              </td>
                               <td className="py-1.5 px-2 text-muted-foreground">{m.partyName ?? '—'}</td>
                               <td className="py-1.5 px-2">{m.warehouseName}</td>
                               <td className="py-1.5 px-2 text-center num-display font-semibold">{m.quantity}</td>
@@ -2076,6 +2132,55 @@ export function CreateInvoicePage() {
           </div>
         </div>,
         document.body,
+      )}
+
+      {/* حوار تنبيه: سعر البيع أقل من التكلفة */}
+      {belowCostConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setBelowCostConfirm(null)}>
+          <div className="w-full max-w-md rounded-xl border bg-card p-5 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 text-amber-500">
+              <AlertTriangle className="h-5 w-5" />
+              <h3 className="text-base font-bold">{t('invoices.create.belowCost.title', { defaultValue: 'انتباه: سعر أقل من التكلفة' })}</h3>
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {belowCostConfirm.length === 1
+                ? t('invoices.create.belowCost.single', {
+                    defaultValue: 'كلفة المادة «{{name}}» {{cost}} وسعر البيع {{price}} أقل من التكلفة. هل تريد الاستمرار في إصدار الفاتورة؟',
+                    name: belowCostConfirm[0].name,
+                    cost: formatAmount(belowCostConfirm[0].cost, 2),
+                    price: formatAmount(belowCostConfirm[0].price, 2),
+                  })
+                : t('invoices.create.belowCost.multi', {
+                    defaultValue: 'توجد {{count}} مواد سعر بيعها أقل من التكلفة. هل تريد الاستمرار في إصدار الفاتورة؟',
+                    count: belowCostConfirm.length,
+                  })}
+            </p>
+            {belowCostConfirm.length > 1 && (
+              <div className="mt-3 max-h-40 overflow-auto rounded-md border bg-secondary/30 text-xs">
+                {belowCostConfirm.map((b, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-0">
+                    <span className="truncate">{b.name}</span>
+                    <span className="num-display shrink-0 text-muted-foreground">
+                      {t('invoices.create.belowCost.row', {
+                        defaultValue: 'الكلفة {{cost}} • البيع {{price}}',
+                        cost: formatAmount(b.cost, 2),
+                        price: formatAmount(b.price, 2),
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setBelowCostConfirm(null)}>
+                {t('common.no')}
+              </Button>
+              <Button size="sm" className="bg-amber-500 text-white hover:bg-amber-600" onClick={() => { setBelowCostConfirm(null); submitInvoice(); }}>
+                {t('common.yes')}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* حوار الطباعة بعد الإصدار */}

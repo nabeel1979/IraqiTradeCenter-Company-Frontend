@@ -1179,13 +1179,15 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         <div
           className={cn(
             'min-h-0 flex-1 overflow-auto',
-            isView && 'pointer-events-none select-none opacity-95'
+            isView && 'opacity-95'
           )}
           aria-disabled={isView || undefined}
         >
           {/* table-fixed لضمان احترام عرض كل عمود.
-              الترتيب RTL (يمين→يسار): ت | مدين | دائن | الحساب | البيان */}
-          <table className="w-full table-fixed text-sm">
+              الترتيب RTL (يمين→يسار): ت | مدين | دائن | الحساب | البيان
+              في وضع العرض: نعطّل التفاعل على الجدول فقط (pointer-events-none)
+              مع إبقاء التمرير فعّالاً على الحاوية حتى تظهر كل البنود. */}
+          <table className={cn('w-full table-fixed text-sm', isView && 'pointer-events-none select-none')}>
             <colgroup>
               <col className="w-10" />
               <col className="w-[18%]" />

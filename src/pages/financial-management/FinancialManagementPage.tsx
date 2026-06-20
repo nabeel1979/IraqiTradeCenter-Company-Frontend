@@ -298,6 +298,8 @@ function serializePartyFormSnapshot(input: {
   swiftCode: string;
   isActive: boolean;
   defaultSalesPriceType: number | null;
+  salesDiscountEnabled: boolean;
+  salesDiscountPercentage: string;
   showInStore: boolean;
   storeUserCode: string;
   rows: PartyCurrencySnapshot[];
@@ -316,6 +318,8 @@ function serializePartyFormSnapshot(input: {
     swiftCode: input.swiftCode.trim().toUpperCase(),
     isActive: input.isActive,
     defaultSalesPriceType: input.defaultSalesPriceType,
+    salesDiscountEnabled: input.salesDiscountEnabled,
+    salesDiscountPercentage: input.salesDiscountEnabled ? (parseFloat(input.salesDiscountPercentage) || 0) : 0,
     showInStore: input.showInStore,
     storeUserCode: input.storeUserCode.trim().toUpperCase(),
     currencies: normalizePartyCurrencyRows(input.rows),
@@ -342,6 +346,7 @@ function PartyDialog({
   const { t } = useTranslation();
   const { isRtl } = useLocale();
   const qc = useQueryClient();
+  const kindLabel = t(`financialManagement.kindSingular.${kind}`);
 
   const currenciesQuery = useQuery({
     queryKey: ['currencies', 'enabled'],
@@ -383,6 +388,14 @@ function PartyDialog({
   const [isActive, setIsActive]     = useState(editing?.isActive ?? true);
   const [defaultSalesPriceType, setDefaultSalesPriceType] = useState<number | null>(
     editing?.defaultSalesPriceType ?? 4,
+  );
+  const [salesDiscountEnabled, setSalesDiscountEnabled] = useState<boolean>(
+    editing?.salesDiscountEnabled ?? false,
+  );
+  const [salesDiscountPercentage, setSalesDiscountPercentage] = useState<string>(
+    editing?.salesDiscountPercentage != null && editing.salesDiscountPercentage > 0
+      ? String(editing.salesDiscountPercentage)
+      : '',
   );
   const [showInStore, setShowInStore] = useState(prefill?.showInStore ?? editing?.showInStore ?? false);
   const [storeUserCode, setStoreUserCode] = useState(prefill?.storeUserCode ?? editing?.storeUserCode ?? '');
@@ -549,6 +562,10 @@ function PartyDialog({
       bankAccountNumber: isBankLike ? (bankAccountNumber.trim() || null) : null,
       swiftCode: isBankLike ? (swiftCode.trim() || null) : null,
       defaultSalesPriceType: showTradingTabs ? defaultSalesPriceType : null,
+      salesDiscountEnabled: showTradingTabs ? salesDiscountEnabled : false,
+      salesDiscountPercentage: showTradingTabs && salesDiscountEnabled
+        ? Math.min(100, Math.max(0, parseFloat(salesDiscountPercentage) || 0))
+        : 0,
       showInStore: showTradingTabs ? showInStore : false,
       storeUserCode: showTradingTabs && showInStore
         ? (storeUserCode.trim() || editing?.storeUserCode || '').toUpperCase() || null
@@ -589,6 +606,9 @@ function PartyDialog({
       swiftCode: editing.swiftCode ?? '',
       isActive: editing.isActive,
       defaultSalesPriceType: editing.defaultSalesPriceType ?? 4,
+      salesDiscountEnabled: editing.salesDiscountEnabled ?? false,
+      salesDiscountPercentage: editing.salesDiscountPercentage != null && editing.salesDiscountPercentage > 0
+        ? String(editing.salesDiscountPercentage) : '',
       showInStore: editing.showInStore ?? false,
       storeUserCode: editing.storeUserCode ?? '',
       rows: partyDtoToCurrencyRows(editing),
@@ -597,8 +617,8 @@ function PartyDialog({
 
   const currentSnapshot = useMemo(() => serializePartyFormSnapshot({
     nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes,
-    bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, storeUserCode, rows,
-  }), [nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes, bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, showInStore, storeUserCode, rows]);
+    bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, salesDiscountEnabled, salesDiscountPercentage, showInStore, storeUserCode, rows,
+  }), [nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes, bankAccountNumber, swiftCode, isActive, defaultSalesPriceType, salesDiscountEnabled, salesDiscountPercentage, showInStore, storeUserCode, rows]);
 
   // ‎في التعديل: زر الحفظ معطّل حتى يتغيّر شيء في البطاقة.
   const isDirty = !editing || currentSnapshot !== initialSnapshot;
@@ -617,7 +637,9 @@ function PartyDialog({
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
             <h2 className="text-base font-semibold">
-              {editing ? t('financialManagement.parties.edit') : t('financialManagement.parties.new')}
+              {editing
+                ? t('financialManagement.parties.edit', { kind: kindLabel })
+                : t('financialManagement.parties.new', { kind: kindLabel })}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">{categoryNameAr}</p>
           </div>
@@ -892,6 +914,50 @@ function PartyDialog({
                   );
                 })}
               </div>
+
+              <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-3.5">
+                <label className="flex cursor-pointer items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{t('financialManagement.parties.pricing.salesDiscountTitle')}</div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{t('financialManagement.parties.pricing.salesDiscountHint')}</p>
+                  </div>
+                  <span className="relative inline-flex h-5 w-9 shrink-0 items-center">
+                    <input
+                      type="checkbox"
+                      checked={salesDiscountEnabled}
+                      onChange={e => setSalesDiscountEnabled(e.target.checked)}
+                      className="peer sr-only"
+                    />
+                    <span className="h-5 w-9 rounded-full bg-muted-foreground/30 transition-colors peer-checked:bg-primary" />
+                    <span className={cn(
+                      'absolute h-4 w-4 rounded-full bg-white shadow transition-transform',
+                      isRtl ? 'right-0.5 peer-checked:-translate-x-4' : 'left-0.5 peer-checked:translate-x-4',
+                    )} />
+                  </span>
+                </label>
+                {salesDiscountEnabled && (
+                  <div className="mt-3">
+                    <Label className="mb-1.5 block text-sm">{t('financialManagement.parties.pricing.salesDiscountValue')}</Label>
+                    <div className="relative w-40">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        value={salesDiscountPercentage}
+                        onChange={e => setSalesDiscountPercentage(e.target.value)}
+                        placeholder="0"
+                        className={cn(isRtl ? 'pl-8' : 'pr-8')}
+                        dir="ltr"
+                      />
+                      <span className={cn(
+                        'pointer-events-none absolute top-1/2 -translate-y-1/2 text-sm text-muted-foreground',
+                        isRtl ? 'left-3' : 'right-3',
+                      )}>%</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -986,7 +1052,7 @@ function PartyDialog({
               {canCreate && (
                 <Button type="button" variant="outline" onClick={onNew} disabled={busy} className="gap-1.5">
                   <Plus className="h-4 w-4" />
-                  {t('financialManagement.parties.new')}
+                  {t('financialManagement.parties.new', { kind: kindLabel })}
                 </Button>
               )}
               {canDelete && (
@@ -1004,6 +1070,26 @@ function PartyDialog({
 }
 
 // ── Party Card ───────────────────────────────────────────────────
+const KIND_AVATAR_COLORS: Record<string, string> = {
+  Supplier:  'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300',
+  Customer:  'bg-sky-100 text-sky-600 dark:bg-sky-900/40 dark:text-sky-300',
+  Bank:      'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300',
+  Fund:      'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300',
+  CashBox:   'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300',
+};
+
+function PartyAvatar({ kind, nameAr }: { kind: string; nameAr: string }) {
+  const initial = nameAr?.trim()?.[0] ?? '؟';
+  return (
+    <span className={cn(
+      'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold select-none',
+      KIND_AVATAR_COLORS[kind] ?? 'bg-secondary text-muted-foreground',
+    )}>
+      {initial}
+    </span>
+  );
+}
+
 function PartyCard({
   party, canEdit, onEdit,
   balanceRows,
@@ -1024,155 +1110,197 @@ function PartyCard({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
-  const hasContact = party.kind !== 'CashBox' && (party.phone || party.mobile || party.email || party.address || party.contactPerson);
+  const hasContact = party.kind !== 'CashBox' && (party.phone || party.mobile || party.email || party.address || party.contactPerson || party.notes);
   const showStoreLink = (party.kind === 'Customer' || party.kind === 'Supplier')
     && party.showInStore
     && !!party.storeUserCode?.trim();
 
+  const hasBalances = showBalances && (balanceRows ?? []).some(row => {
+    const d = valuated ? (row.valuatedDebit ?? 0) : (row.debitBalance ?? 0);
+    const c = valuated ? (row.valuatedCredit ?? 0) : (row.creditBalance ?? 0);
+    return Math.abs(d) >= 0.005 || Math.abs(c) >= 0.005;
+  });
+
   return (
-    <div className={cn('rounded-lg border transition-all', party.isActive ? 'border-border' : 'border-border/40 opacity-60')}>
+    <div className={cn(
+      'group rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md',
+      party.isActive ? 'border-border' : 'border-border/40 opacity-55',
+    )}>
+      {/* ── Header ── */}
       <div
-        className={cn('flex items-center gap-3 px-3 py-2.5', hasContact && 'cursor-pointer')}
+        className={cn('flex items-start gap-3 px-4 py-3', hasContact && 'cursor-pointer')}
         onClick={() => hasContact && setExpanded(v => !v)}
       >
+        <PartyAvatar kind={party.kind} nameAr={party.nameAr} />
+
         <div className="flex-1 min-w-0">
+          {/* Row 1: name + kind badge + inactive */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium truncate">{party.nameAr}</span>
-            {party.nameEn && <span className="text-xs text-muted-foreground" dir="ltr">{party.nameEn}</span>}
-            {!party.isActive && <CircleOff className="h-3.5 w-3.5 text-muted-foreground" />}
+            <span className="text-sm font-semibold truncate text-foreground leading-snug">{party.nameAr}</span>
+            {party.nameEn && (
+              <span className="text-xs text-muted-foreground truncate" dir="ltr">{party.nameEn}</span>
+            )}
             <span className={cn(
-              'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium',
+              'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold shrink-0',
               kindBadgeColors[party.kind],
             )}>
               {t(`financialManagement.kindSingular.${party.kind}`)}
             </span>
             {showAccountTypes && balanceRows?.[0]?.accountType && (
               <span className={cn(
-                'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium',
+                'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0',
                 ACCOUNT_TYPE_COLORS[balanceRows[0].accountType] ?? 'text-muted-foreground',
               )}>
                 {t(`accountBalances.types.${balanceRows[0].accountType}`, { defaultValue: balanceRows[0].accountType })}
               </span>
             )}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap min-w-0">
-            <span className="font-mono text-xs text-primary shrink-0" dir="ltr">{party.accountCode}</span>
-            {showStoreLink && (
-              <span
-                className="inline-flex max-w-full items-center gap-1 rounded border border-sky-500/35 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300 shrink-0"
-                title={t('financialManagement.parties.store.linkedBadge')}
-              >
-                <Store className="h-2.5 w-2.5 shrink-0" aria-hidden />
-                <span className="font-mono truncate" dir="ltr">{party.storeUserCode}</span>
+            {!party.isActive && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/50 px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
+                <CircleOff className="h-2.5 w-2.5" />
+                {t('common.inactive', { defaultValue: 'غير نشط' })}
               </span>
             )}
-            {showBalances && balanceRows?.map(row => {
-              const debit = valuated ? (row.valuatedDebit ?? 0) : (row.debitBalance ?? 0);
-              const credit = valuated ? (row.valuatedCredit ?? 0) : (row.creditBalance ?? 0);
-              if (Math.abs(debit) < 0.005 && Math.abs(credit) < 0.005) return null;
-              return (
-                <span
-                  key={row.currency}
-                  className="flex items-center gap-1 rounded border border-border/60 bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                >
-                  <Coins className="h-2.5 w-2.5" />
-                  <span className="font-mono font-bold" dir="ltr">{row.currency}</span>
-                  {debit > 0 && (
-                    <span className="text-emerald-400">
-                      {t('financialManagement.filters.balanceDebit')} {formatAmount(debit, 0)}
-                    </span>
-                  )}
-                  {credit > 0 && (
-                    <span className="text-rose-400">
-                      {t('financialManagement.filters.balanceCredit')} {formatAmount(credit, 0)}
-                    </span>
-                  )}
-                </span>
-              );
-            })}
-            {Object.entries(party.creditLimits ?? {}).map(([cur, lim]) => {
-              const d = lim?.debit ?? 0;
-              const c = lim?.credit ?? 0;
-              if (d === 0 && c === 0) return null;
-              return (
-                <span key={cur} className="flex items-center gap-1 rounded border border-border/60 bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  <Coins className="h-2.5 w-2.5" />
-                  <span className="font-mono font-bold" dir="ltr">{cur}</span>
-                  {d > 0 && <span>↓ {formatAmount(d, 0)}</span>}
-                  {c > 0 && <span>↑ {formatAmount(c, 0)}</span>}
-                </span>
-              );
-            })}
-            {isBankLikeKind(party.kind) && Object.entries(party.currencyIbans ?? {}).map(([cur, iban]) => (
-              iban ? (
-                <span key={`iban-${cur}`} className="rounded border border-border/60 bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono" dir="ltr">
-                  {cur}: {iban}
-                </span>
-              ) : null
-            ))}
+          </div>
+
+          {/* Row 2: account code + store link */}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className="font-mono text-[11px] text-primary/80 shrink-0 rounded bg-primary/5 px-1.5 py-0.5" dir="ltr">
+              {party.accountCode}
+            </span>
+            {showStoreLink && (
+              <span
+                className="inline-flex items-center gap-1 rounded border border-sky-500/35 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300 shrink-0"
+                title={t('financialManagement.parties.store.linkedBadge')}
+              >
+                <Store className="h-2.5 w-2.5 shrink-0" />
+                <span className="font-mono" dir="ltr">{party.storeUserCode}</span>
+              </span>
+            )}
             {party.allowedCurrencies.length > 0 && (
-              <span className="text-xs text-muted-foreground" dir="ltr">{party.allowedCurrencies.join(' • ')}</span>
+              <span className="text-[11px] text-muted-foreground" dir="ltr">
+                {party.allowedCurrencies.join(' · ')}
+              </span>
             )}
           </div>
+
+          {/* Row 3: balance pills */}
+          {hasBalances && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {balanceRows?.map(row => {
+                const debit  = valuated ? (row.valuatedDebit  ?? 0) : (row.debitBalance  ?? 0);
+                const credit = valuated ? (row.valuatedCredit ?? 0) : (row.creditBalance ?? 0);
+                if (Math.abs(debit) < 0.005 && Math.abs(credit) < 0.005) return null;
+                return (
+                  <span
+                    key={row.currency}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-secondary/40 px-2 py-1 text-[11px]"
+                  >
+                    <span className="font-mono font-bold text-foreground/70" dir="ltr">{row.currency}</span>
+                    {debit > 0 && (
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400 num-display">
+                        ↑ {formatAmount(debit, 0)}
+                      </span>
+                    )}
+                    {credit > 0 && (
+                      <span className="font-medium text-rose-600 dark:text-rose-400 num-display">
+                        ↓ {formatAmount(credit, 0)}
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Row 4: credit limits / IBANs */}
+          {(Object.keys(party.creditLimits ?? {}).length > 0 || (isBankLikeKind(party.kind) && Object.keys(party.currencyIbans ?? {}).length > 0)) && (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {Object.entries(party.creditLimits ?? {}).map(([cur, lim]) => {
+                const d = lim?.debit ?? 0;
+                const c = lim?.credit ?? 0;
+                if (d === 0 && c === 0) return null;
+                return (
+                  <span key={cur} className="inline-flex items-center gap-1 rounded border border-border/50 bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <Coins className="h-2.5 w-2.5 shrink-0" />
+                    <span className="font-mono font-semibold" dir="ltr">{cur}</span>
+                    {d > 0 && <span>↓ {formatAmount(d, 0)}</span>}
+                    {c > 0 && <span>↑ {formatAmount(c, 0)}</span>}
+                  </span>
+                );
+              })}
+              {isBankLikeKind(party.kind) && Object.entries(party.currencyIbans ?? {}).map(([cur, iban]) =>
+                iban ? (
+                  <span key={`iban-${cur}`} className="rounded border border-border/50 bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono" dir="ltr">
+                    {cur}: {iban}
+                  </span>
+                ) : null
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-1">
+        {/* Actions column */}
+        <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
+          {canEdit && (
+            <button
+              onClick={e => { e.stopPropagation(); onEdit(); }}
+              className="rounded-lg p-1.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-secondary/60 hover:text-primary"
+              title={t('common.edit')}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
           {hasContact && (
-            <div className="flex gap-0.5 text-muted-foreground/50">
+            <div className="flex gap-0.5 text-muted-foreground/40 mt-auto">
               {party.phone && <Phone className="h-3 w-3" />}
               {party.mobile && <Smartphone className="h-3 w-3" />}
               {party.email && <Mail className="h-3 w-3" />}
             </div>
           )}
-          {canEdit && (
-            <button
-              onClick={e => { e.stopPropagation(); onEdit(); }}
-              className="rounded p-1.5 text-muted-foreground hover:bg-secondary/60 hover:text-primary"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
         </div>
       </div>
 
+      {/* ── Expandable contact section ── */}
       {expanded && hasContact && (
-        <div className="border-t border-border/50 bg-secondary/20 px-4 pb-3 pt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-          {party.phone && (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Phone className="h-3 w-3 shrink-0" />
-              <span dir="ltr">{party.phone}</span>
-            </div>
-          )}
-          {party.mobile && (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Smartphone className="h-3 w-3 shrink-0" />
-              <span dir="ltr">{party.mobile}</span>
-            </div>
-          )}
-          {party.email && (
-            <div className="flex items-center gap-1.5 text-muted-foreground col-span-2">
-              <Mail className="h-3 w-3 shrink-0" />
-              <span dir="ltr" className="truncate">{party.email}</span>
-            </div>
-          )}
-          {party.contactPerson && (
-            <div className="flex items-center gap-1.5 text-muted-foreground col-span-2">
-              <User className="h-3 w-3 shrink-0" />
-              <span>{party.contactPerson}</span>
-            </div>
-          )}
-          {party.address && (
-            <div className="flex items-center gap-1.5 text-muted-foreground col-span-2">
-              <MapPin className="h-3 w-3 shrink-0" />
-              <span>{party.address}</span>
-            </div>
-          )}
-          {party.notes && (
-            <div className="flex items-start gap-1.5 text-muted-foreground col-span-2">
-              <StickyNote className="h-3 w-3 shrink-0 mt-0.5" />
-              <span className="whitespace-pre-line">{party.notes}</span>
-            </div>
-          )}
+        <div className="border-t border-border/40 bg-secondary/10 px-4 pb-3 pt-2.5">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+            {party.phone && (
+              <a href={`tel:${party.phone}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors" dir="ltr">
+                <Phone className="h-3 w-3 shrink-0 text-primary/60" />
+                {party.phone}
+              </a>
+            )}
+            {party.mobile && (
+              <a href={`tel:${party.mobile}`} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors" dir="ltr">
+                <Smartphone className="h-3 w-3 shrink-0 text-primary/60" />
+                {party.mobile}
+              </a>
+            )}
+            {party.email && (
+              <a href={`mailto:${party.email}`} className="col-span-2 flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors truncate" dir="ltr">
+                <Mail className="h-3 w-3 shrink-0 text-primary/60" />
+                {party.email}
+              </a>
+            )}
+            {party.contactPerson && (
+              <div className="col-span-2 flex items-center gap-2 text-muted-foreground">
+                <User className="h-3 w-3 shrink-0 text-primary/60" />
+                {party.contactPerson}
+              </div>
+            )}
+            {party.address && (
+              <div className="col-span-2 flex items-start gap-2 text-muted-foreground">
+                <MapPin className="h-3 w-3 shrink-0 mt-0.5 text-primary/60" />
+                <span>{party.address}</span>
+              </div>
+            )}
+            {party.notes && (
+              <div className="col-span-2 flex items-start gap-2 text-muted-foreground">
+                <StickyNote className="h-3 w-3 shrink-0 mt-0.5 text-primary/60" />
+                <span className="whitespace-pre-line">{party.notes}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1869,9 +1997,11 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
   }
 
   const showPartiesLayout = activeKind !== 'CashBox' || cashBoxView === 'parties';
+  const kindSingular = t(`financialManagement.kindSingular.${activeKind}`);
+  const kindPlural = t(`financialManagement.kinds.${activeKind}`);
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex flex-col gap-4 lg:h-full">
       {/* تبويبات فرعية لصفحة الصناديق: الأطراف / الأرصدة / المناقلات */}
       {activeKind === 'CashBox' && cashBoxSubTabs.length > 1 && (
         <div className="flex flex-wrap gap-1 rounded-xl border border-border bg-card p-1">
@@ -1906,10 +2036,10 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
       )}
 
       {showPartiesLayout && (
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[320px_1fr] min-h-0">
+      <div className="grid grid-cols-1 gap-3 lg:flex-1 lg:grid-cols-[300px_1fr] lg:gap-3 lg:min-h-0">
 
         {/* Left: Categories */}
-        <Card className="flex flex-col overflow-hidden">
+        <Card className="flex flex-col overflow-hidden lg:min-h-0">
           <CardHeader className="shrink-0 border-b border-border pb-3 pt-4 px-4">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold">
@@ -1924,7 +2054,7 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
             </div>
           </CardHeader>
 
-          <CardContent className="flex-1 overflow-y-auto p-2">
+          <CardContent className="flex-1 overflow-y-auto p-2 max-h-[40vh] lg:max-h-none">
             {categoriesQuery.isLoading && <LoadingSpinner text="" />}
             {!categoriesQuery.isLoading && categories.length === 0 && (
               <EmptyState title={t('financialManagement.categories.empty')} icon={Building2} />
@@ -1986,15 +2116,13 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
         </Card>
 
         {/* Right: Parties */}
-        <Card className="flex flex-col overflow-hidden">
+        <Card className="flex flex-col overflow-hidden lg:min-h-0">
           <CardHeader className="shrink-0 border-b border-border pb-3 pt-4 px-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
               <CardTitle className="text-sm font-semibold shrink-0">
-                {selectedCategory
-                  ? `${t('financialManagement.parties.title')} — ${selectedCategory.nameAr}`
-                  : t('financialManagement.parties.title')}
+                {selectedCategory ? selectedCategory.nameAr : kindPlural}
               </CardTitle>
-              <div className="flex items-center gap-2 flex-1 justify-end">
+              <div className="flex flex-wrap items-center gap-2 flex-1 justify-end">
                 <div ref={fmOptionsPanelRef} className="relative shrink-0">
                   <Button
                     variant="outline"
@@ -2014,29 +2142,45 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
                   </Button>
                   {fmOptionsOpen && (
                     <div
-                      className="absolute end-0 top-[calc(100%+4px)] z-50 w-64 rounded-lg border border-border bg-popover shadow-lg"
+                      className="absolute start-0 top-[calc(100%+6px)] z-50 w-72 rounded-xl border border-border bg-popover shadow-xl"
                       dir={isRtl ? 'rtl' : 'ltr'}
                     >
-                      <div className="border-b border-border/60 bg-secondary/30 px-3 py-2 text-xs font-semibold">
-                        {t('financialManagement.filters.options')}
+                      {/* Header */}
+                      <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2.5">
+                        <SlidersHorizontal className="h-3.5 w-3.5 text-primary/70" />
+                        <span className="text-sm font-semibold">{t('financialManagement.filters.options')}</span>
                       </div>
-                      <div className="flex flex-col gap-1 p-2">
-                        <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
-                          <input type="checkbox" checked={showPartyBalances} onChange={e => setShowPartyBalances(e.target.checked)} className="h-3.5 w-3.5" />
-                          {t('financialManagement.filters.showPartyBalances')}
-                        </label>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
-                          <input type="checkbox" checked={showAccountTypes} onChange={e => setShowAccountTypes(e.target.checked)} className="h-3.5 w-3.5" />
-                          {t('financialManagement.filters.showAccountTypes')}
-                        </label>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
-                          <input type="checkbox" checked={fmValuated} onChange={e => setFmValuated(e.target.checked)} className="h-3.5 w-3.5" />
-                          {t('financialManagement.filters.valuated', { currency: baseCurrency?.code ?? 'IQD' })}
-                        </label>
-                        <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50">
-                          <input type="checkbox" checked={fmIncludeDraft} onChange={e => setFmIncludeDraft(e.target.checked)} className="h-3.5 w-3.5" />
-                          {t('financialManagement.filters.includeDraft')}
-                        </label>
+                      {/* Toggle rows */}
+                      <div className="flex flex-col p-2 gap-0.5">
+                        {([
+                          { checked: showPartyBalances, onChange: setShowPartyBalances, label: t('financialManagement.filters.showPartyBalances') },
+                          { checked: showAccountTypes,  onChange: setShowAccountTypes,  label: t('financialManagement.filters.showAccountTypes') },
+                          { checked: fmValuated,        onChange: setFmValuated,        label: t('financialManagement.filters.valuated', { currency: baseCurrency?.code ?? 'IQD' }) },
+                          { checked: fmIncludeDraft,    onChange: setFmIncludeDraft,    label: t('financialManagement.filters.includeDraft') },
+                        ] as const).map(({ checked, onChange, label }) => (
+                          <label
+                            key={label}
+                            className={cn(
+                              'flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors select-none',
+                              checked ? 'bg-primary/8 text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                            )}
+                          >
+                            {/* Custom toggle */}
+                            <span
+                              className={cn(
+                                'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 transition-colors duration-200',
+                                checked ? 'border-primary bg-primary' : 'border-border bg-secondary',
+                              )}
+                              onClick={() => onChange(!checked)}
+                            >
+                              <span className={cn(
+                                'absolute top-0 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200',
+                                checked ? (isRtl ? '-translate-x-4' : 'translate-x-4') : 'translate-x-0',
+                              )} />
+                            </span>
+                            <span className="flex-1 leading-tight">{label}</span>
+                          </label>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -2114,7 +2258,7 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
                 {canCreateParty && selectedCategory && (
                   <Button size="sm" className="h-8 gap-1 text-xs shrink-0" onClick={() => { setEditingParty(null); setPartyPrefill(null); setShowPartyDialog(true); }}>
                     <Plus className="h-3.5 w-3.5" />
-                    {t('financialManagement.parties.new')}
+                    {t('financialManagement.parties.new', { kind: kindSingular })}
                   </Button>
                 )}
               </div>
@@ -2253,7 +2397,7 @@ export function FinancialManagementPage({ kind: activeKind }: FinancialManagemen
                 <h3 className="font-semibold text-sm">
                   {confirmDelete.type === 'category'
                     ? t('financialManagement.categories.delete')
-                    : t('financialManagement.parties.delete')}
+                    : t('financialManagement.parties.delete', { kind: kindSingular })}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">{confirmDelete.name}</p>
               </div>

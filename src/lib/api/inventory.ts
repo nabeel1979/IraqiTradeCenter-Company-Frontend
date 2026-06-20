@@ -313,6 +313,7 @@ export interface ItemMovementDto {
   unitPrice?: number | null;
   notes?: string | null;
   partyName?: string | null;
+  isGift?: boolean;
 }
 
 export interface ItemWarehouseStockDto {
@@ -376,6 +377,8 @@ export interface ItemStockCountRowDto {
   quantity: number;
   unitCost: number;
   totalCost: number;
+  giftQuantity?: number;
+  giftTotalCost?: number;
 }
 
 export const inventoryApi = {
@@ -609,12 +612,13 @@ export const inventoryApi = {
 
   getMovements: async (
     itemId: number,
-    opts: { take?: number; fromDate?: string; toDate?: string; warehouseId?: number } = {},
+    opts: { take?: number; fromDate?: string; toDate?: string; warehouseId?: number; isGift?: boolean } = {},
   ) => {
     const params: Record<string, unknown> = { take: opts.take ?? 500 };
     if (opts.fromDate) params.fromDate = opts.fromDate;
     if (opts.toDate) params.toDate = opts.toDate;
     if (opts.warehouseId) params.warehouseId = opts.warehouseId;
+    if (opts.isGift != null) params.isGift = opts.isGift;
     const res = await api.get<ApiResponse<ItemMovementDto[]>>(`/items/${itemId}/movements`, { params });
     return res.data.data ?? [];
   },

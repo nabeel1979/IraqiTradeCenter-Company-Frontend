@@ -44,6 +44,7 @@ const EMPTY: UpsertInvoiceTypePayload = {
   additionAccountId: null,
   profitAccountId: null,
   lossAccountId: null,
+  giftAccountId: null,
   postDiscountAndAddition: false,
   generatesJournalEntry: true,
   affectsInventory: true,
@@ -65,6 +66,16 @@ function movementLabel(v: number) {
 }
 function categoryLabel(v: number) {
   return INVOICE_CATEGORIES.find(x => x.value === v)?.label ?? String(v);
+}
+
+// التصنيفات المسموحة حسب حركة الفاتورة:
+//  • إدخال (المخزون يزيد): شراء(2) أو مردود مبيع(4)
+//  • إخراج (المخزون ينقص): مبيع(1) أو مردود شراء(3)
+//  • مناقلة/طلبات: كل التصنيفات (دون قيد)
+function categoriesForMovement(movementType: number) {
+  if (movementType === 1) return INVOICE_CATEGORIES.filter(c => c.value === 2 || c.value === 4);
+  if (movementType === 2) return INVOICE_CATEGORIES.filter(c => c.value === 1 || c.value === 3);
+  return INVOICE_CATEGORIES;
 }
 
 function flattenLeafAccounts(tree: AccountDto[]): AccountDto[] {
@@ -168,6 +179,7 @@ export function InvoiceTypesPage() {
       additionAccountId: row.additionAccountId ?? null,
       profitAccountId: row.profitAccountId ?? null,
       lossAccountId: row.lossAccountId ?? null,
+      giftAccountId: row.giftAccountId ?? null,
       postDiscountAndAddition: row.postDiscountAndAddition ?? false,
       generatesJournalEntry: row.generatesJournalEntry,
       affectsInventory: row.affectsInventory,
@@ -286,7 +298,14 @@ export function InvoiceTypesPage() {
                 <div className="space-y-1">
                   <Label>نوع الفاتورة (حركة)</Label>
                   <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.movementType}
-                    onChange={e => setForm(f => ({ ...f, movementType: Number(e.target.value) as UpsertInvoiceTypePayload['movementType'] }))}>
+                    onChange={e => {
+                      const mv = Number(e.target.value) as UpsertInvoiceTypePayload['movementType'];
+                      setForm(f => {
+                        const allowed = categoriesForMovement(mv).map(c => c.value);
+                        const category = (allowed.includes(f.category) ? f.category : allowed[0] ?? f.category) as UpsertInvoiceTypePayload['category'];
+                        return { ...f, movementType: mv, category };
+                      });
+                    }}>
                     {INVOICE_MOVEMENT_TYPES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
@@ -294,7 +313,7 @@ export function InvoiceTypesPage() {
                   <Label>التصنيف</Label>
                   <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.category}
                     onChange={e => setForm(f => ({ ...f, category: Number(e.target.value) as UpsertInvoiceTypePayload['category'] }))}>
-                    {INVOICE_CATEGORIES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {categoriesForMovement(form.movementType).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -344,10 +363,22 @@ export function InvoiceTypesPage() {
                   <AccountPicker accounts={leafAccounts} value={form.additionAccountId ?? null}
                     onChange={id => setForm(f => ({ ...f, additionAccountId: id }))} allowClear />
                 </div>
-                {form.category === 1 && (
+                {(form.category === 1 || form.category === 2 || form.category === 3 || form.category === 4) && (
+                  <div className="space-y-1">
+                    <Label>حساب الهدايا</Label>
+                    <AccountPicker accounts={leafAccounts} value={form.giftAccountId ?? null}
+                      onChange={id => setForm(f => ({ ...f, giftAccountId: id }))} allowClear />
+                    <p className="text-[11px] text-muted-foreground">
+                      إدخال للمخزون (شراء / مردود مبيع): «مدين المخزون / دائن الهدايا» بقيمة الهدية.
+                      إخراج من المخزون (بيع / مردود شراء): «مدين الهدايا / دائن المخزون» بكلفتها.
+                    </p>
+                  </div>
+                )}
+                {(form.category === 1 || form.category === 3) && (
                   <>
                     <p className="text-xs text-muted-foreground md:col-span-2">
-                      في فواتير البيع: تُرحَّل الكلفة إلى حساب المخزون، ويُرحَّل الفارق (البيع − الكلفة) إلى حساب الأرباح أو الخسائر.
+                      في فواتير البيع ومردود الشراء (إخراج من المخزون): تُرحَّل الكلفة إلى حساب المخزون،
+                      ويُرحَّل الفارق (قيمة الإخراج − الكلفة) إلى حساب الأرباح أو الخسائر.
                       يُفضّل قفل هذين الحسابين للقيد اليدوي من شجرة الحسابات.
                     </p>
                     <div className="space-y-1">

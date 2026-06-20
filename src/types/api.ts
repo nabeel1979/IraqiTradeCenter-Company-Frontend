@@ -369,6 +369,7 @@ export interface SalesInvoiceLineDto {
   unitPrice: number;
   lineDiscount: number;
   lineTotal: number;
+  isGift?: boolean;
 }
 
 export interface SalesRepDto {
@@ -876,6 +877,10 @@ export interface FinancialPartyDto {
   isActive: boolean;
   /** نوع السعر الافتراضي — ItemPriceType (3=جملة، 4=مفرد، 5=خاص، 6=تصدير) */
   defaultSalesPriceType?: number | null;
+  /** تفعيل نسبة خصم مبيعات افتراضية تُجلب في فاتورة المبيعات. */
+  salesDiscountEnabled?: boolean;
+  /** نسبة خصم المبيعات الافتراضية (%). */
+  salesDiscountPercentage?: number;
   showInStore?: boolean;
   storeUserCode?: string | null;
   mustChangePassword?: boolean;
@@ -912,6 +917,8 @@ export interface CreateFinancialPartyPayload {
   bankAccountNumber?: string | null;
   swiftCode?: string | null;
   defaultSalesPriceType?: number | null;
+  salesDiscountEnabled?: boolean;
+  salesDiscountPercentage?: number;
   showInStore?: boolean;
   storeUserCode?: string | null;
   linkStoreCustomerId?: number | null;
@@ -934,6 +941,8 @@ export interface UpdateFinancialPartyPayload {
   swiftCode?: string | null;
   isActive: boolean;
   defaultSalesPriceType?: number | null;
+  salesDiscountEnabled?: boolean;
+  salesDiscountPercentage?: number;
   showInStore?: boolean;
   storeUserCode?: string | null;
   linkStoreCustomerId?: number | null;

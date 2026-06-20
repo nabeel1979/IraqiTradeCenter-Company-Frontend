@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import { CompanyHostBadge } from '@/components/layout/CompanyHostBadge';
 import { LogoViewer } from '@/components/LogoViewer';
 import { useFullscreen } from '@/hooks/useFullscreen';
-import { LogoViewer } from '@/components/LogoViewer';
 
 interface AuthPageShellProps {
   children: ReactNode;

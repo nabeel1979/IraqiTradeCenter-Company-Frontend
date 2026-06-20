@@ -16,7 +16,7 @@ export interface CreateInvoicePayload {
   taxRate: number; discountPercentage: number; discountAmount: number;
   additionAmount?: number;          // مصاريف/إضافة تُضاف لإجمالي الفاتورة
   notes?: string;
-  lines: Array<{ itemId: number; unitOfMeasureId: number; quantity: number; unitPriceOverride?: number; lineDiscount: number; }>;
+  lines: Array<{ itemId: number; unitOfMeasureId: number; quantity: number; unitPriceOverride?: number; lineDiscount: number; isGift?: boolean; }>;
   expenses?: Array<{ accountId: number; debitAmount: number; creditAmount: number; description?: string; }>;
   expenseDistributionMethod?: number;  // 1=قيمة، 2=حجم، 3=وزن
 }

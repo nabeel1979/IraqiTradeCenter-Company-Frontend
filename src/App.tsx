@@ -10,6 +10,7 @@ import { InvoicesListPage } from '@/pages/invoices/InvoicesListPage';
 import { CreateInvoicePage } from '@/pages/invoices/CreateInvoicePage';
 import { InvoiceConstantsHubPage } from '@/pages/invoices/InvoiceConstantsHubPage';
 import { InvoiceTypesPage } from '@/pages/invoices/InvoiceTypesPage';
+import { MaterialCostProcessingPage } from '@/pages/invoices/MaterialCostProcessingPage';
 import { InvoiceSettingsPage } from '@/pages/invoices/InvoiceSettingsPage';
 import { ItemsListPage } from '@/pages/inventory/ItemsListPage';
 import { ItemFormPage } from '@/pages/inventory/ItemFormPage';
@@ -128,6 +129,7 @@ export default function App() {
         <Route path="invoices/constants" element={<InvoiceConstantsHubPage />} />
         <Route path="invoices/types" element={<InvoiceTypesPage />} />
         <Route path="invoices/settings" element={<InvoiceSettingsPage />} />
+        <Route path="invoices/cost-processing" element={<MaterialCostProcessingPage />} />
 
         {/* Inventory */}
         <Route path="inventory/movements" element={<StockMovementsPage />} />
