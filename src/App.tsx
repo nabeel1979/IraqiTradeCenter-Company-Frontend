@@ -11,6 +11,7 @@ import { CreateInvoicePage } from '@/pages/invoices/CreateInvoicePage';
 import { InvoiceConstantsHubPage } from '@/pages/invoices/InvoiceConstantsHubPage';
 import { InvoiceTypesPage } from '@/pages/invoices/InvoiceTypesPage';
 import { InvoiceSettingsPage } from '@/pages/invoices/InvoiceSettingsPage';
+import { MaterialCostProcessingPage } from '@/pages/invoices/MaterialCostProcessingPage';
 import { ItemsListPage } from '@/pages/inventory/ItemsListPage';
 import { ItemFormPage } from '@/pages/inventory/ItemFormPage';
 import { ItemCategoriesPage } from '@/pages/inventory/ItemCategoriesPage';
@@ -20,7 +21,6 @@ import { ItemConstantsPage } from '@/pages/inventory/ItemConstantsPage';
 import { WarehousesPage } from '@/pages/inventory/WarehousesPage';
 import { StockMovementsPage } from '@/pages/inventory/StockMovementsPage';
 import { StockCountReportPage } from '@/pages/inventory/StockCountReportPage';
-import { CustomersListPage } from '@/pages/customers/CustomersListPage';
 import { SalesRepsListPage } from '@/pages/sales-reps/SalesRepsListPage';
 import { IncomingOrdersListPage } from '@/pages/orders/IncomingOrdersListPage';
 import { AccountsTreePage } from '@/pages/accounting/AccountsTreePage';
@@ -123,12 +123,14 @@ export default function App() {
         <Route path="invoices/purchase" element={<InvoicesListPage category={2} />} />
         <Route path="invoices/purchase-return" element={<InvoicesListPage category={3} />} />
         <Route path="invoices/sales-return" element={<InvoicesListPage category={4} />} />
+        <Route path="invoices/transfer" element={<InvoicesListPage category={5} />} />
         <Route path="invoices/type/:typeId" element={<InvoicesListPage />} />
         <Route path="invoices/new" element={<CreateInvoicePage />} />
         <Route path="invoices/:id/edit" element={<CreateInvoicePage />} />
         <Route path="invoices/constants" element={<InvoiceConstantsHubPage />} />
         <Route path="invoices/types" element={<InvoiceTypesPage />} />
         <Route path="invoices/settings" element={<InvoiceSettingsPage />} />
+        <Route path="invoices/cost-processing" element={<MaterialCostProcessingPage />} />
 
         {/* Inventory */}
         <Route path="inventory/movements" element={<StockMovementsPage />} />
@@ -142,11 +144,9 @@ export default function App() {
         <Route path="inventory/:id" element={<ItemFormPage />} />
         <Route path="inventory" element={<ItemsListPage />} />
 
-        {/* Customers */}
-        <Route path="customers" element={<CustomersListPage />} />
-
-        {/* Sales Reps */}
-        <Route path="sales-reps" element={<SalesRepsListPage />} />
+        {/* Sales Reps (مُدارة ضمن الإدارة المالية) */}
+        <Route path="financial-management/sales-reps" element={<SalesRepsListPage />} />
+        <Route path="sales-reps" element={<Navigate to="/financial-management/sales-reps" replace />} />
 
         {/* Orders */}
         <Route path="orders" element={<IncomingOrdersListPage />} />
@@ -189,15 +189,16 @@ export default function App() {
         <Route path="settings/users" element={<UsersPage />} />
         <Route path="settings/roles" element={<RolesPage />} />
         <Route path="settings/branches" element={<CompanyOnlyRoute><BranchesPage /></CompanyOnlyRoute>} />
-        <Route path="settings/constants" element={<CompanyOnlyRoute><SystemConstantsPage /></CompanyOnlyRoute>} />
-        <Route path="settings/countries" element={<CompanyOnlyRoute><CountriesPage /></CompanyOnlyRoute>} />
-        <Route path="settings/cities" element={<CompanyOnlyRoute><CitiesPage /></CompanyOnlyRoute>} />
+        <Route path="settings/constants" element={<SystemConstantsPage />} />
+        <Route path="settings/countries" element={<CountriesPage />} />
+        <Route path="settings/cities" element={<CitiesPage />} />
         <Route path="system/countries" element={<Navigate to="/settings/countries" replace />} />
         <Route path="system/cities" element={<Navigate to="/settings/cities" replace />} />
 
         {/* Parent — Subscribers & Store */}
         <Route path="subscribers" element={<SubscribersPage />} />
         <Route path="parent/wallets" element={<ParentOnlyRoute><WalletsPage /></ParentOnlyRoute>} />
+        <Route path="parent/wallet-posting" element={<ParentOnlyRoute><WalletPostingPage standalone /></ParentOnlyRoute>} />
         <Route path="parent/wallets/:groupId" element={<ParentOnlyRoute><WalletGroupMembersPage /></ParentOnlyRoute>} />
         <Route path="parent/wallets/:groupId/pay" element={<ParentOnlyRoute><WalletPostingPage mode="pay" /></ParentOnlyRoute>} />
         <Route path="parent/wallets/:groupId/withdraw" element={<ParentOnlyRoute><WalletPostingPage mode="withdraw" /></ParentOnlyRoute>} />

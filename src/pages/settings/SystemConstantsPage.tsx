@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/lib/auth/usePermissions';
 import { PERMS } from '@/lib/auth/permissions';
+import { isParentHost } from '@/lib/platform';
 
 const SECTIONS = [
   {
@@ -12,6 +13,7 @@ const SECTIONS = [
     description: 'إدارة فروع الشركة وربطها بالعمليات والمستخدمين',
     icon: Building2,
     permission: PERMS.Branches.Branches.Read,
+    companyOnly: true,
   },
   {
     to: '/settings/countries',
@@ -19,6 +21,7 @@ const SECTIONS = [
     description: 'تعريف البلدان المستخدمة في النظام وبطاقات المواد',
     icon: Globe,
     permission: PERMS.System.CompanySettings.Read,
+    companyOnly: false,
   },
   {
     to: '/settings/cities',
@@ -26,12 +29,14 @@ const SECTIONS = [
     description: 'تعريف المدن وربطها بالبلدان',
     icon: MapPin,
     permission: PERMS.System.CompanySettings.Read,
+    companyOnly: false,
   },
 ] as const;
 
 export function SystemConstantsPage() {
   const { can } = usePermissions();
-  const visible = SECTIONS.filter(s => can(s.permission));
+  const parent = isParentHost();
+  const visible = SECTIONS.filter(s => can(s.permission) && !(s.companyOnly && parent));
 
   return (
     <div className="space-y-4 max-w-4xl mx-auto">

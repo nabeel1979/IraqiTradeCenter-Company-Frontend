@@ -92,6 +92,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/subscribers', labelKey: 'sidebar.items.subscribers', icon: Building2, permission: PERMS.Parent.Subscribers.Read },
       { to: '/parent/wallets', labelKey: 'sidebar.items.digitalWallets', icon: Wallet, permission: PERMS.Parent.Wallets.Read },
+      { to: '/parent/wallet-posting', labelKey: 'sidebar.items.walletPosting', icon: ArrowDownLeft, permissionAny: [PERMS.Parent.Wallets.Topup, PERMS.Parent.Wallets.Withdraw] },
       { to: '/parent/store/users', labelKey: 'sidebar.items.storeUsers', icon: Users, permission: PERMS.Parent.Subscribers.Read },
       { to: '/parent/store/trader-sales', labelKey: 'sidebar.items.traderSales', icon: StoreIcon, permission: PERMS.Parent.Subscribers.Read },
       { to: '/parent/store/company-requests', labelKey: 'sidebar.items.companyRequests', icon: ClipboardList, permission: PERMS.Parent.Subscribers.Read },
@@ -112,8 +113,6 @@ export const NAV_GROUPS: NavGroup[] = [
       })),
       { to: '/invoices/constants', labelKey: 'sidebar.items.invoiceSettings', icon: Settings2, permission: PERMS.Sales.Invoices.Read, exact: true },
       { to: '/orders', labelKey: 'sidebar.items.incomingOrders', icon: Inbox, permission: PERMS.Sales.Orders.Read },
-      { to: '/customers', labelKey: 'sidebar.items.customers', icon: Users, permission: PERMS.Sales.Customers.Read },
-      { to: '/sales-reps', labelKey: 'sidebar.items.salesReps', icon: UserCog, permission: PERMS.Sales.SalesReps.Read },
     ],
   },
   {
@@ -149,6 +148,12 @@ export const NAV_GROUPS: NavGroup[] = [
           PERMS.FinancialManagement.Categories.Read,
           PERMS.FinancialManagement.Parties.Read,
         ],
+      },
+      {
+        to: '/financial-management/sales-reps',
+        labelKey: 'sidebar.items.salesReps',
+        icon: UserCog,
+        permission: PERMS.Sales.SalesReps.Read,
       },
       {
         to: '/financial-management/banks',
@@ -197,7 +202,6 @@ export const NAV_GROUPS: NavGroup[] = [
         to: '/settings/constants',
         labelKey: 'sidebar.items.systemConstants',
         icon: Settings2,
-        companyOnly: true,
         permissionAny: [PERMS.Branches.Branches.Read, PERMS.System.CompanySettings.Read],
       },
       { to: '/system/audit', labelKey: 'sidebar.items.audit', icon: Activity, permission: PERMS.System.Audit.Read },

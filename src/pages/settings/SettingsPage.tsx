@@ -8,6 +8,7 @@ import {
   FileText, ListChecks, ChevronLeft, Coins, Users, Shield, Settings as SettingsIcon,
   Languages, DatabaseBackup, PlugZap, Info, HardDrive, Cloud, KeyRound, FolderTree, MessageCircle,
   ChevronDown, ChevronRight, PlugZap as TestIcon, CheckCircle2, XCircle, AlertTriangle, Loader2, Download, Plus, Trash2, Copy,
+  DatabaseZap, ShieldAlert,
   type LucideIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,6 +21,7 @@ import { mediaBackupSettingsApi, type DatabaseBackupFileDto, type MediaBackupSet
 import { buildAutoBackupCron, parseAutoBackupCron, WEEKDAY_OPTIONS, MAX_SCHEDULE_TIMES, type BackupScheduleKind } from '@/lib/backupSchedule';
 import { formatFileSize } from '@/lib/api/attachments';
 import { fiscalYearsApi } from '@/lib/api/fiscalYears';
+import { databasePurgeApi, type DatabasePurgeOperations } from '@/lib/api/databasePurge';
 import { Label } from '@/components/ui/label';
 import { CurrenciesManager } from '@/components/settings/CurrenciesManager';
 import { EmailSettingsSection } from '@/components/settings/EmailSettingsSection';
@@ -160,6 +162,15 @@ export function SettingsPage() {
       description: t('settings.sections.backup.description'),
       permission: PERMS.System.CompanySettings.Update,
       Component: BackupSection,
+    },
+    {
+      id: 'database-purge',
+      icon: DatabaseZap,
+      title: t('settings.sections.databasePurge.title', { defaultValue: 'تفريغ قاعدة البيانات' }),
+      description: t('settings.sections.databasePurge.description', { defaultValue: 'حذف العمليات وإعادة الترقيم وتصفير الأرصدة — عملية مدمّرة لا رجعة فيها' }),
+      badge: { label: t('settings.sections.databasePurge.badge', { defaultValue: 'خطر' }), tone: 'warning' as const },
+      permission: PERMS.System.DatabasePurge.Run,
+      Component: DatabasePurgeSection,
     },
     {
       id: 'storage',
@@ -2241,4 +2252,292 @@ function backupSettingsSnapshotFromData(data: MediaBackupSettingsDto): string {
       ? buildAutoBackupCron(schedule.kind, schedule.times, schedule.day)
       : null,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// قسم: تفريغ قاعدة البيانات (عملية مدمّرة)
+// ─────────────────────────────────────────────────────────────────────────
+type PurgeOpKey = keyof DatabasePurgeOperations;
+
+const PURGE_OPS: { key: PurgeOpKey; label: string; desc: string; danger: boolean }[] = [
+  { key: 'purgeJournalEntries', label: 'تفريغ القيود', desc: 'حذف نهائي لكل القيود وسطورها (ومرفقاتها وتسوياتها ومناقلات الصناديق المرتبطة) ضمن السنة المالية', danger: true },
+  { key: 'purgeInvoices', label: 'تفريغ الفواتير وحركات المخزون', desc: 'حذف فواتير المبيعات وبنودها ومصاريفها ومدفوعاتها وحركات المخزون ضمن نطاق تاريخ السنة', danger: true },
+  { key: 'purgeOrders', label: 'تفريغ الطلبات الواردة', desc: 'حذف الطلبات الواردة وبنودها ضمن نطاق تاريخ السنة (حسب تاريخ الاستلام)', danger: true },
+  { key: 'purgeAttachments', label: 'تفريغ الوثائق المرفقة', desc: 'حذف نهائي للوثائق المرفقة بالفواتير والقيود والسندات من القرص المحلي و R2 معاً (ضمن السنة المالية)', danger: true },
+  { key: 'renumberJournalEntries', label: 'إعادة ترقيم جدول القيود', desc: 'إعادة ترقيم متتالٍ لقيود السنة لتبدأ من 1', danger: false },
+  { key: 'renumberInvoices', label: 'إعادة ترقيم الفواتير', desc: 'تصفير عدّادات ترقيم الفواتير لتبدأ من 1', danger: false },
+  { key: 'renumberOrders', label: 'إعادة ترقيم الطلبات الواردة', desc: 'إعادة ضبط ترقيم الطلبات لتبدأ من 1 بعد التفريغ', danger: false },
+  { key: 'renumberDocuments', label: 'إعادة ترقيم المستندات', desc: 'إعادة ترقيم تسلسل السندات لكل نوع', danger: false },
+  { key: 'zeroAccountBalances', label: 'تصفير أرصدة الحسابات', desc: 'تصفير الرصيد الافتتاحي لكل الحسابات (يشمل كل السنوات)', danger: true },
+  { key: 'zeroItemBalances', label: 'تصفير أرصدة المواد', desc: 'تصفير الكميات وأسعار الشراء المخزّنة لكل المواد (يشمل كل السنوات)', danger: true },
+];
+
+const EMPTY_PURGE_OPS: DatabasePurgeOperations = {
+  purgeJournalEntries: false,
+  purgeInvoices: false,
+  purgeOrders: false,
+  purgeAttachments: false,
+  renumberJournalEntries: false,
+  renumberInvoices: false,
+  renumberOrders: false,
+  renumberDocuments: false,
+  zeroAccountBalances: false,
+  zeroItemBalances: false,
+};
+
+const PURGE_CONFIRM_PHRASE = 'تفريغ';
+
+function DatabasePurgeSection() {
+  const qc = useQueryClient();
+
+  const { data: fiscalYears = [] } = useQuery({
+    queryKey: ['fiscal-years'],
+    queryFn: fiscalYearsApi.getAll,
+  });
+
+  const [fiscalYearId, setFiscalYearIdState] = useState<number | ''>('');
+  const [ops, setOps] = useState<DatabasePurgeOperations>({ ...EMPTY_PURGE_OPS });
+  const [backupDone, setBackupDone] = useState(false);
+  const [backupFile, setBackupFile] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+
+  // اختيار السنة المفعّلة افتراضياً
+  useEffect(() => {
+    if (fiscalYearId === '' && fiscalYears.length > 0) {
+      setFiscalYearIdState(fiscalYears.find(f => f.isActive)?.id ?? fiscalYears[0].id);
+    }
+  }, [fiscalYears, fiscalYearId]);
+
+  // تغيير السنة يُبطل النسخة الاحتياطية المأخوذة
+  const setFiscalYearId = (id: number | '') => {
+    setFiscalYearIdState(id);
+    setBackupDone(false);
+    setBackupFile(null);
+  };
+
+  const selectedCount = useMemo(
+    () => PURGE_OPS.reduce((n, o) => n + (ops[o.key] ? 1 : 0), 0),
+    [ops],
+  );
+
+  const previewQuery = useQuery({
+    queryKey: ['database-purge-preview', fiscalYearId],
+    queryFn: () => databasePurgeApi.preview(Number(fiscalYearId)),
+    enabled: fiscalYearId !== '',
+  });
+  const preview = previewQuery.data;
+
+  const backupMut = useMutation({
+    mutationFn: () => mediaBackupSettingsApi.run(Number(fiscalYearId)),
+    onSuccess: (res) => {
+      setBackupDone(true);
+      setBackupFile(res.databaseFile ?? null);
+      toast.success('تم أخذ نسخة احتياطية بنجاح — يمكنك الآن تنفيذ التفريغ');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? e?.message ?? 'فشل أخذ النسخة الاحتياطية'),
+  });
+
+  const runMut = useMutation({
+    mutationFn: () => databasePurgeApi.run({ fiscalYearId: Number(fiscalYearId), ...ops, confirm: true }),
+    onSuccess: (res) => {
+      const total = Object.values(res.affected ?? {}).reduce((a, b) => a + b, 0);
+      toast.success(`تم تنفيذ التفريغ بنجاح — إجمالي السجلات المتأثرة: ${total.toLocaleString()}`);
+      setConfirmOpen(false);
+      setConfirmText('');
+      setBackupDone(false);
+      setBackupFile(null);
+      setOps({ ...EMPTY_PURGE_OPS });
+      qc.invalidateQueries({ queryKey: ['database-purge-preview'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? e?.message ?? 'فشل تنفيذ التفريغ'),
+  });
+
+  const canExecute = backupDone && selectedCount > 0 && fiscalYearId !== '';
+  const confirmEnabled = confirmText.trim() === PURGE_CONFIRM_PHRASE && !runMut.isPending;
+
+  const selectedYearName = fiscalYears.find(f => f.id === fiscalYearId)?.name ?? '';
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-4">
+        {/* تحذير عام */}
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            عملية حذف نهائي لا يمكن التراجع عنها. تعمل على قاعدة بيانات الشركة الحالية فقط.
+            يجب أخذ نسخة احتياطية قبل التنفيذ، وسيأخذ النظام نسخة أمان إضافية تلقائياً.
+          </span>
+        </div>
+
+        {/* اختيار السنة المالية */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1 block text-xs">السنة المالية</Label>
+            <select
+              value={fiscalYearId}
+              onChange={e => setFiscalYearId(e.target.value ? Number(e.target.value) : '')}
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">اختر سنة مالية…</option>
+              {fiscalYears.map(f => (
+                <option key={f.id} value={f.id}>{f.name}{f.isActive ? ' (المفعّلة)' : ''}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* العمليات */}
+        <div className="space-y-2">
+          <Label className="block text-xs">العمليات المطلوبة</Label>
+          <div className="grid gap-2">
+            {PURGE_OPS.map(op => (
+              <label
+                key={op.key}
+                className={cn(
+                  'flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors',
+                  ops[op.key]
+                    ? (op.danger ? 'border-destructive/50 bg-destructive/5' : 'border-primary/50 bg-primary/5')
+                    : 'border-border hover:bg-accent/30',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={ops[op.key]}
+                  onChange={e => setOps(prev => ({ ...prev, [op.key]: e.target.checked }))}
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    {op.danger && <AlertTriangle className="h-3.5 w-3.5 text-destructive" />}
+                    {op.label}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{op.desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* معاينة الأعداد المتأثرة */}
+        {fiscalYearId !== '' && (
+          <div className="rounded-lg border border-border bg-secondary/10 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold">
+              <DatabaseZap className="h-3.5 w-3.5 text-primary" />
+              معاينة البيانات الحالية {selectedYearName ? `— ${selectedYearName}` : ''}
+              {previewQuery.isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            </div>
+            {preview ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+                <PurgeStat label="القيود" value={preview.journalEntries} />
+                <PurgeStat label="سطور القيود" value={preview.journalEntryLines} />
+                <PurgeStat label="الفواتير" value={preview.invoices} />
+                <PurgeStat label="بنود الفواتير" value={preview.invoiceLines} />
+                <PurgeStat label="الطلبات الواردة" value={preview.orders} />
+                <PurgeStat label="بنود الطلبات" value={preview.orderItems} />
+                <PurgeStat label="الوثائق المرفقة" value={preview.attachments} />
+                <PurgeStat label="حركات المخزون" value={preview.stockMovements} />
+                <PurgeStat label="حسابات برصيد افتتاحي" value={preview.accountsWithOpeningBalance} />
+                <PurgeStat label="مواد برصيد" value={preview.itemsWithBalance} />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">جارٍ التحميل…</p>
+            )}
+          </div>
+        )}
+
+        {/* خطوات التنفيذ: نسخة احتياطية ثم تنفيذ */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-3">
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={fiscalYearId === '' || backupMut.isPending}
+            onClick={() => backupMut.mutate()}
+          >
+            {backupMut.isPending
+              ? <><Loader2 className="h-4 w-4 animate-spin" /> جارٍ أخذ النسخة…</>
+              : backupDone
+                ? <><CheckCircle2 className="h-4 w-4 text-success" /> تم أخذ نسخة احتياطية</>
+                : <><DatabaseBackup className="h-4 w-4" /> 1) أخذ نسخة احتياطية</>}
+          </Button>
+          <Button
+            variant="destructive"
+            className="gap-2"
+            disabled={!canExecute}
+            onClick={() => { setConfirmText(''); setConfirmOpen(true); }}
+          >
+            <Trash2 className="h-4 w-4" /> 2) تنفيذ التفريغ
+          </Button>
+          {!backupDone && selectedCount > 0 && fiscalYearId !== '' && (
+            <span className="text-xs text-muted-foreground">يجب أخذ نسخة احتياطية أولاً لتفعيل التنفيذ</span>
+          )}
+        </div>
+
+        {backupDone && backupFile && (
+          <p className="text-[11px] text-muted-foreground">ملف النسخة الاحتياطية: <span className="num-display">{backupFile}</span></p>
+        )}
+      </CardContent>
+
+      {/* نافذة التأكيد */}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => !runMut.isPending && setConfirmOpen(false)} />
+          <div className="relative flex w-full max-w-md flex-col rounded-lg border border-destructive/40 bg-card shadow-xl" dir="rtl">
+            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-destructive">
+                <ShieldAlert className="h-4 w-4" /> تأكيد تفريغ قاعدة البيانات
+              </h3>
+              <button type="button" onClick={() => setConfirmOpen(false)} disabled={runMut.isPending} className="rounded-md p-1 text-muted-foreground hover:bg-accent disabled:opacity-40">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 px-4 py-4 text-sm">
+              <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>هذه العملية ستحذف بيانات نهائياً ولا يمكن التراجع عنها. تأكد من صحة النسخة الاحتياطية.</span>
+              </div>
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">السنة المالية: <b className="text-foreground">{selectedYearName}</b></p>
+                <p className="mb-1 text-xs text-muted-foreground">العمليات المختارة ({selectedCount}):</p>
+                <ul className="space-y-1 rounded-md border border-border p-2 text-xs">
+                  {PURGE_OPS.filter(o => ops[o.key]).map(o => (
+                    <li key={o.key} className="flex items-center gap-1.5">
+                      {o.danger ? <AlertTriangle className="h-3 w-3 text-destructive" /> : <CheckCircle2 className="h-3 w-3 text-primary" />}
+                      {o.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">للتأكيد، اكتب كلمة «{PURGE_CONFIRM_PHRASE}»</Label>
+                <Input
+                  value={confirmText}
+                  onChange={e => setConfirmText(e.target.value)}
+                  placeholder={PURGE_CONFIRM_PHRASE}
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+              <Button variant="outline" size="sm" onClick={() => setConfirmOpen(false)} disabled={runMut.isPending}>إلغاء</Button>
+              <Button variant="destructive" size="sm" className="gap-1.5" onClick={() => runMut.mutate()} disabled={!confirmEnabled}>
+                {runMut.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> جارٍ التنفيذ…</> : <><Trash2 className="h-4 w-4" /> تأكيد وتنفيذ</>}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function PurgeStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded border border-border/50 bg-background px-2 py-1">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn('num-display font-semibold', value > 0 ? 'text-foreground' : 'text-muted-foreground')}>
+        {value.toLocaleString()}
+      </span>
+    </div>
+  );
 }

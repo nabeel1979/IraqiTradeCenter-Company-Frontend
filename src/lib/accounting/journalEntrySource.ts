@@ -7,6 +7,8 @@ import { accountingApi } from '@/lib/api/accounting';
 export const CASH_BOX_BALANCES_PATH = '/financial-management/cash-boxes?view=balances';
 /** مسار صفحة الصناديق — تبويب المناقلات. */
 export const CASH_BOX_TRANSFERS_PATH = '/financial-management/cash-boxes?view=transfers';
+/** مسار صفحة معالجة تكاليف المواد — مصدر قيود تسوية كلفة المخزون. */
+export const COST_PROCESSING_PATH = '/invoices/cost-processing';
 
 export type JournalEntrySourceInput = {
   id?: number;
@@ -14,6 +16,10 @@ export type JournalEntrySourceInput = {
   source?: string;
   referenceType?: string | null;
   referenceId?: number | null;
+  /** رقم/كود المرجع — لقيود المحفظة يساوي كود حساب المحفظة (لتحديدها مسبقاً). */
+  referenceNumber?: string | null;
+  /** مبلغ الحركة — لتعبئة حقل المبلغ مسبقاً في نافذة المحفظة. */
+  amount?: number | null;
   voucherTypeId?: number | null;
   voucherTypeCode?: string | null;
 };
@@ -94,6 +100,27 @@ export async function navigateJournalEntrySource(
         returnState ? { state: returnState } : undefined,
       );
     }
+    return;
+  }
+
+  // ‎قيود المحافظ الرقمية (تعبئة/سحب/تحويل) → نافذة دفع/سحب المحافظ بالوضع المناسب.
+  if (
+    entry.source === 'WalletTopup' ||
+    entry.source === 'WalletWithdraw' ||
+    entry.source === 'WalletTransfer' ||
+    entry.referenceType === 'Wallet'
+  ) {
+    const mode = entry.source === 'WalletWithdraw' ? 'withdraw' : 'pay';
+    const acct = entry.referenceNumber ? `&account=${encodeURIComponent(entry.referenceNumber)}` : '';
+    const amt = entry.amount && entry.amount > 0 ? `&amount=${entry.amount}` : '';
+    const entId = (entry.id ?? entry.entryId) ? `&entry=${entry.id ?? entry.entryId}` : '';
+    navigate(`/parent/wallet-posting?mode=${mode}${acct}${amt}${entId}`, returnState ? { state: returnState } : undefined);
+    return;
+  }
+
+  // ‎قيد تسوية كلفة المخزون → صفحة معالجة تكاليف المواد (مصدره).
+  if (entry.referenceType === 'CostSettlement') {
+    navigate(COST_PROCESSING_PATH, returnState ? { state: returnState } : undefined);
     return;
   }
 

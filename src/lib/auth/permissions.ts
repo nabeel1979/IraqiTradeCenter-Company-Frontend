@@ -186,6 +186,9 @@ export const PERMS = {
       Update: 'System.MediaBackup.Update',
       Run:    'System.MediaBackup.Run',
     },
+    DatabasePurge: {
+      Run: 'System.DatabasePurge.Run',
+    },
   },
   Branches: {
     Branches: {

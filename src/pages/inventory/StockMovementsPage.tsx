@@ -32,6 +32,7 @@ const MOVEMENT_TYPE_LABELS: Record<number, { ar: string; en: string; out: boolea
   6: { ar: 'تحويل', en: 'Transfer', out: false, color: 'bg-orange-500/10 text-orange-600 border-orange-500/30' },
   7: { ar: 'تالف', en: 'Damaged', out: true, color: 'bg-red-500/10 text-red-600 border-red-500/30' },
   8: { ar: 'رصيد افتتاحي', en: 'Opening', out: false, color: 'bg-primary/10 text-primary border-primary/30' },
+  10: { ar: 'إعادة تقييم', en: 'Revaluation', out: false, color: 'bg-violet-500/10 text-violet-600 border-violet-500/30' },
 };
 
 const isReversal = (m: ItemMovementDto) => m.referenceType?.endsWith('Reversal') ?? false;

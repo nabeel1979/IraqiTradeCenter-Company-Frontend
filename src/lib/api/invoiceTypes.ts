@@ -2,7 +2,7 @@ import { api } from './client';
 import type { ApiResponse } from '@/types/api';
 
 export type InvoiceMovementType = 1 | 2 | 3 | 4;
-export type InvoiceCategory = 1 | 2 | 3 | 4;
+export type InvoiceCategory = 1 | 2 | 3 | 4 | 5;
 export type InvoicePartyKind = 1 | 2;
 export type InvoiceSettlementType = 1 | 2;
 export type InvoicePaymentMethodKind = 1 | 2 | 3;
@@ -27,6 +27,8 @@ export interface InvoiceTypeDto {
   additionAccountId?: number | null;
   profitAccountId?: number | null;
   lossAccountId?: number | null;
+  giftAccountId?: number | null;
+  expenseAccountId?: number | null;
   postDiscountAndAddition: boolean;
   generatesJournalEntry: boolean;
   affectsInventory: boolean;
@@ -63,6 +65,7 @@ export const INVOICE_CATEGORIES = [
   { value: 2 as const, label: 'شراء' },
   { value: 3 as const, label: 'مردود شراء' },
   { value: 4 as const, label: 'مردود مبيع' },
+  { value: 5 as const, label: 'مناقلة' },
 ];
 
 export const INVOICE_PARTY_KINDS = [

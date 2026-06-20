@@ -672,7 +672,8 @@ export function AccountSettlementsPage() {
   });
 
   const leafAccounts = useMemo(
-    () => flattenLeafAccounts(accountsQuery.data ?? []),
+    // حسابات المحافظ الرقمية تتحرك حصراً عبر نوافذ المحفظة — تُستبعد من التسويات.
+    () => flattenLeafAccounts(accountsQuery.data ?? []).filter(a => !a.isLockedForWallet),
     [accountsQuery.data],
   );
 

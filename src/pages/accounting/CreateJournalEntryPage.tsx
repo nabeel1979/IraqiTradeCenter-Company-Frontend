@@ -1177,12 +1177,11 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
         </div>
 
         <div
-          className={cn(
-            'min-h-0 flex-1 overflow-auto',
-            isView && 'pointer-events-none select-none opacity-95'
-          )}
+          className="min-h-0 flex-1 overflow-auto"
           aria-disabled={isView || undefined}
         >
+          {/* في وضع العرض: نُبقي حاوية التمرير قابلة للتمرير ونعطّل التفاعل على المحتوى فقط */}
+          <div className={cn(isView && 'pointer-events-none select-none opacity-95')}>
           {/* table-fixed لضمان احترام عرض كل عمود.
               الترتيب RTL (يمين→يسار): ت | مدين | دائن | الحساب | البيان */}
           <table className="w-full table-fixed text-sm">
@@ -1219,6 +1218,7 @@ export function CreateJournalEntryPage({ viewOnly = false }: CreateJournalEntryP
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* شريط المجاميع */}

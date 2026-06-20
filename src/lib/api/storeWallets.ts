@@ -225,6 +225,21 @@ export const storeWalletsApi = {
     return res.data;
   },
 
+  updateTransaction: async (
+    txId: string,
+    body: { amount: number; fundingAccountCode?: string | null; description?: string | null },
+  ) => {
+    const res = await api.put<ApiResponse<WalletTransaction>>(
+      `/parent/wallets/transactions/${txId}`, body, { skipGlobalErrorHandler: true });
+    return res.data;
+  },
+
+  deleteTransaction: async (txId: string) => {
+    const res = await api.delete<{ success: boolean; message?: string }>(
+      `/parent/wallets/transactions/${txId}`, { skipGlobalErrorHandler: true });
+    return res.data;
+  },
+
   card: async (id: string) => {
     const res = await api.get<ApiResponse<WalletCard>>(`/parent/wallets/${id}/card`);
     if (!res.data.success || !res.data.data) throw new Error('Failed to load wallet card');

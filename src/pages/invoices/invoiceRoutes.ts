@@ -42,6 +42,13 @@ export const INVOICE_CATEGORY_ROUTES: InvoiceCategoryRoute[] = [
     sidebarKey: 'sidebar.items.invoiceSalesReturn',
     systemCode: 'SRR',
   },
+  {
+    path: 'transfer',
+    category: 5,
+    routeKey: '/invoices/transfer',
+    sidebarKey: 'sidebar.items.invoiceTransfer',
+    systemCode: 'TRF',
+  },
 ];
 
 export function invoiceListPathForCategory(category: InvoiceCategory): string {

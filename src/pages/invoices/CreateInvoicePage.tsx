@@ -326,6 +326,7 @@ export function CreateInvoicePage() {
   const [additionAmt, setAdditionAmt] = useState(0);
   const [notes, setNotes] = useState('');
   const [warehouseId, setWarehouseId] = useState<number | null>(null);
+  const [toWarehouseId, setToWarehouseId] = useState<number | null>(null);
   const [warehouseStockByItem, setWarehouseStockByItem] = useState<Map<number, number>>(() => new Map());
   const savedItemBaseQtyRef = useRef<Map<number, number>>(new Map());
   const hydratedRef = useRef('');
@@ -410,14 +411,19 @@ export function CreateInvoicePage() {
 
   const warehousesQuery = useQuery({ queryKey: ['warehouses-manage'], queryFn: () => inventoryApi.listWarehousesManage(), staleTime: 60_000 });
   const activeWarehouses = useMemo(() => (warehousesQuery.data ?? []).filter(w => w.isActive), [warehousesQuery.data]);
+  // مناقلة مخزنية: من مخزن المصدر (warehouseId) إلى مخزن الوجهة (toWarehouseId) بكلفة المتوسط المرجّح.
+  const isTransfer = invoiceType?.category === 5;
   const showWarehouse = invoiceType?.affectsInventory !== false;
   const needsStockCheck = useMemo(
-    () => showWarehouse && (invoiceType?.affectsInventory ?? true) && invoiceType?.movementType !== 1,
-    [showWarehouse, invoiceType?.affectsInventory, invoiceType?.movementType],
+    () => showWarehouse && (invoiceType?.affectsInventory ?? true)
+      && (isTransfer || invoiceType?.movementType !== 1),
+    [showWarehouse, invoiceType?.affectsInventory, invoiceType?.movementType, isTransfer],
   );
   const savedWarehouseId = loadedInvoice?.warehouseId ?? null;
+  const savedToWarehouseId = loadedInvoice?.toWarehouseId ?? null;
 
   useEffect(() => { if (!isEdit || savedWarehouseId == null) return; setWarehouseId(savedWarehouseId); }, [isEdit, savedWarehouseId]);
+  useEffect(() => { if (!isEdit || savedToWarehouseId == null) return; setToWarehouseId(savedToWarehouseId); }, [isEdit, savedToWarehouseId]);
   useEffect(() => {
     if (!showWarehouse || activeWarehouses.length === 0) return;
     if (isEdit) { if (!hydrated) return; if (warehouseId != null && activeWarehouses.some(w => w.id === warehouseId)) return; }
@@ -659,6 +665,9 @@ export function CreateInvoicePage() {
   }, [invoiceType, showWarehouse, activeWarehouses]);
 
   const pendingIssuePrintRef = useRef<InvoicePrintData | null>(null);
+  // حارس منع التكرار: المواد قيد الإضافة حالياً (مفتاح: "g|l:itemId").
+  // يمنع تكرار المادة في البنود/الهدايا عند الضغط أكثر من مرة أثناء بطء الشبكة.
+  const addingItemsRef = useRef<Set<string>>(new Set());
 
   const finishIssueFlow = useCallback((shouldPrint: boolean) => {
     if (!issuePrintPrompt) return;
@@ -690,11 +699,16 @@ export function CreateInvoicePage() {
 
   const addItem = useCallback(async (item: ItemListDto, forceGift = false) => {
     const asGift = forceGift || activeTab === 'gifts';
+    // حارس متزامن: يمنع الاستدعاء المكرر (ضغط مزدوج / مسح باركود متكرر) أثناء
+    // جلب التفاصيل، حتى لو كانت الشبكة بطيئة وقبل أن تتحدّث حالة البنود.
+    const addKey = `${asGift ? 'g' : 'l'}:${item.id}`;
+    if (addingItemsRef.current.has(addKey)) return;
     const relevantLines = asGift ? lines.filter(l => l.isGift) : lines.filter(l => !l.isGift);
     if (relevantLines.some(l => l.itemId === item.id)) {
       toast.error(asGift ? t('invoices.create.duplicateGift') : t('invoices.create.duplicateLine'));
       setItemSearch(''); setShowItemDrop(false); return;
     }
+    addingItemsRef.current.add(addKey);
     try {
       const detail = await inventoryApi.get(item.id);
       const defaultUnit = detail.units.find(u => u.isBase) ?? detail.units[0];
@@ -711,15 +725,19 @@ export function CreateInvoicePage() {
         const stockMap = new Map(warehouseStockByItem).set(item.id, stockNet);
         setWarehouseStockByItem(stockMap);
         setLines(prev => {
+          // حارس نهائي على آخر حالة: لا نُضِف إن كانت المادة موجودة فعلاً
+          if (prev.some(l => l.isGift === asGift && l.itemId === item.id)) return prev;
           const next = [...prev, newLine];
           showStockErrorIfNeeded(next, item.id, item.nameAr, stockMap);
           return next;
         });
       } else {
-        setLines(prev => [...prev, newLine]);
+        setLines(prev =>
+          prev.some(l => l.isGift === asGift && l.itemId === item.id) ? prev : [...prev, newLine]);
       }
       setItemSearch(''); setShowItemDrop(false);
     } catch { toast.error(t('invoices.create.itemLoadError')); }
+    finally { addingItemsRef.current.delete(addKey); }
   }, [lines, t, resolveLineUnitPrice, activeTab, needsStockCheck, warehouseId, fetchWarehouseStock, warehouseStockByItem, showStockErrorIfNeeded]);
 
   const updateLine = (idx: number, patch: Partial<InvoiceLine>) =>
@@ -748,7 +766,15 @@ export function CreateInvoicePage() {
 
   // ── المصاريف ──
   const addExpenseLine = () => {
-    setExpenseLines(prev => [...prev, { id: Date.now().toString(), debitAmount: 0, creditAmount: 0, accountId: null, accountName: '', accountCode: '', description: '', accountSearch: '' }]);
+    // الحساب الافتراضي من نوع الفاتورة (حساب المصاريف) إن وُجد
+    const def = invoiceType?.expenseAccountId
+      ? expenseAccounts.find(a => a.id === invoiceType.expenseAccountId)
+      : undefined;
+    setExpenseLines(prev => [...prev, {
+      id: Date.now().toString(), debitAmount: 0, creditAmount: 0,
+      accountId: def?.id ?? null, accountName: def?.nameAr ?? '', accountCode: def?.code ?? '',
+      description: '', accountSearch: '',
+    }]);
   };
   const updateExpenseLine = (id: string, patch: Partial<ExpenseLine>) =>
     setExpenseLines(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
@@ -907,8 +933,41 @@ export function CreateInvoicePage() {
 
   const handleSave = () => {
     const regularLines = lines.filter(l => !l.isGift);
+    const giftLines = lines.filter(l => l.isGift);
+
+    // ── فاتورة مناقلة مخزنية: بلا طرف/أسعار/تسوية، بكلفة المتوسط المرجّح ──
+    if (isTransfer) {
+      if (lines.length === 0) return toast.error(t('invoices.create.addLines'));
+      if (lines.some(l => l.unitOfMeasureId === 0)) return toast.error(t('invoices.create.selectUom'));
+      if (lines.some(l => l.quantity <= 0)) return toast.error(t('invoices.create.qtyMustBePositive'));
+      if (!warehouseId) return toast.error('اختر مخزن المصدر');
+      if (!toWarehouseId) return toast.error('اختر مخزن الوجهة');
+      if (warehouseId === toWarehouseId) return toast.error('مخزن المصدر ومخزن الوجهة يجب أن يكونا مختلفين');
+      if (!invoiceDate) return toast.error(t('invoices.create.selectInvoiceDate'));
+      if (enableCustomInvoiceNumber && !customInvoiceNumber.trim()) return toast.error(t('invoices.create.enterManualNumber'));
+
+      const transferPayload: CreateInvoicePayload = {
+        invoiceTypeId: typeId ?? undefined,
+        warehouseId: warehouseId ?? undefined,
+        toWarehouseId: toWarehouseId ?? undefined,
+        invoiceNumber: !isOrderInvoice && enableCustomInvoiceNumber && customInvoiceNumber.trim() ? customInvoiceNumber.trim() : undefined,
+        manualNumber: manualRefNumber.trim() || undefined,
+        invoiceDate, currency,
+        taxRate: 0, discountPercentage: 0, discountAmount: 0, additionAmount: 0,
+        notes: notes || undefined,
+        lines: lines.map(l => ({ itemId: l.itemId, unitOfMeasureId: l.unitOfMeasureId, quantity: l.quantity, lineDiscount: 0 })),
+      };
+      if (isEdit) updateMutation.mutate(transferPayload);
+      else {
+        pendingIssuePrintRef.current = buildPrintData();
+        createMutation.mutate(transferPayload);
+      }
+      return;
+    }
+
     if (!party) return toast.error(partyKind === 'Supplier' ? t('invoices.create.selectSupplier') : t('invoices.create.selectCustomer'));
-    if (regularLines.length === 0) return toast.error(t('invoices.create.addLines'));
+    // ‎يُسمح بفاتورة هدايا فقط (بدون بنود) طالما توجد هدية واحدة على الأقل.
+    if (regularLines.length === 0 && giftLines.length === 0) return toast.error(t('invoices.create.addLines'));
     if (lines.some(l => l.unitOfMeasureId === 0)) return toast.error(t('invoices.create.selectUom'));
     if (lines.some(l => l.quantity <= 0)) return toast.error(t('invoices.create.qtyMustBePositive'));
     if (regularLines.some(l => l.unitPrice <= 0)) return toast.error(t('invoices.create.priceMustBePositive'));
@@ -916,7 +975,8 @@ export function CreateInvoicePage() {
     if (isCash && !paymentMeansAccountId) return toast.error(t('invoices.create.selectPaymentMeans'));
     if (enableCustomInvoiceNumber && !customInvoiceNumber.trim()) return toast.error(t('invoices.create.enterManualNumber'));
     if (!invoiceDate) return toast.error(t('invoices.create.selectInvoiceDate'));
-    if (total <= 0) return toast.error(t('invoices.create.totalMustBePositive'));
+    // ‎الإجمالي صفر مقبول عندما تكون الفاتورة هدايا فقط (نفس منطق الخادم).
+    if (total <= 0 && giftLines.length === 0) return toast.error(t('invoices.create.totalMustBePositive'));
     const activeExpenses = expenseLines.filter(e => e.debitAmount > 0 || e.creditAmount > 0);
     if (activeExpenses.length > 0) {
       if (activeExpenses.some(e => !e.accountId)) return toast.error(t('invoices.create.selectExpenseAccount'));
@@ -990,6 +1050,13 @@ export function CreateInvoicePage() {
             {linesDisplay.map((l, displayIdx) => {
               const rawLineTotal = l.quantity * l.unitPrice - l.lineDiscount;
               const lineTotal = l.isGift ? 0 : rawLineTotal;
+              // الهدية تأخذ سعر نفس المادة من البنود (نفس الوحدة) إن وُجد — عرضاً فقط.
+              const matchingRegular = l.isGift
+                ? lines.find(r => !r.isGift && r.itemId === l.itemId && r.unitOfMeasureId === l.unitOfMeasureId)
+                : undefined;
+              const displayUnitPrice = matchingRegular && matchingRegular.unitPrice > 0
+                ? matchingRegular.unitPrice
+                : l.unitPrice;
               return (
                 <tr key={l.origIdx} className={l.isGift ? 'bg-emerald-500/5' : undefined}>
                   <td className="text-center text-[10px] text-muted-foreground">{displayIdx + 1}</td>
@@ -1036,7 +1103,7 @@ export function CreateInvoicePage() {
                   <td>
                     <DecimalInput
                       className="invoice-table-input"
-                      value={l.unitPrice}
+                      value={l.isGift ? displayUnitPrice : l.unitPrice}
                       disabled={l.isGift}
                       onValueChange={v => updateLine(l.origIdx, { unitPrice: v })}
                     />
@@ -1073,7 +1140,7 @@ export function CreateInvoicePage() {
     return (
       <div className="space-y-2">
         {/* بحث عن مادة */}
-        {party && (
+        {(party || isTransfer) && (
           <div className="relative">
             <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -1110,7 +1177,7 @@ export function CreateInvoicePage() {
           </div>
         )}
 
-        {!party
+        {(!party && !isTransfer)
           ? <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">{t('invoices.create.selectPartyFirst', { party: partySectionTitle })}</div>
           : renderLineTable(linesDisplay, tab)
         }
@@ -1495,7 +1562,7 @@ export function CreateInvoicePage() {
           <Button
             variant="outline"
             size="sm"
-            disabled={lines.filter(l => !l.isGift).length === 0}
+            disabled={lines.length === 0}
             onClick={() => printInvoice(buildPrintData(), companyQuery.data ?? null, locale)}
           >
             <Printer className="h-4 w-4" /> {t('invoices.create.print')}
@@ -1503,7 +1570,7 @@ export function CreateInvoicePage() {
           <Button variant="outline" size="sm" onClick={() => navigate(listPath)}>
             <X className="h-4 w-4" /> {t('common.cancel')}
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={saving || lines.filter(l => !l.isGift).length === 0 || !party}>
+          <Button size="sm" onClick={handleSave} disabled={saving || lines.length === 0 || (!isTransfer && !party)}>
             <Save className="h-4 w-4" />
             {isEdit && !isDraft ? (saving ? t('invoices.create.savingChanges') : t('invoices.create.saveChanges')) : (saving ? t('invoices.create.issuing') : t('invoices.create.issue'))}
           </Button>
@@ -1579,21 +1646,35 @@ export function CreateInvoicePage() {
               <Label className="invoice-field-label flex items-center gap-1"><Calendar className="h-3 w-3" /> {t('common.date')}</Label>
               <Input type="date" className="h-8 text-xs" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
             </div>
-            <div>
-              <Label className="invoice-field-label flex items-center gap-1"><Wallet className="h-3 w-3" /> {t('invoices.create.settlementMethod')}</Label>
-              <select className={SELECT_CLS} value={settlementType} onChange={e => setSettlementType(Number(e.target.value))}>
-                <option value={1}>{t('invoices.create.settlementCash')}</option>
-                <option value={2}>{t('invoices.create.settlementCredit')}</option>
-              </select>
-            </div>
+            {!isTransfer && (
+              <div>
+                <Label className="invoice-field-label flex items-center gap-1"><Wallet className="h-3 w-3" /> {t('invoices.create.settlementMethod')}</Label>
+                <select className={SELECT_CLS} value={settlementType} onChange={e => setSettlementType(Number(e.target.value))}>
+                  <option value={1}>{t('invoices.create.settlementCash')}</option>
+                  <option value={2}>{t('invoices.create.settlementCredit')}</option>
+                </select>
+              </div>
+            )}
             {showWarehouse && (
               <div>
-                <Label className="invoice-field-label flex items-center gap-1"><Warehouse className="h-3 w-3" /> {t('invoices.create.warehouse')}</Label>
+                <Label className="invoice-field-label flex items-center gap-1"><Warehouse className="h-3 w-3" /> {isTransfer ? 'مخزن المصدر' : t('invoices.create.warehouse')}</Label>
                 {warehousesQuery.isLoading ? <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
                   : activeWarehouses.length === 0 ? <p className="text-xs text-muted-foreground">{t('invoices.create.noWarehouses')}</p>
                   : <select className={SELECT_CLS} value={warehouseId ?? ''} onChange={e => setWarehouseId(e.target.value ? Number(e.target.value) : null)}>
                     <option value="">{t('invoices.create.selectOption')}</option>
                     {activeWarehouses.map(w => <option key={w.id} value={w.id}>{w.nameAr}{w.isDefault ? ' ★' : ''}</option>)}
+                  </select>
+                }
+              </div>
+            )}
+            {isTransfer && (
+              <div>
+                <Label className="invoice-field-label flex items-center gap-1"><Warehouse className="h-3 w-3" /> مخزن الوجهة</Label>
+                {warehousesQuery.isLoading ? <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                  : activeWarehouses.length === 0 ? <p className="text-xs text-muted-foreground">{t('invoices.create.noWarehouses')}</p>
+                  : <select className={SELECT_CLS} value={toWarehouseId ?? ''} onChange={e => setToWarehouseId(e.target.value ? Number(e.target.value) : null)}>
+                    <option value="">{t('invoices.create.selectOption')}</option>
+                    {activeWarehouses.filter(w => w.id !== warehouseId).map(w => <option key={w.id} value={w.id}>{w.nameAr}{w.isDefault ? ' ★' : ''}</option>)}
                   </select>
                 }
               </div>
@@ -1611,7 +1692,7 @@ export function CreateInvoicePage() {
           </div>
 
           {/* وسيلة الدفع */}
-          {isCash && (
+          {isCash && !isTransfer && (
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label className="invoice-field-label">{t('invoices.create.paymentMeans')}</Label>
@@ -1633,7 +1714,16 @@ export function CreateInvoicePage() {
             </div>
           )}
 
-          {/* ── الطرف ── */}
+          {/* بيان المناقلة */}
+          {isTransfer && (
+            <div>
+              <Label className="invoice-field-label">{t('common.notes')}</Label>
+              <Input className="h-8 text-xs" value={notes} onChange={e => setNotes(e.target.value)} placeholder={t('common.notes')} />
+            </div>
+          )}
+
+          {/* ── الطرف ── (لا طرف في فاتورة المناقلة) */}
+          {!isTransfer && (
           <div>
             <div className="invoice-section-title">{partySectionTitle}</div>
             <div className="flex items-center gap-2">
@@ -1679,6 +1769,7 @@ export function CreateInvoicePage() {
               </Button>
             </div>
           </div>
+          )}
 
           {/* ── التابات ── */}
           <div>
@@ -1687,20 +1778,26 @@ export function CreateInvoicePage() {
               <TabBtn active={activeTab === 'lines'} onClick={() => setActiveTab('lines')} count={regularLinesWithIdx.length}>
                 <Receipt className="h-3.5 w-3.5" /> {t('invoices.create.lines')}
               </TabBtn>
-              <TabBtn active={activeTab === 'gifts'} onClick={() => setActiveTab('gifts')} count={giftLinesWithIdx.length}>
-                <Package className="h-3.5 w-3.5" /> {t('invoices.create.tabsGifts')}
-              </TabBtn>
-              <TabBtn active={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} count={expenseLines.length}>
-                <CreditCard className="h-3.5 w-3.5" /> {t('invoices.create.tabsExpenses')}
-              </TabBtn>
+              {!isTransfer && (
+                <TabBtn active={activeTab === 'gifts'} onClick={() => setActiveTab('gifts')} count={giftLinesWithIdx.length}>
+                  <Package className="h-3.5 w-3.5" /> {t('invoices.create.tabsGifts')}
+                </TabBtn>
+              )}
+              {!isTransfer && (
+                <TabBtn active={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} count={expenseLines.length}>
+                  <CreditCard className="h-3.5 w-3.5" /> {t('invoices.create.tabsExpenses')}
+                </TabBtn>
+              )}
               {isOrderInvoice && (
                 <TabBtn active={activeTab === 'order'} onClick={() => setActiveTab('order')}>
                   <Inbox className="h-3.5 w-3.5" /> {t('invoices.create.tabsOrder')}
                 </TabBtn>
               )}
-              <TabBtn active={activeTab === 'settlement'} onClick={() => setActiveTab('settlement')}>
-                <Wallet className="h-3.5 w-3.5" /> {t('invoices.create.tabsSettlement')}
-              </TabBtn>
+              {!isTransfer && (
+                <TabBtn active={activeTab === 'settlement'} onClick={() => setActiveTab('settlement')}>
+                  <Wallet className="h-3.5 w-3.5" /> {t('invoices.create.tabsSettlement')}
+                </TabBtn>
+              )}
             </div>
 
             {/* محتوى التاب — عند الطباعة تظهر جميع التابات المستخدمة */}
@@ -1762,7 +1859,8 @@ export function CreateInvoicePage() {
             </div>
           </div>
 
-          {/* ── الخصم والإجماليات ── */}
+          {/* ── الخصم والإجماليات ── (مخفية في المناقلة: بلا أسعار/خصم/ضريبة) */}
+          {!isTransfer && (
           <div className="grid gap-4 lg:grid-cols-2">
             <div>
               <div className="invoice-section-title">{t('invoices.create.discountAndTax')}</div>
@@ -1824,6 +1922,7 @@ export function CreateInvoicePage() {
               <InvoiceTotalsPanel currency={currency} subTotal={subTotal} discount={effectiveDiscount} addition={additionAmt} tax={taxAmount} total={total} />
             </div>
           </div>
+          )}
 
         </CardContent>
       </Card>

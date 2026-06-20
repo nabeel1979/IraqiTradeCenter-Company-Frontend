@@ -324,6 +324,7 @@ export interface SalesInvoiceDto {
   settlementType?: number;
   paymentMeansAccountId?: number | null;
   warehouseId?: number | null;
+  toWarehouseId?: number | null;
   additionAmount?: number;
   discountPercentage?: number;
   taxRate?: number;

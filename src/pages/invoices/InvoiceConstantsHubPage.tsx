@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Receipt, Settings2, FileStack, RefreshCw,
   CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, X,
-  Warehouse, BookOpen, ShieldCheck,
+  Warehouse, BookOpen, ShieldCheck, Scale,
 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -30,6 +30,12 @@ const HUB_SECTIONS = [
     title: 'المستودعات والفروع',
     description: 'ربط كل مستودع بفرعه — يُستخدم فرع المستودع تلقائياً في قيد الفاتورة المحاسبي',
     icon: Warehouse,
+  },
+  {
+    to: '/invoices/cost-processing',
+    title: 'معالجة تكاليف المواد',
+    description: 'مطابقة رصيد حساب المستودع (المالي) مع قيمة الجرد (المستودعي) لكل مادة، وإعادة تقييم الكلفة يدوياً وتوليد قيد التسوية بالفروقات',
+    icon: Scale,
   },
 ] as const;
 

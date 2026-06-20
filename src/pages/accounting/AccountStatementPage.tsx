@@ -481,6 +481,10 @@ function resolveSourceLink(
   if (refType === 'ReversalOf') {
     return { href: '#', label: t('accountStatement.sources.reversalEntry') };
   }
+  if (refType === 'Wallet' || src === 'WalletTopup' || src === 'WalletWithdraw' || src === 'WalletTransfer') {
+    const mode = src === 'WalletWithdraw' ? 'withdraw' : 'pay';
+    return { href: `/parent/wallet-posting?mode=${mode}`, label: t('accountStatement.sources.wallet') };
+  }
   switch (src) {
     case 'SalesInvoice':
       if (refId) return { href: `/invoices/${refId}/edit`, label: t('accountStatement.sources.salesInvoice') };
@@ -748,6 +752,8 @@ export function AccountStatementPage() {
         source: row.source,
         referenceType: row.referenceType,
         referenceId: row.referenceId,
+        referenceNumber: row.referenceNumber,
+        amount: row.debit > 0 ? row.debit : row.credit,
         voucherTypeCode: row.voucherTypeCode,
       },
       navigate,
@@ -788,6 +794,7 @@ export function AccountStatementPage() {
         source: full.source,
         referenceType: full.referenceType,
         referenceId: full.referenceId,
+        referenceNumber: full.referenceNumber,
         voucherTypeId: full.voucherTypeId,
         voucherTypeCode: full.voucherTypeCode,
       };

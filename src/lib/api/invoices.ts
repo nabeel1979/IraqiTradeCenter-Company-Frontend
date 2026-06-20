@@ -6,7 +6,8 @@ export interface CreateInvoicePayload {
   financialPartyId?: number;
   salesRepId?: number; incomingOrderId?: number;
   invoiceTypeId?: number;
-  warehouseId?: number;
+  warehouseId?: number;             // مخزن الحركة (المصدر في المناقلة)
+  toWarehouseId?: number;           // مخزن الوجهة في فاتورة المناقلة فقط
   settlementType?: number;          // 1 = نقدي، 2 = آجل
   paymentMeansAccountId?: number;   // Id حساب وسيلة الدفع عند النقدي
   invoiceNumber?: string;           // تجاوز رقم الفاتورة (اختياري)

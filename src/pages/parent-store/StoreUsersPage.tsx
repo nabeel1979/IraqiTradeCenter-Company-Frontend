@@ -94,11 +94,22 @@ export function StoreUsersPage() {
                         <td className="px-3 py-2 font-medium">{row.fullName}</td>
                         <td className="px-3 py-2 font-mono text-xs" dir="ltr">{row.userCode}</td>
                         <td className="px-3 py-2 text-center">
-                          <Badge variant={row.isDisabled ? 'destructive' : 'success'}>
-                            {row.isDisabled
-                              ? t('storeParent.badge.disabled')
-                              : t('storeParent.badge.active')}
-                          </Badge>
+                          <div className="flex flex-col items-center gap-1">
+                            <Badge variant={row.isDisabled ? 'destructive' : 'success'}>
+                              {row.isDisabled
+                                ? t('storeParent.badge.disabled')
+                                : t('storeParent.badge.active')}
+                            </Badge>
+                            {!row.isVerified ? (
+                              <Badge variant="outline" className="text-amber-600 border-amber-500/40">
+                                {t('storeParent.badge.notVerified')}
+                              </Badge>
+                            ) : !row.isProfileCompleted ? (
+                              <Badge variant="outline" className="text-amber-600 border-amber-500/40">
+                                {t('storeParent.badge.profilePending')}
+                              </Badge>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-center">
                           {row.hasFinancialLink ? (

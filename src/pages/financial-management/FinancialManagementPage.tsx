@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
+import { PhoneInput } from '@/components/shared/PhoneInput';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { AccountPicker } from '@/components/accounting/AccountPicker';
 import { cn, extractApiError, formatAmount } from '@/lib/utils';
@@ -322,7 +323,16 @@ function serializePartyFormSnapshot(input: {
   });
 }
 
-function partyDtoToCurrencyRows(editing: FinancialPartyDto): PartyCurrencySnapshot[] {
+function creditLimitDisplay(kind: FinancialPartyKind, value: number | null | undefined): string {
+  if (value != null) return String(value);
+  return kind === 'CashBox' ? '0' : '';
+}
+
+function partyDtoToCurrencyRows(
+  editing: FinancialPartyDto,
+  kind: FinancialPartyKind,
+  applyCashBoxDefault = true,
+): PartyCurrencySnapshot[] {
   const allowed = editing.allowedCurrencies ?? [];
   const limits  = editing.creditLimits ?? {};
   const ibans   = editing.currencyIbans ?? {};
@@ -330,7 +340,9 @@ function partyDtoToCurrencyRows(editing: FinancialPartyDto): PartyCurrencySnapsh
   return Array.from(merged).map(cur => ({
     currency: cur,
     debit:  limits[cur]?.debit  != null ? String(limits[cur]!.debit)  : '',
-    credit: limits[cur]?.credit != null ? String(limits[cur]!.credit) : '',
+    credit: applyCashBoxDefault
+      ? creditLimitDisplay(kind, limits[cur]?.credit ?? null)
+      : (limits[cur]?.credit != null ? String(limits[cur]!.credit) : ''),
     iban:   ibans[cur] ?? '',
   }));
 }
@@ -365,7 +377,7 @@ function PartyDialog({
         uid: Math.random().toString(36).slice(2, 9),
         currency: cur,
         debit:  limits[cur]?.debit  != null ? String(limits[cur]!.debit)  : '',
-        credit: limits[cur]?.credit != null ? String(limits[cur]!.credit) : '',
+        credit: creditLimitDisplay(kind, limits[cur]?.credit ?? null),
         iban:   ibans[cur] ?? '',
       }));
     }
@@ -391,6 +403,7 @@ function PartyDialog({
   const linkStoreCustomerId = prefill?.linkStoreCustomerId ?? null;
 
   const isBankLike = isBankLikeKind(kind);
+  const isCashBox = kind === 'CashBox';
   const showContact = hasContactTab(kind);
   const showTradingTabs = isTradingKind(kind);
 
@@ -410,7 +423,7 @@ function PartyDialog({
     seededRef.current = true;
     if (rows.length === 0) {
       const base = list.find(c => c.isBase) ?? list[0];
-      setRows([{ uid: Math.random().toString(36).slice(2, 9), currency: base.code, debit: '', credit: '', iban: '' }]);
+      setRows([{ uid: Math.random().toString(36).slice(2, 9), currency: base.code, debit: '', credit: isCashBox ? '0' : '', iban: '' }]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currenciesQuery.data, editing]);
@@ -418,7 +431,7 @@ function PartyDialog({
   const addRow = () =>
     setRows(prev => [
       ...prev,
-      { uid: Math.random().toString(36).slice(2, 9), currency: '', debit: '', credit: '', iban: '' },
+      { uid: Math.random().toString(36).slice(2, 9), currency: '', debit: '', credit: isCashBox ? '0' : '', iban: '' },
     ]);
 
   const updateRow = (uid: string, patch: Partial<CurrencyRow>) =>
@@ -519,15 +532,11 @@ function PartyDialog({
       if (!code) continue;
       allowed.push(code);
       const dRaw = r.debit.trim();
-      const cRaw = r.credit.trim();
-      if (dRaw === '' && cRaw === '') {
-        /* no limits */
-      } else {
-        const d = dRaw === '' ? null : (Number.isFinite(parseFloat(dRaw)) ? parseFloat(dRaw) : null);
-        const c = cRaw === '' ? null : (Number.isFinite(parseFloat(cRaw)) ? parseFloat(cRaw) : null);
-        if ((d ?? 0) !== 0 || (c ?? 0) !== 0) {
-          limits[code] = { debit: d, credit: c };
-        }
+      const cRaw = isCashBox ? '0' : r.credit.trim();
+      const d = dRaw === '' ? null : (Number.isFinite(parseFloat(dRaw)) ? parseFloat(dRaw) : null);
+      const c = cRaw === '' ? null : (Number.isFinite(parseFloat(cRaw)) ? parseFloat(cRaw) : null);
+      if (isCashBox || d !== null || c !== null) {
+        limits[code] = { debit: d, credit: isCashBox ? 0 : c };
       }
       const ibanRaw = r.iban.trim().toUpperCase();
       if (isBankLike && ibanRaw) ibans[code] = ibanRaw;
@@ -591,9 +600,9 @@ function PartyDialog({
       defaultSalesPriceType: editing.defaultSalesPriceType ?? 4,
       showInStore: editing.showInStore ?? false,
       storeUserCode: editing.storeUserCode ?? '',
-      rows: partyDtoToCurrencyRows(editing),
+      rows: partyDtoToCurrencyRows(editing, kind, false),
     });
-  }, [editing]);
+  }, [editing, kind]);
 
   const currentSnapshot = useMemo(() => serializePartyFormSnapshot({
     nameAr, nameEn, phone, mobile, email, address, addressEn, contactPerson, notes,
@@ -786,10 +795,13 @@ function PartyDialog({
                               <td className="p-1">
                                 <Input
                                   type="number" inputMode="decimal" min="0" step="0.001"
-                                  value={r.credit}
+                                  value={isCashBox ? '0' : r.credit}
                                   onChange={e => updateRow(r.uid, { credit: e.target.value })}
                                   placeholder={t('financialManagement.parties.fields.noLimit')}
                                   className="h-8 num-display text-xs"
+                                  readOnly={isCashBox}
+                                  disabled={isCashBox}
+                                  title={isCashBox ? 'سقف دائن الصندوق ثابت عند 0' : undefined}
                                 />
                               </td>
                               <td className="p-1 text-center">
@@ -825,11 +837,11 @@ function PartyDialog({
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1.5 text-xs"><Phone className="h-3 w-3" />{t('financialManagement.parties.fields.phone')}</Label>
-                  <Input value={phone} onChange={e => setPhone(e.target.value)} className="h-9" dir="ltr" />
+                  <PhoneInput value={phone} onChange={setPhone} size="sm" />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1.5 text-xs"><Smartphone className="h-3 w-3" />{t('financialManagement.parties.fields.mobile')}</Label>
-                  <Input value={mobile} onChange={e => setMobile(e.target.value)} className="h-9" dir="ltr" />
+                  <PhoneInput value={mobile} onChange={setMobile} size="sm" />
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -1093,13 +1105,13 @@ function PartyCard({
             {Object.entries(party.creditLimits ?? {}).map(([cur, lim]) => {
               const d = lim?.debit ?? 0;
               const c = lim?.credit ?? 0;
-              if (d === 0 && c === 0) return null;
+              if (d === 0 && c === 0 && party.kind !== 'CashBox') return null;
               return (
                 <span key={cur} className="flex items-center gap-1 rounded border border-border/60 bg-secondary/30 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   <Coins className="h-2.5 w-2.5" />
                   <span className="font-mono font-bold" dir="ltr">{cur}</span>
                   {d > 0 && <span>↓ {formatAmount(d, 0)}</span>}
-                  {c > 0 && <span>↑ {formatAmount(c, 0)}</span>}
+                  {(c > 0 || (party.kind === 'CashBox' && c === 0)) && <span>↑ {formatAmount(c, 0)}</span>}
                 </span>
               );
             })}

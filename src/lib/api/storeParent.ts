@@ -1,4 +1,4 @@
-import { api } from './client';
+import { api, getApiBaseUrl } from './client';
 import type { ApiResponse } from '@/types/api';
 
 export interface TraderSaleRow {
@@ -64,13 +64,20 @@ export interface StoreUserRow {
   id: string;
   userCode: string;
   fullName: string;
+  fullNameEn?: string | null;
   phone: string;
   contactPhone?: string | null;
   email?: string | null;
+  businessName?: string | null;
+  businessNameEn?: string | null;
   country?: string | null;
   city?: string | null;
+  countryId?: number | null;
+  cityId?: number | null;
   address?: string | null;
   detailedAddress?: string | null;
+  detailedAddressEn?: string | null;
+  locationUrl?: string | null;
   accountType: string;
   isVerified: boolean;
   isProfileCompleted: boolean;
@@ -80,6 +87,14 @@ export interface StoreUserRow {
   createdAt: string;
   lastLoginAt?: string | null;
   linkedCompanies: StoreUserLinkedCompany[];
+}
+
+export interface StoreUserPhotoRow {
+  id: string;
+  fileName: string;
+  contentType?: string | null;
+  sizeBytes: number;
+  createdAt: string;
 }
 
 export const storeParentApi = {
@@ -138,16 +153,39 @@ export const storeParentApi = {
 
   updateStoreUser: async (id: string, body: {
     fullName: string;
+    fullNameEn?: string | null;
     contactPhone?: string | null;
     email?: string | null;
+    businessName?: string | null;
+    businessNameEn?: string | null;
+    accountType?: string | null;
     country?: string | null;
     city?: string | null;
-    address?: string | null;
+    countryId?: number | null;
+    cityId?: number | null;
     detailedAddress?: string | null;
+    detailedAddressEn?: string | null;
+    locationUrl?: string | null;
   }) => {
     const res = await api.put<{ success: boolean; message?: string }>(
       `/parent/store/users/${id}`,
       body,
+    );
+    return res.data;
+  },
+
+  listUserPhotos: async (userId: string) => {
+    const res = await api.get<ApiResponse<StoreUserPhotoRow[]>>(`/parent/store/users/${userId}/photos`);
+    if (!res.data.success || !res.data.data) throw new Error('Failed to load photos');
+    return res.data.data;
+  },
+
+  userPhotoUrl: (userId: string, photoId: string) =>
+    `${getApiBaseUrl()}/parent/store/users/${userId}/photos/${photoId}`,
+
+  deleteStoreUser: async (id: string) => {
+    const res = await api.delete<{ success: boolean; message?: string }>(
+      `/parent/store/users/${id}`,
     );
     return res.data;
   },
